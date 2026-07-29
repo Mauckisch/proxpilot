@@ -1,122 +1,185 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState } from 'react';
+import {
+  ActionIcon,
+  AppShell,
+  Avatar,
+  Badge,
+  Burger,
+  Group,
+  NavLink,
+  ScrollArea,
+  Stack,
+  Text,
+  Title,
+  Tooltip,
+} from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
+import {
+  IconActivity,
+  IconAdjustments,
+  IconBuildingWarehouse,
+  IconDashboard,
+  IconMoon,
+  IconServer,
+  IconSettings,
+  IconStack2,
+  IconSun,
+  IconUsers,
+} from '@tabler/icons-react';
 
-function App() {
-  const [count, setCount] = useState(0)
+import { DashboardPage } from './pages/DashboardPage';
+import { ActivityPanel } from './components/ActivityPanel';
+
+type NavigationItem = {
+  label: string;
+  icon: typeof IconDashboard;
+};
+
+const navigationItems: NavigationItem[] = [
+  { label: 'Dashboard', icon: IconDashboard },
+  { label: 'Nodes', icon: IconServer },
+  { label: 'Guests', icon: IconUsers },
+  { label: 'Storage', icon: IconBuildingWarehouse },
+  { label: 'Cluster', icon: IconStack2 },
+  { label: 'Tasks', icon: IconActivity },
+  { label: 'Settings', icon: IconSettings },
+];
+
+export default function App() {
+  const [mobileOpened, mobileHandlers] = useDisclosure();
+  const [navbarCollapsed, navbarHandlers] = useDisclosure(false);
+  const [activeNavigation, setActiveNavigation] = useState('Dashboard');
+  const [darkMode, setDarkMode] = useState(true);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <AppShell
+      header={{ height: 64 }}
+      navbar={{
+        width: navbarCollapsed ? 82 : 240,
+        breakpoint: 'sm',
+        collapsed: { mobile: !mobileOpened },
+      }}
+      aside={{
+        width: 340,
+        breakpoint: 'lg',
+        collapsed: { desktop: false, mobile: true },
+      }}
+      padding="lg"
+    >
+      <AppShell.Header px="lg">
+        <Group h="100%" justify="space-between">
+          <Group>
+            <Burger
+              opened={mobileOpened}
+              onClick={mobileHandlers.toggle}
+              hiddenFrom="sm"
+              size="sm"
+            />
 
-      <div className="ticks"></div>
+            <Burger
+              opened={!navbarCollapsed}
+              onClick={navbarHandlers.toggle}
+              visibleFrom="sm"
+              size="sm"
+            />
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+            <Group gap="sm">
+              <Avatar radius="md" color="blue">
+                P
+              </Avatar>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+              <div>
+                <Title order={3}>ProxPilot</Title>
+                <Text size="xs" c="dimmed">
+                  Proxmox Homelab Control
+                </Text>
+              </div>
+            </Group>
+          </Group>
+
+          <Group>
+            <Badge color="green" variant="light" size="lg">
+              Cluster online
+            </Badge>
+
+            <Tooltip label={darkMode ? 'Light mode' : 'Dark mode'}>
+              <ActionIcon
+                variant="subtle"
+                size="lg"
+                onClick={() => setDarkMode((value) => !value)}
+              >
+                {darkMode ? <IconSun size={19} /> : <IconMoon size={19} />}
+              </ActionIcon>
+            </Tooltip>
+
+            <Avatar radius="xl" color="gray">
+              DM
+            </Avatar>
+          </Group>
+        </Group>
+      </AppShell.Header>
+
+      <AppShell.Navbar p="md">
+        <AppShell.Section grow component={ScrollArea}>
+          <Stack gap={4}>
+            {navigationItems.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <NavLink
+                  key={item.label}
+                  active={activeNavigation === item.label}
+                  label={navbarCollapsed ? undefined : item.label}
+                  leftSection={<Icon size={20} stroke={1.7} />}
+                  onClick={() => {
+                    setActiveNavigation(item.label);
+                    mobileHandlers.close();
+                  }}
+                  styles={{
+                    root: {
+                      borderRadius: 'var(--mantine-radius-md)',
+                    },
+                  }}
+                />
+              );
+            })}
+          </Stack>
+        </AppShell.Section>
+
+        <AppShell.Section>
+          {!navbarCollapsed && (
+            <Stack gap={4}>
+              <Group gap="xs">
+                <IconAdjustments size={16} />
+                <Text size="xs" c="dimmed">
+                  ProxPilot v1.0 alpha
+                </Text>
+              </Group>
+
+              <Text size="xs" c="dimmed">
+                Connected to 3 nodes
+              </Text>
+            </Stack>
+          )}
+        </AppShell.Section>
+      </AppShell.Navbar>
+
+      <AppShell.Main>
+        {activeNavigation === 'Dashboard' ? (
+          <DashboardPage />
+        ) : (
+          <Stack>
+            <Title order={2}>{activeNavigation}</Title>
+            <Text c="dimmed">
+              Dieses Modul wird im nächsten Schritt umgesetzt.
+            </Text>
+          </Stack>
+        )}
+      </AppShell.Main>
+
+      <AppShell.Aside p="md">
+        <ActivityPanel />
+      </AppShell.Aside>
+    </AppShell>
+  );
 }
-
-export default App
