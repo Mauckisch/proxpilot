@@ -1,0 +1,11 @@
+services:
+  proxmox-dashboard:
+    build: .
+    container_name: proxmox-dashboard
+    restart: unless-stopped
+    ports:
+      - "8085:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./ssh:/app/ssh:ro
