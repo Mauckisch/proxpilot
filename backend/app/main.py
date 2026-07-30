@@ -22,6 +22,7 @@ from .update_cache import update_cache
 from .tasks import (
     manager,
     start_backup_task,
+    start_package_cleanup,
     start_power_action,
     start_update_check,
     start_update_install,
@@ -167,6 +168,7 @@ class NodeAction(BaseModel):
     action: Literal[
         "check-updates",
         "install-updates",
+        "package-cleanup",
         "reboot",
         "shutdown",
     ]
@@ -939,6 +941,7 @@ async def maintenance(request: Maintenance):
 async def node_action(request: NodeAction):
     critical_actions = {
         "install-updates",
+        "package-cleanup",
         "reboot",
         "shutdown",
     }
@@ -984,6 +987,9 @@ async def node_action(request: NodeAction):
 
         elif request.action == "install-updates":
             task = await start_update_install(request.node)
+
+        elif request.action == "package-cleanup":
+            task = await start_package_cleanup(request.node)
 
         elif request.action in {"reboot", "shutdown"}:
             task = await start_power_action(

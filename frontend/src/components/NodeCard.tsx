@@ -24,6 +24,7 @@ import type { NodeUpdateStatus } from '../hooks/useUpdates';
 export type NodeAction =
   | 'check-updates'
   | 'install-updates'
+  | 'package-cleanup'
   | 'reboot'
   | 'shutdown';
 
@@ -363,39 +364,54 @@ export function NodeCard({
               Maintenance
             </Text>
 
-            <Group grow>
-              <Button
-                variant="light"
-                color="yellow"
-                leftSection={<IconTool size={16} />}
-                disabled={
-                  actionRunning ||
-                  node.maintenance ||
-                  !online
-                }
-                onClick={() =>
-                  onMaintenanceAction(node, 'enable')
-                }
-              >
-                Enable
-              </Button>
+            <Stack gap="xs">
+              <Group grow>
+                <Button
+                  variant="light"
+                  color="yellow"
+                  leftSection={<IconTool size={16} />}
+                  disabled={
+                    actionRunning ||
+                    node.maintenance ||
+                    !online
+                  }
+                  onClick={() =>
+                    onMaintenanceAction(node, 'enable')
+                  }
+                >
+                  Enable
+                </Button>
+
+                <Button
+                  variant="light"
+                  color="green"
+                  leftSection={<IconTool size={16} />}
+                  disabled={
+                    actionRunning ||
+                    !node.maintenance ||
+                    !online
+                  }
+                  onClick={() =>
+                    onMaintenanceAction(node, 'disable')
+                  }
+                >
+                  Disable
+                </Button>
+              </Group>
 
               <Button
                 variant="light"
-                color="green"
-                leftSection={<IconTool size={16} />}
-                disabled={
-                  actionRunning ||
-                  !node.maintenance ||
-                  !online
-                }
+                color="grape"
+                fullWidth
+                leftSection={<IconPackage size={16} />}
+                disabled={actionRunning || !online}
                 onClick={() =>
-                  onMaintenanceAction(node, 'disable')
+                  onNodeAction(node, 'package-cleanup')
                 }
               >
-                Disable
+                Cleanup
               </Button>
-            </Group>
+            </Stack>
           </Stack>
 
           <Stack gap="xs">

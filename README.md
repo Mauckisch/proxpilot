@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-blue" alt="Version 1.0.1">
+  <img src="https://img.shields.io/badge/version-1.2.0-blue" alt="Version 1.2.0">
   <img src="https://img.shields.io/badge/platform-Proxmox%20VE-orange" alt="Proxmox VE">
   <img src="https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-61dafb" alt="React and TypeScript">
   <img src="https://img.shields.io/badge/backend-FastAPI-009688" alt="FastAPI">
@@ -43,7 +43,7 @@ ProxPilot combines cluster status, node details, virtual machines, containers, s
 ### Nodes
 
 - Node status and resource overview
-- CPU and memory information
+- CPU, memory and storage information
 - Hardware details
 - Physical disks and partitions
 - ZFS pool information
@@ -51,6 +51,8 @@ ProxPilot combines cluster status, node details, virtual machines, containers, s
 - Network information
 - Available package updates
 - Manual update installation
+- Package cleanup (autoremove and autoclean)
+- Maintenance mode enable/disable
 - Node reboot and shutdown actions
 
 ### Virtual machines and containers
@@ -127,6 +129,33 @@ ProxPilot combines cluster status, node details, virtual machines, containers, s
 - Persistent interface preferences
 - Central version display
 - About dialog
+
+### Node Actions
+
+The Nodes page provides common maintenance and management actions directly from the web interface.
+
+#### Update Management
+
+- Check for available package updates
+- Install all available package updates
+- Display the number of pending updates for each node
+
+#### Package Cleanup
+
+- Remove packages that are no longer required using `apt autoremove`
+- Clean the local APT package cache using `apt autoclean`
+- Executes both operations non-interactively
+
+#### Maintenance Mode
+
+- Enable Proxmox VE HA maintenance mode
+- Disable maintenance mode after maintenance has been completed
+
+#### Power Operations
+
+- Reboot a node
+- Shut down a node
+- Confirmation dialog before execution
 
 ## Screenshots
 

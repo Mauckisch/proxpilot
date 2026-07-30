@@ -351,6 +351,27 @@ def _execute_update_install(task: ManagedTask) -> None:
         manager.fail(task, str(exc))
 
 
+def _execute_package_cleanup(task: ManagedTask) -> None:
+    manager.start(task)
+    try:
+        command = (
+            "export DEBIAN_FRONTEND=noninteractive && "
+            "export PAGER=cat && "
+            "export APT_PAGER=cat && "
+            "export TERM=dumb && "
+            "apt-get -y -o Dpkg::Use-Pty=0 autoremove && "
+            "apt-get -o Dpkg::Use-Pty=0 autoclean"
+        )
+        code, _ = _run_streaming(task, command, timeout=3600)
+        if code != 0:
+            raise RuntimeError(
+                f"Paketbereinigung fehlgeschlagen (Exit-Code {code})."
+            )
+        manager.finish(task)
+    except Exception as exc:
+        manager.fail(task, str(exc))
+
+
 def _execute_power(task: ManagedTask, action: str) -> None:
     manager.start(task)
     try:
@@ -377,6 +398,18 @@ async def start_update_install(node: str) -> ManagedTask:
         raise RuntimeError("Es läuft bereits eine Update-Aktion auf einem Node.")
     task = manager.create(node, "update-install", f"Updates auf {node} installieren")
     asyncio.create_task(asyncio.to_thread(_execute_update_install, task))
+    return task
+
+
+async def start_package_cleanup(node: str) -> ManagedTask:
+    if not manager.reserve_update(node):
+        raise RuntimeError("Es läuft bereits eine Update-Aktion auf einem Node.")
+    task = manager.create(
+        node,
+        "package-cleanup",
+        f"Paketbereinigung auf {node}",
+    )
+    asyncio.create_task(asyncio.to_thread(_execute_package_cleanup, task))
     return task
 
 

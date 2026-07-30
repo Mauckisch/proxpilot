@@ -68,6 +68,9 @@ export function getNodeActionTitle(
     case 'install-updates':
       return 'Install updates';
 
+    case 'package-cleanup':
+      return 'Run cleanup';
+
     case 'reboot':
       return 'Reboot node';
 
@@ -86,6 +89,9 @@ export function getNodeActionText(
 
     case 'install-updates':
       return `Install all available package updates on ${node.node}? No automatic reboot will be performed.`;
+
+    case 'package-cleanup':
+      return `Remove unused packages and clean the package cache on ${node.node}?`;
 
     case 'reboot':
       return `Reboot ${node.node}? Running guests will not be migrated automatically.`;
@@ -188,7 +194,7 @@ export function useNodeActions(
         {
           node: node.node,
           action,
-          confirmed: action !== 'check-updates',
+          confirmed: action === 'check-updates' ? false : true,
           acknowledge_no_maintenance:
             action === 'shutdown' &&
             !node.maintenance,
