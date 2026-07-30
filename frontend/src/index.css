@@ -1,0 +1,28 @@
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(34, 139, 230, 0.08),
+      transparent 35%
+    ),
+    var(--mantine-color-body);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+a {
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+}

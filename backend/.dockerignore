@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.log
+*.tmp
+*.bak
+*.backup*
+*.before-*
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+.env
+.git/
+.gitignore
+app/static/
