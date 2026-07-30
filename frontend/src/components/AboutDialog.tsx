@@ -21,6 +21,8 @@ import {
   IconServer,
 } from '@tabler/icons-react';
 
+import { APP } from '../config/app';
+
 type AboutDialogProps = {
   opened: boolean;
   onClose: () => void;
@@ -71,7 +73,7 @@ export function AboutDialog({
     <Modal
       opened={opened}
       onClose={onClose}
-      title="ProxPilot"
+      title={APP.name}
       centered
       size="lg"
       radius="lg"
@@ -89,7 +91,7 @@ export function AboutDialog({
         >
           <Image
             src="/branding/proxpilot-icon.svg"
-            alt="ProxPilot"
+            alt={APP.name}
             w={92}
             h={92}
             fit="contain"
@@ -113,11 +115,11 @@ export function AboutDialog({
               size="lg"
               w="fit-content"
             >
-              Version {__APP_VERSION__}
+              Version {APP.version}
             </Badge>
 
             <Text c="dimmed" size="sm">
-              Modern dashboard for Proxmox VE clusters.
+              {APP.description}
             </Text>
           </Stack>
         </Group>
@@ -128,25 +130,25 @@ export function AboutDialog({
           <InformationItem
             icon={IconCode}
             label="Frontend"
-            value="React + Mantine"
+            value={APP.frontend}
           />
 
           <InformationItem
             icon={IconServer}
             label="Backend"
-            value="FastAPI"
+            value={APP.backend}
           />
 
           <InformationItem
             icon={IconScale}
             label="License"
-            value="MIT"
+            value={APP.license}
           />
 
           <InformationItem
             icon={IconBrandGithub}
             label="Project"
-            value="ProxPilot"
+            value={APP.name}
           />
         </SimpleGrid>
 
@@ -157,7 +159,7 @@ export function AboutDialog({
             </Text>
 
             <Text fw={600} size="sm">
-              © 2026 Dennis Mauckisch
+              {APP.copyright}
             </Text>
           </Stack>
         </Paper>
@@ -166,7 +168,7 @@ export function AboutDialog({
 
         <Group justify="space-between">
           <Anchor
-            href="https://github.com/dennigma/proxpilot"
+            href={APP.github}
             target="_blank"
             rel="noreferrer"
             underline="never"

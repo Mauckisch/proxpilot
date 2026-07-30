@@ -70,7 +70,14 @@ export function DashboardPage({
     );
   }
 
-  const nodes = dashboard.data?.nodes ?? [];
+  const nodes = [...(dashboard.data?.nodes ?? [])].sort(
+    (a, b) =>
+      a.node.localeCompare(b.node, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      }),
+  );
+
   const guests = dashboard.data?.guests ?? [];
 
   const onlineNodes = nodes.filter(

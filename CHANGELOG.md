@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.2.1] - 2026-07-30
+
+### Added
+
+- Cluster summary on the Nodes page
+- Cluster-wide CPU usage with weighted utilization calculation
+
+### Changed
+
+- CPU summary now displays the total number of CPU cores
+- Centralized application metadata in `frontend/src/config/app.ts`
+- About dialog now uses centralized application metadata
+- Fixed GitHub repository link in the About dialog
+- Version information is now automatically read from the frontend package version
+- Natural node sorting (`pve`, `pve2`, `pve3`, ...) on the Dashboard and Nodes pages
+
 ## [1.2.0] - 2026-07-30
 
 ### Added
@@ -38,4 +54,3 @@ The format is inspired by Keep a Changelog and follows Semantic Versioning.
 ### Added
 
 - Initial public release
-

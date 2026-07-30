@@ -20,6 +20,7 @@ import {
 } from '@tabler/icons-react';
 
 import { api } from '../api';
+import { ClusterSummary } from '../components/ClusterSummary';
 import {
   NodeCard,
   type MaintenanceAction,
@@ -278,7 +279,13 @@ export function NodesPage({
     );
   }
 
-  const nodes = dashboard.data?.nodes ?? [];
+  const nodes = [...(dashboard.data?.nodes ?? [])].sort(
+    (a, b) =>
+      a.node.localeCompare(b.node, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      }),
+  );
 
   const onlineNodes = nodes.filter(
     (node) =>
@@ -367,6 +374,13 @@ export function NodesPage({
             </Button>
           </Group>
         </Group>
+
+        {dashboard.data && (
+          <ClusterSummary
+            data={dashboard.data}
+            updates={updates.data}
+          />
+        )}
 
         {nodes.length === 0 ? (
           <Alert
