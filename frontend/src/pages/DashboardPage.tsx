@@ -1,122 +1,240 @@
 import {
-  Badge,
-  Grid,
+  Alert,
+  Button,
+  Card,
+  Center,
   Group,
+  Loader,
   SimpleGrid,
   Stack,
   Text,
   Title,
 } from '@mantine/core';
 import {
-  IconActivity,
+  IconAlertCircle,
   IconCpu,
-  IconDatabase,
+  IconRefresh,
   IconServer,
-  IconUsers,
+  IconTool,
 } from '@tabler/icons-react';
 
+import { NodeActionModal } from '../components/NodeActionModal';
 import { NodeCard } from '../components/NodeCard';
-import { StatCard } from '../components/StatCard';
+import {
+  useDashboard,
+  type ClusterNode,
+} from '../hooks/useDashboard';
+import { useNodeActions } from '../hooks/useNodeActions';
 
-const nodes = [
-  {
-    name: 'pve',
-    address: '192.168.123.254',
-    cpu: 14,
-    ram: 41,
-    storage: 48,
-    uptime: '23 days',
-    updates: 0,
-  },
-  {
-    name: 'pve2',
-    address: '192.168.123.253',
-    cpu: 7,
-    ram: 34,
-    storage: 51,
-    uptime: '18 days',
-    updates: 4,
-  },
-  {
-    name: 'pve3',
-    address: '192.168.123.252',
-    cpu: 11,
-    ram: 29,
-    storage: 39,
-    uptime: '18 days',
-    updates: 2,
-  },
-];
+type DashboardPageProps = {
+  onOpenNode: (node: ClusterNode) => void;
+};
 
-export function DashboardPage() {
-  return (
-    <Stack gap="xl">
-      <Group justify="space-between" align="flex-start">
-        <div>
-          <Title order={2}>Homelab overview</Title>
+export function DashboardPage({
+  onOpenNode,
+}: DashboardPageProps) {
+  const dashboard = useDashboard();
+
+  const nodeActions = useNodeActions(async () => {
+    await dashboard.refetch();
+  });
+
+  if (dashboard.isLoading) {
+    return (
+      <Center mih={400}>
+        <Stack align="center" gap="sm">
+          <Loader size="lg" />
+
           <Text c="dimmed">
-            Current health and resource usage of your Proxmox cluster.
+            Loading Proxmox cluster...
           </Text>
+        </Stack>
+      </Center>
+    );
+  }
+
+  if (dashboard.isError) {
+    const message =
+      dashboard.error instanceof Error
+        ? dashboard.error.message
+        : 'The dashboard data could not be loaded.';
+
+    return (
+      <Alert
+        color="red"
+        icon={<IconAlertCircle size={20} />}
+        title="Proxmox API unavailable"
+      >
+        {message}
+      </Alert>
+    );
+  }
+
+  const nodes = dashboard.data?.nodes ?? [];
+  const guests = dashboard.data?.guests ?? [];
+
+  const onlineNodes = nodes.filter(
+    (node) =>
+      node.status?.toLowerCase() === 'online',
+  ).length;
+
+  const runningGuests = guests.filter(
+    (guest) =>
+      guest.status?.toLowerCase() === 'running',
+  ).length;
+
+  const maintenanceNodes = nodes.filter(
+    (node) => node.maintenance,
+  ).length;
+
+  return (
+    <>
+      <Stack gap="xl">
+        <Group
+          justify="space-between"
+          align="flex-end"
+        >
+          <div>
+            <Title order={2}>
+              Cluster overview
+            </Title>
+
+            <Text c="dimmed" mt={4}>
+              Live status and node controls for your
+              Proxmox cluster
+            </Text>
+          </div>
+
+          <Button
+            variant="light"
+            leftSection={<IconRefresh size={16} />}
+            loading={dashboard.isFetching}
+            onClick={() => dashboard.refetch()}
+          >
+            Refresh
+          </Button>
+        </Group>
+
+        <SimpleGrid
+          cols={{
+            base: 1,
+            sm: 2,
+            lg: 4,
+          }}
+        >
+          <Card withBorder radius="md" padding="lg">
+            <Group justify="space-between">
+              <div>
+                <Text size="sm" c="dimmed">
+                  Nodes online
+                </Text>
+
+                <Text size="xl" fw={700}>
+                  {onlineNodes} / {nodes.length}
+                </Text>
+              </div>
+
+              <IconServer size={30} />
+            </Group>
+          </Card>
+
+          <Card withBorder radius="md" padding="lg">
+            <Group justify="space-between">
+              <div>
+                <Text size="sm" c="dimmed">
+                  Guests
+                </Text>
+
+                <Text size="xl" fw={700}>
+                  {guests.length}
+                </Text>
+              </div>
+
+              <IconCpu size={30} />
+            </Group>
+          </Card>
+
+          <Card withBorder radius="md" padding="lg">
+            <Group justify="space-between">
+              <div>
+                <Text size="sm" c="dimmed">
+                  Guests running
+                </Text>
+
+                <Text size="xl" fw={700}>
+                  {runningGuests}
+                </Text>
+              </div>
+
+              <IconCpu size={30} />
+            </Group>
+          </Card>
+
+          <Card withBorder radius="md" padding="lg">
+            <Group justify="space-between">
+              <div>
+                <Text size="sm" c="dimmed">
+                  Maintenance
+                </Text>
+
+                <Text size="xl" fw={700}>
+                  {maintenanceNodes}
+                </Text>
+              </div>
+
+              <IconTool size={30} />
+            </Group>
+          </Card>
+        </SimpleGrid>
+
+        <div>
+          <Title order={3} mb="md">
+            Cluster nodes
+          </Title>
+
+          {nodes.length === 0 ? (
+            <Alert
+              color="yellow"
+              icon={<IconAlertCircle size={20} />}
+              title="No nodes found"
+            >
+              The backend returned no Proxmox nodes.
+            </Alert>
+          ) : (
+            <SimpleGrid
+              cols={{
+                base: 1,
+                md: 2,
+                xl: 3,
+              }}
+            >
+              {nodes.map((node) => (
+                <NodeCard
+                  key={node.node}
+                  node={node}
+                  actionRunning={
+                    nodeActions.actionRunning
+                  }
+                  onMaintenanceAction={
+                    nodeActions.requestMaintenanceAction
+                  }
+                  onNodeAction={
+                    nodeActions.requestNodeAction
+                  }
+                  onOpenDetails={onOpenNode}
+                />
+              ))}
+            </SimpleGrid>
+          )}
         </div>
+      </Stack>
 
-        <Badge color="green" size="lg" variant="light">
-          Cluster healthy
-        </Badge>
-      </Group>
-
-      <SimpleGrid cols={{ base: 1, sm: 2, xl: 5 }}>
-        <StatCard
-          label="Nodes"
-          value="3 / 3"
-          description="All cluster nodes online"
-          icon={IconServer}
-        />
-
-        <StatCard
-          label="Guests"
-          value="8"
-          description="6 VMs and 2 containers"
-          icon={IconUsers}
-        />
-
-        <StatCard
-          label="CPU"
-          value="11 %"
-          description="Cluster average"
-          progress={11}
-          icon={IconCpu}
-        />
-
-        <StatCard
-          label="Memory"
-          value="35 %"
-          description="Cluster average"
-          progress={35}
-          icon={IconActivity}
-        />
-
-        <StatCard
-          label="Storage"
-          value="46 %"
-          description="Across configured storage"
-          progress={46}
-          icon={IconDatabase}
-        />
-      </SimpleGrid>
-
-      <div>
-        <Title order={3} mb="md">
-          Nodes
-        </Title>
-
-        <Grid>
-          {nodes.map((node) => (
-            <Grid.Col key={node.name} span={{ base: 12, xl: 6 }}>
-              <NodeCard {...node} />
-            </Grid.Col>
-          ))}
-        </Grid>
-      </div>
-    </Stack>
+      <NodeActionModal
+        confirmState={nodeActions.confirmState}
+        actionRunning={nodeActions.actionRunning}
+        onClose={nodeActions.closeConfirmation}
+        onConfirm={nodeActions.confirmAction}
+      />
+    </>
   );
 }

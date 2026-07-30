@@ -1,25 +1,31 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActionIcon,
   AppShell,
-  Avatar,
   Badge,
   Burger,
   Group,
+  Image,
   NavLink,
   ScrollArea,
   Stack,
   Text,
   Title,
   Tooltip,
+  UnstyledButton,
+  useComputedColorScheme,
+  useMantineColorScheme,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconActivity,
-  IconAdjustments,
+  IconArchive,
   IconBuildingWarehouse,
+  IconCopy,
   IconDashboard,
+  IconInfoCircle,
   IconMoon,
+  IconNetwork,
   IconServer,
   IconSettings,
   IconStack2,
@@ -28,7 +34,19 @@ import {
 } from '@tabler/icons-react';
 
 import { DashboardPage } from './pages/DashboardPage';
+import { NodesPage } from './pages/NodesPage';
+import { HostDetailsPage } from './pages/HostDetailsPage';
+import { GuestsPage } from './pages/GuestsPage';
+import { TasksPage } from './pages/TasksPage';
+import { ClusterPage } from './pages/ClusterPage';
+import { StoragePage } from './pages/StoragePage';
+import { ReplicationsPage } from './pages/ReplicationsPage';
+import { BackupsPage } from './pages/BackupsPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { NetworkPage } from './pages/NetworkPage';
 import { ActivityPanel } from './components/ActivityPanel';
+import { AboutDialog } from './components/AboutDialog';
+import { useDashboard } from './hooks/useDashboard';
 
 type NavigationItem = {
   label: string;
@@ -40,16 +58,90 @@ const navigationItems: NavigationItem[] = [
   { label: 'Nodes', icon: IconServer },
   { label: 'Guests', icon: IconUsers },
   { label: 'Storage', icon: IconBuildingWarehouse },
+  { label: 'Network', icon: IconNetwork },
+  { label: 'Replications', icon: IconCopy },
+  { label: 'Backups', icon: IconArchive },
   { label: 'Cluster', icon: IconStack2 },
   { label: 'Tasks', icon: IconActivity },
   { label: 'Settings', icon: IconSettings },
 ];
 
 export default function App() {
+  const dashboard = useDashboard();
+
   const [mobileOpened, mobileHandlers] = useDisclosure();
-  const [navbarCollapsed, navbarHandlers] = useDisclosure(false);
+
+  const [aboutOpened, aboutHandlers] = useDisclosure(false);
+
+  const [navbarCollapsed, setNavbarCollapsed] = useState(() => {
+    return localStorage.getItem('proxpilot-navbar-collapsed') === 'true';
+  });
+
+  const [showActivityPanel, setShowActivityPanel] = useState(() => {
+    return localStorage.getItem('proxpilot-activity-panel') !== 'false';
+  });
+
   const [activeNavigation, setActiveNavigation] = useState('Dashboard');
-  const [darkMode, setDarkMode] = useState(true);
+
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+
+  const {
+    colorScheme,
+    setColorScheme,
+  } = useMantineColorScheme();
+
+  const computedColorScheme = useComputedColorScheme('dark');
+  const darkMode = computedColorScheme === 'dark';
+
+  const clusterNodes = dashboard.data?.nodes ?? [];
+
+  const onlineNodeCount = clusterNodes.filter(
+    (node) => node.status?.toLowerCase() === 'online',
+  ).length;
+
+  const totalNodeCount = clusterNodes.length;
+
+  let clusterStatusText = 'Connecting...';
+  let clusterStatusColor = 'gray';
+
+  if (dashboard.isError) {
+    clusterStatusText = 'Backend offline';
+    clusterStatusColor = 'red';
+  } else if (!dashboard.isLoading) {
+    if (totalNodeCount === 0) {
+      clusterStatusText = 'No nodes';
+      clusterStatusColor = 'red';
+    } else if (onlineNodeCount === totalNodeCount) {
+      clusterStatusText = 'Cluster online';
+      clusterStatusColor = 'green';
+    } else if (onlineNodeCount > 0) {
+      clusterStatusText = 'Cluster degraded';
+      clusterStatusColor = 'yellow';
+    } else {
+      clusterStatusText = 'Cluster offline';
+      clusterStatusColor = 'red';
+    }
+  }
+
+  const nodeStatusText = dashboard.isError
+    ? 'Backend connection unavailable'
+    : dashboard.isLoading
+      ? 'Connecting to cluster'
+      : `${onlineNodeCount} of ${totalNodeCount} nodes online`;
+
+  useEffect(() => {
+    localStorage.setItem(
+      'proxpilot-navbar-collapsed',
+      String(navbarCollapsed),
+    );
+  }, [navbarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      'proxpilot-activity-panel',
+      String(showActivityPanel),
+    );
+  }, [showActivityPanel]);
 
   return (
     <AppShell
@@ -62,7 +154,10 @@ export default function App() {
       aside={{
         width: 340,
         breakpoint: 'lg',
-        collapsed: { desktop: false, mobile: true },
+        collapsed: {
+          desktop: !showActivityPanel,
+          mobile: true,
+        },
       }}
       padding="lg"
     >
@@ -78,18 +173,34 @@ export default function App() {
 
             <Burger
               opened={!navbarCollapsed}
-              onClick={navbarHandlers.toggle}
+              onClick={() =>
+                setNavbarCollapsed((value) => !value)
+              }
               visibleFrom="sm"
               size="sm"
             />
 
-            <Group gap="sm">
-              <Avatar radius="md" color="blue">
-                P
-              </Avatar>
+            <Group gap="sm" wrap="nowrap">
+              <Image
+                src="/branding/proxpilot-icon.svg"
+                alt="ProxPilot"
+                w={42}
+                h={42}
+                fit="contain"
+              />
 
               <div>
-                <Title order={3}>ProxPilot</Title>
+                <Title order={3}>
+                  Prox
+                  <Text
+                    component="span"
+                    inherit
+                    c="blue.5"
+                  >
+                    Pilot
+                  </Text>
+                </Title>
+
                 <Text size="xs" c="dimmed">
                   Proxmox Homelab Control
                 </Text>
@@ -98,29 +209,49 @@ export default function App() {
           </Group>
 
           <Group>
-            <Badge color="green" variant="light" size="lg">
-              Cluster online
-            </Badge>
+            <Tooltip label={nodeStatusText}>
+              <Badge
+                color={clusterStatusColor}
+                variant="light"
+                size="lg"
+              >
+                {clusterStatusText}
+              </Badge>
+            </Tooltip>
 
-            <Tooltip label={darkMode ? 'Light mode' : 'Dark mode'}>
+            <Tooltip
+              label={
+                darkMode
+                  ? 'Light mode'
+                  : 'Dark mode'
+              }
+            >
               <ActionIcon
                 variant="subtle"
                 size="lg"
-                onClick={() => setDarkMode((value) => !value)}
+                onClick={() =>
+                  setColorScheme(
+                    darkMode ? 'light' : 'dark',
+                  )
+                }
               >
-                {darkMode ? <IconSun size={19} /> : <IconMoon size={19} />}
+                {darkMode ? (
+                  <IconSun size={19} />
+                ) : (
+                  <IconMoon size={19} />
+                )}
               </ActionIcon>
             </Tooltip>
 
-            <Avatar radius="xl" color="gray">
-              DM
-            </Avatar>
           </Group>
         </Group>
       </AppShell.Header>
 
       <AppShell.Navbar p="md">
-        <AppShell.Section grow component={ScrollArea}>
+        <AppShell.Section
+          grow
+          component={ScrollArea}
+        >
           <Stack gap={4}>
             {navigationItems.map((item) => {
               const Icon = item.icon;
@@ -128,16 +259,33 @@ export default function App() {
               return (
                 <NavLink
                   key={item.label}
-                  active={activeNavigation === item.label}
-                  label={navbarCollapsed ? undefined : item.label}
-                  leftSection={<Icon size={20} stroke={1.7} />}
+                  active={
+                    activeNavigation === item.label
+                  }
+                  label={
+                    navbarCollapsed
+                      ? undefined
+                      : item.label
+                  }
+                  leftSection={
+                    <Icon
+                      size={20}
+                      stroke={1.7}
+                    />
+                  }
                   onClick={() => {
                     setActiveNavigation(item.label);
+
+                    if (item.label === 'Nodes') {
+                      setSelectedNode(null);
+                    }
+
                     mobileHandlers.close();
                   }}
                   styles={{
                     root: {
-                      borderRadius: 'var(--mantine-radius-md)',
+                      borderRadius:
+                        'var(--mantine-radius-md)',
                     },
                   }}
                 />
@@ -149,15 +297,29 @@ export default function App() {
         <AppShell.Section>
           {!navbarCollapsed && (
             <Stack gap={4}>
-              <Group gap="xs">
-                <IconAdjustments size={16} />
-                <Text size="xs" c="dimmed">
-                  ProxPilot v1.0 alpha
-                </Text>
-              </Group>
+              <UnstyledButton
+                onClick={aboutHandlers.open}
+                aria-label="Open ProxPilot information"
+                style={{
+                  borderRadius:
+                    'var(--mantine-radius-md)',
+                  padding: '6px 8px',
+                }}
+              >
+                <Group gap="xs" wrap="nowrap">
+                  <IconInfoCircle
+                    size={16}
+                    stroke={1.8}
+                  />
 
-              <Text size="xs" c="dimmed">
-                Connected to 3 nodes
+                  <Text size="xs" c="dimmed">
+                    ProxPilot v{__APP_VERSION__}
+                  </Text>
+                </Group>
+              </UnstyledButton>
+
+              <Text size="xs" c="dimmed" px={8}>
+                {nodeStatusText}
               </Text>
             </Stack>
           )}
@@ -165,21 +327,110 @@ export default function App() {
       </AppShell.Navbar>
 
       <AppShell.Main>
-        {activeNavigation === 'Dashboard' ? (
-          <DashboardPage />
-        ) : (
+        {activeNavigation === 'Dashboard' && (
+          <DashboardPage
+            onOpenNode={(node) => {
+              setActiveNavigation('Nodes');
+              setSelectedNode(node.node);
+            }}
+          />
+        )}
+
+        {activeNavigation === 'Nodes' &&
+          selectedNode === null && (
+            <NodesPage
+              onOpenNode={(node) =>
+                setSelectedNode(node.node)
+              }
+            />
+          )}
+
+        {activeNavigation === 'Nodes' &&
+          selectedNode !== null && (
+            <HostDetailsPage
+              node={selectedNode}
+              onBack={() => setSelectedNode(null)}
+            />
+          )}
+
+        {activeNavigation === 'Guests' && (
+          <GuestsPage />
+        )}
+
+        {activeNavigation === 'Storage' && (
+          <StoragePage />
+        )}
+
+        {activeNavigation === 'Network' && (
+          <NetworkPage />
+        )}
+
+        {activeNavigation === 'Replications' && (
+          <ReplicationsPage />
+        )}
+
+        {activeNavigation === 'Backups' && (
+          <BackupsPage />
+        )}
+
+        {activeNavigation === 'Cluster' && (
+          <ClusterPage />
+        )}
+
+        {activeNavigation === 'Tasks' && (
+          <TasksPage />
+        )}
+
+        {activeNavigation === 'Settings' && (
+          <SettingsPage
+            colorScheme={colorScheme}
+            onColorSchemeChange={setColorScheme}
+            showActivityPanel={showActivityPanel}
+            onShowActivityPanelChange={
+              setShowActivityPanel
+            }
+            navbarCollapsed={navbarCollapsed}
+            onNavbarCollapsedChange={
+              setNavbarCollapsed
+            }
+          />
+        )}
+
+        {![
+          'Dashboard',
+          'Nodes',
+          'Guests',
+          'Storage',
+          'Replications',
+          'Backups',
+          'Cluster',
+          'Tasks',
+          'Network',
+          'Settings',
+        ].includes(activeNavigation) && (
           <Stack>
-            <Title order={2}>{activeNavigation}</Title>
+            <Title order={2}>
+              {activeNavigation}
+            </Title>
+
             <Text c="dimmed">
-              Dieses Modul wird im nächsten Schritt umgesetzt.
+              Dieses Modul wird im nächsten
+              Schritt umgesetzt.
             </Text>
           </Stack>
         )}
       </AppShell.Main>
 
       <AppShell.Aside p="md">
-        <ActivityPanel />
+        {showActivityPanel && (
+          <ActivityPanel />
+        )}
       </AppShell.Aside>
+
+      <AboutDialog
+        opened={aboutOpened}
+        onClose={aboutHandlers.close}
+      />
     </AppShell>
   );
 }

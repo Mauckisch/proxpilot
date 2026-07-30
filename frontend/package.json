@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,7 +15,9 @@
     "@mantine/notifications": "^9.5.0",
     "@tabler/icons-react": "^3.46.0",
     "@tanstack/react-query": "^5.101.4",
+    "@xyflow/react": "^12.11.2",
     "axios": "^1.18.1",
+    "dagre": "^0.8.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.2",
@@ -23,6 +25,7 @@
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@types/dagre": "^0.7.54",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

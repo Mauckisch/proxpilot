@@ -1,0 +1,124 @@
+.root {
+  width: 100%;
+  min-height: 440px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--mantine-spacing-xl);
+  animation: proxpilot-fade-in 350ms ease-out both;
+}
+
+.content {
+  text-align: center;
+}
+
+.logoWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 112px;
+  height: 112px;
+  margin-inline: auto;
+}
+
+.logoGlow {
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: rgba(34, 139, 230, 0.22);
+  filter: blur(22px);
+  animation: proxpilot-glow 2.2s ease-in-out infinite;
+}
+
+.logo {
+  position: relative;
+  z-index: 1;
+  animation: proxpilot-logo-pulse 2.2s ease-in-out infinite;
+}
+
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  min-height: 10px;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mantine-primary-color-filled);
+  animation: proxpilot-dot 1.25s ease-in-out infinite;
+}
+
+.dot:nth-child(2) {
+  animation-delay: 140ms;
+}
+
+.dot:nth-child(3) {
+  animation-delay: 280ms;
+}
+
+@keyframes proxpilot-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes proxpilot-logo-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.045);
+  }
+}
+
+@keyframes proxpilot-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes proxpilot-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root,
+  .logo,
+  .logoGlow,
+  .dot {
+    animation: none;
+  }
+
+  .dot {
+    opacity: 0.7;
+  }
+}

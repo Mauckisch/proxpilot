@@ -12,6 +12,8 @@ from typing import Literal
 import paramiko
 
 from .config import get_settings
+from .update_cache import NodeUpdateStatus, update_cache
+from .update_parser import parse_packages
 
 TaskState = Literal["queued", "running", "success", "error"]
 
@@ -120,11 +122,20 @@ def _ssh_client(node: str) -> paramiko.SSHClient:
     return client
 
 
-def _run_streaming(task: ManagedTask, command: str, timeout: int = 3600) -> tuple[int, str]:
+def _run_streaming(
+    task: ManagedTask,
+    command: str,
+    timeout: int = 3600,
+    use_pty: bool = False,
+) -> tuple[int, str]:
     client = _ssh_client(task.node)
     collected: list[str] = []
     try:
-        _, stdout, stderr = client.exec_command(command, timeout=timeout, get_pty=True)
+        _, stdout, stderr = client.exec_command(
+            command,
+            timeout=timeout,
+            get_pty=use_pty,
+        )
         channel = stdout.channel
         while True:
             if channel.recv_ready():
@@ -146,18 +157,171 @@ def _run_streaming(task: ManagedTask, command: str, timeout: int = 3600) -> tupl
 
 def _execute_update_check(task: ManagedTask) -> None:
     manager.start(task)
+
     try:
         command = (
-            "export DEBIAN_FRONTEND=noninteractive; "
-            "apt-get update && "
+            "export DEBIAN_FRONTEND=noninteractive && "
+            "export PAGER=cat && "
+            "export APT_PAGER=cat && "
+            "export TERM=dumb && "
+            "apt-get update -q -o Dpkg::Use-Pty=0 && "
             "echo '---UPGRADABLE---' && "
-            "apt list --upgradable 2>/dev/null"
+            "apt list --upgradable 2>/dev/null && "
+            "echo '---REBOOT---' && "
+            "if [ -f /var/run/reboot-required ]; "
+            "then echo yes; else echo no; fi && "
+            "echo '---RUNNING-KERNEL---' && "
+            "uname -r && "
+            "echo '---NEWEST-KERNEL---' && "
+            "find /boot -maxdepth 1 -type f "
+            "-name 'vmlinuz-*' -printf '%f\\n' 2>/dev/null "
+            "| sed 's/^vmlinuz-//' "
+            "| sort -V "
+            "| tail -n 1"
         )
-        code, output = _run_streaming(task, command, timeout=900)
+
+        code, output = _run_streaming(
+            task,
+            command,
+            timeout=900,
+            use_pty=False,
+        )
+
         if code != 0:
-            raise RuntimeError(f"Update-Prüfung fehlgeschlagen (Exit-Code {code}).")
-        lines = [line for line in output.splitlines() if "/" in line and "upgradable from:" in line]
-        manager.finish(task, {"updates": len(lines), "packages": lines})
+            raise RuntimeError(
+                f"Update-Prüfung fehlgeschlagen "
+                f"(Exit-Code {code})."
+            )
+
+        package_output = output
+
+        if "---UPGRADABLE---" in output:
+            package_output = output.split(
+                "---UPGRADABLE---",
+                1,
+            )[1]
+
+        if "---REBOOT---" in package_output:
+            package_output, system_output = package_output.split(
+                "---REBOOT---",
+                1,
+            )
+        else:
+            system_output = ""
+
+        reboot_output = system_output
+        running_kernel_output = ""
+        newest_kernel_output = ""
+
+        if "---RUNNING-KERNEL---" in reboot_output:
+            reboot_output, running_kernel_output = (
+                reboot_output.split(
+                    "---RUNNING-KERNEL---",
+                    1,
+                )
+            )
+
+        if "---NEWEST-KERNEL---" in running_kernel_output:
+            running_kernel_output, newest_kernel_output = (
+                running_kernel_output.split(
+                    "---NEWEST-KERNEL---",
+                    1,
+                )
+            )
+
+        packages = parse_packages(
+            package_output.splitlines()
+        )
+
+        reboot_file_required = (
+            reboot_output.strip()
+            .splitlines()[-1:]
+            == ["yes"]
+        )
+
+        running_kernel_lines = [
+            line.strip()
+            for line in running_kernel_output.splitlines()
+            if line.strip()
+        ]
+
+        newest_kernel_lines = [
+            line.strip()
+            for line in newest_kernel_output.splitlines()
+            if line.strip()
+        ]
+
+        running_kernel = (
+            running_kernel_lines[-1]
+            if running_kernel_lines
+            else ""
+        )
+
+        newest_kernel = (
+            newest_kernel_lines[-1]
+            if newest_kernel_lines
+            else ""
+        )
+
+        kernel_reboot_pending = bool(
+            running_kernel
+            and newest_kernel
+            and running_kernel != newest_kernel
+        )
+
+        reboot_required = (
+            reboot_file_required
+            or kernel_reboot_pending
+        )
+
+        kernel_prefixes = (
+            "pve-kernel",
+            "proxmox-kernel",
+            "linux-image",
+        )
+
+        kernel_package_available = any(
+            package.name.startswith(kernel_prefixes)
+            for package in packages
+        )
+
+        kernel_update = (
+            kernel_package_available
+            or kernel_reboot_pending
+        )
+
+        status = NodeUpdateStatus(
+            node=task.node,
+            updates=len(packages),
+            reboot_required=reboot_required,
+            kernel_update=kernel_update,
+            packages=packages,
+        )
+
+        update_cache.set(status)
+
+        manager.finish(
+            task,
+            {
+                "updates": len(packages),
+                "packages": [
+                    {
+                        "name": package.name,
+                        "repository": package.repository,
+                        "current_version": package.current_version,
+                        "available_version": package.available_version,
+                    }
+                    for package in packages
+                ],
+                "reboot_required": reboot_required,
+                "kernel_update": kernel_update,
+                "running_kernel": running_kernel,
+                "newest_kernel": newest_kernel,
+                "kernel_reboot_pending": kernel_reboot_pending,
+                "checked_at": status.checked_at,
+            },
+        )
+
     except Exception as exc:
         manager.fail(task, str(exc))
 
@@ -166,8 +330,11 @@ def _execute_update_install(task: ManagedTask) -> None:
     manager.start(task)
     try:
         command = (
-            "export DEBIAN_FRONTEND=noninteractive; "
-            "apt-get update && "
+            "export DEBIAN_FRONTEND=noninteractive && "
+            "export PAGER=cat && "
+            "export APT_PAGER=cat && "
+            "export TERM=dumb && "
+            "apt-get update -o Dpkg::Use-Pty=0 && "
             "apt-get -y -o Dpkg::Options::='--force-confold' full-upgrade"
         )
         code, _ = _run_streaming(task, command, timeout=7200)
@@ -216,4 +383,102 @@ async def start_update_install(node: str) -> ManagedTask:
 async def start_power_action(node: str, action: str) -> ManagedTask:
     task = manager.create(node, action, f"{node} {('neu starten' if action == 'reboot' else 'herunterfahren')}")
     asyncio.create_task(asyncio.to_thread(_execute_power, task, action))
+    return task
+
+
+async def _monitor_proxmox_backup(
+    task: ManagedTask,
+    client,
+    upid: str,
+) -> None:
+    manager.start(task)
+
+    last_log_line = 0
+
+    try:
+        while True:
+            details = await client.task_details(
+                task.node,
+                upid,
+            )
+
+            status = details.get("status", {}) or {}
+            log_entries = details.get("log", []) or []
+
+            for entry in log_entries:
+                line_number = int(entry.get("n", 0) or 0)
+
+                if line_number <= last_log_line:
+                    continue
+
+                message = str(entry.get("t", "")).strip()
+
+                if message:
+                    manager.append(task, message)
+
+                last_log_line = max(
+                    last_log_line,
+                    line_number,
+                )
+
+            if status.get("status") == "stopped":
+                exit_status = str(
+                    status.get("exitstatus", "unknown")
+                )
+
+                if exit_status.upper() == "OK":
+                    manager.finish(
+                        task,
+                        {
+                            "upid": upid,
+                            "exitstatus": exit_status,
+                        },
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Backup fehlgeschlagen: {exit_status}"
+                    )
+
+                return
+
+            await asyncio.sleep(2)
+
+    except Exception as exc:
+        manager.fail(task, str(exc))
+
+
+async def start_backup_task(
+    client,
+    node: str,
+    job_id: str,
+    parameters: dict,
+) -> ManagedTask:
+    task = manager.create(
+        node,
+        "backup",
+        f"Backup auf {node} · {job_id}",
+    )
+
+    try:
+        upid = await client.run_backup(
+            node,
+            parameters,
+        )
+    except Exception as exc:
+        manager.fail(task, str(exc))
+        return task
+
+    task.result = {
+        "upid": upid,
+        "job_id": job_id,
+    }
+
+    asyncio.create_task(
+        _monitor_proxmox_backup(
+            task,
+            client,
+            upid,
+        )
+    )
+
     return task
