@@ -227,6 +227,7 @@ Read-only monitoring functions require permissions for resources such as:
 - Tasks
 - Backups
 - Replication
+- VM Power Management
 
 Management actions such as starting guests, creating snapshots, migrating guests or running backups require additional permissions.
 
