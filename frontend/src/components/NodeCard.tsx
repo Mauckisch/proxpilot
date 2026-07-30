@@ -10,7 +10,6 @@ import {
 } from '@mantine/core';
 import {
   IconAlertTriangle,
-  IconArrowRight,
   IconCircleCheck,
   IconPackage,
   IconPower,
@@ -179,84 +178,122 @@ export function NodeCard({
       role="button"
     >
       <Stack gap="md" h="100%">
-        <Group
-          justify="space-between"
-          align="flex-start"
-          wrap="nowrap"
-        >
-          <div style={{ minWidth: 0 }}>
-            <Group gap="xs" wrap="nowrap">
-              <IconServer size={22} />
+        <Stack gap="sm">
+          <Text
+            fw={700}
+            size="lg"
+            ta="center"
+            style={{
+              width: '100%',
+              lineHeight: 1.25,
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
+            }}
+          >
+            {node.node}
+          </Text>
 
-              <Text fw={700} size="lg" truncate>
-                {node.node}
-              </Text>
-
-              <IconArrowRight size={17} />
-            </Group>
-
-            <Text size="sm" c="dimmed" mt={4}>
-              Uptime: {formatUptime(node.uptime)}
-            </Text>
-          </div>
-
-          <Stack gap={6} align="flex-end">
-            <Badge color={online ? 'green' : 'red'}>
-              {online ? 'Online' : node.status ?? 'Unknown'}
-            </Badge>
-
-            <Badge
-              color={node.maintenance ? 'yellow' : 'gray'}
-              leftSection={<IconTool size={12} />}
-            >
-              {node.maintenance ? 'Maintenance' : 'Normal'}
-            </Badge>
-
-            <Badge
-              color={
-                !updateStatus
-                  ? 'gray'
-                  : updateStatus.updates > 0
-                    ? 'yellow'
-                    : 'green'
-              }
-              variant="light"
-              leftSection={
-                !updateStatus || updateStatus.updates > 0 ? (
-                  <IconPackage size={12} />
-                ) : (
-                  <IconCircleCheck size={12} />
-                )
-              }
-              style={{ cursor: 'pointer' }}
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenUpdates?.(node);
+          <Group
+            justify="space-between"
+            align="flex-start"
+            wrap="nowrap"
+          >
+            <Group
+              gap="xs"
+              wrap="nowrap"
+              align="center"
+              style={{
+                minWidth: 0,
+                paddingTop: 2,
               }}
             >
-              {!updateStatus
-                ? 'Updates not checked'
-                : updateStatus.updates > 0
-                  ? `${updateStatus.updates} updates`
-                  : 'Up to date'}
-            </Badge>
+              <IconServer
+                size={22}
+                style={{ flexShrink: 0 }}
+              />
 
-            {updateStatus?.reboot_required && (
+              <Text
+                size="sm"
+                c="dimmed"
+                style={{
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Uptime: {formatUptime(node.uptime)}
+              </Text>
+            </Group>
+
+            <Stack
+              gap={6}
+              align="flex-end"
+              style={{ flexShrink: 0 }}
+            >
+              <Badge color={online ? 'green' : 'red'}>
+                {online
+                  ? 'Online'
+                  : node.status ?? 'Unknown'}
+              </Badge>
+
               <Badge
-                color="red"
+                color={
+                  node.maintenance ? 'yellow' : 'gray'
+                }
+                leftSection={<IconTool size={12} />}
+              >
+                {node.maintenance
+                  ? 'Maintenance'
+                  : 'Normal'}
+              </Badge>
+
+              <Badge
+                color={
+                  !updateStatus
+                    ? 'gray'
+                    : updateStatus.updates > 0
+                      ? 'yellow'
+                      : 'green'
+                }
                 variant="light"
-                leftSection={<IconAlertTriangle size={12} />}
+                leftSection={
+                  !updateStatus ||
+                  updateStatus.updates > 0 ? (
+                    <IconPackage size={12} />
+                  ) : (
+                    <IconCircleCheck size={12} />
+                  )
+                }
                 style={{ cursor: 'pointer' }}
                 onClick={(event) => {
                   event.stopPropagation();
                   onOpenUpdates?.(node);
                 }}
               >
-                Reboot required
+                {!updateStatus
+                  ? 'Updates not checked'
+                  : updateStatus.updates > 0
+                    ? `${updateStatus.updates} updates`
+                    : 'Up to date'}
               </Badge>
-            )}
-          </Stack>
-        </Group>
+
+              {updateStatus?.reboot_required && (
+                <Badge
+                  color="red"
+                  variant="light"
+                  leftSection={
+                    <IconAlertTriangle size={12} />
+                  }
+                  style={{ cursor: 'pointer' }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenUpdates?.(node);
+                  }}
+                >
+                  Reboot required
+                </Badge>
+              )}
+            </Stack>
+          </Group>
+        </Stack>
 
         <SimpleGrid cols={1}>
           <Metric
