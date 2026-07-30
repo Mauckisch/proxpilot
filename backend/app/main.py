@@ -350,8 +350,8 @@ async def dashboard():
         maintenance_nodes = {
             item.get("node") or item.get("name")
             for item in data.get("ha", [])
-            if item.get("type") == "node"
-            and str(item.get("status", "")).lower() == "maintenance"
+            if item.get("type") == "lrm"
+            and "maintenance" in str(item.get("status", "")).lower()
         }
 
         for node in data.get("nodes", []):
@@ -961,8 +961,8 @@ async def node_action(request: NodeAction):
 
             maintenance_enabled = any(
                 (item.get("node") or item.get("name")) == request.node
-                and item.get("type") == "node"
-                and str(item.get("status", "")).lower() == "maintenance"
+                and item.get("type") == "lrm"
+                and "maintenance" in str(item.get("status", "")).lower()
                 for item in data.get("ha", [])
             )
 

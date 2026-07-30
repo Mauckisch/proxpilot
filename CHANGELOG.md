@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.2.2] - 2026-07-30
+
+### Fixed
+
+- Fixed HA maintenance mode detection for Proxmox VE 9
+- Maintenance status is now correctly reported in the dashboard API
+- Fixed maintenance state used by node actions and shutdown safety checks
+
 ## [1.2.1] - 2026-07-30
 
 ### Added
