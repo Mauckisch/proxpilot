@@ -217,6 +217,7 @@ export function DashboardPage({
             >
               {nodes.map((node) => (
                 <NodeCard
+                  readonly
                   key={node.node}
                   node={node}
                   actionRunning={

@@ -34,6 +34,7 @@ type NodeCardProps = {
   node: ClusterNode;
   updateStatus?: NodeUpdateStatus;
   actionRunning: boolean;
+  readonly?: boolean;
   onOpenDetails?: (node: ClusterNode) => void;
   onOpenUpdates?: (node: ClusterNode) => void;
   onMaintenanceAction: (
@@ -144,6 +145,7 @@ export function NodeCard({
   node,
   updateStatus,
   actionRunning,
+  readonly = false,
   onOpenDetails,
   onOpenUpdates,
   onMaintenanceAction,
@@ -246,51 +248,71 @@ export function NodeCard({
                   : 'Normal'}
               </Badge>
 
-              <Badge
-                color={
-                  !updateStatus
-                    ? 'gray'
-                    : updateStatus.updates > 0
-                      ? 'yellow'
-                      : 'green'
-                }
-                variant="light"
-                leftSection={
-                  !updateStatus ||
-                  updateStatus.updates > 0 ? (
-                    <IconPackage size={12} />
-                  ) : (
-                    <IconCircleCheck size={12} />
-                  )
-                }
-                style={{ cursor: 'pointer' }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onOpenUpdates?.(node);
-                }}
-              >
-                {!updateStatus
-                  ? 'Updates not checked'
-                  : updateStatus.updates > 0
-                    ? `${updateStatus.updates} updates`
-                    : 'Up to date'}
-              </Badge>
+              {!readonly && (
+                <>
+                  <Badge
+                    color={
+                      !updateStatus
+                        ? 'gray'
+                        : updateStatus.updates > 0
+                          ? 'yellow'
+                          : 'green'
+                    }
+                    variant="light"
+                    leftSection={
+                      !updateStatus ||
+                      updateStatus.updates > 0 ? (
+                        <IconPackage size={12} />
+                      ) : (
+                        <IconCircleCheck size={12} />
+                      )
+                    }
+                    style={
+                      onOpenUpdates
+                        ? { cursor: 'pointer' }
+                        : undefined
+                    }
+                    onClick={
+                      onOpenUpdates
+                        ? (event) => {
+                            event.stopPropagation();
+                            onOpenUpdates(node);
+                          }
+                        : undefined
+                    }
+                  >
+                    {!updateStatus
+                      ? 'Updates not checked'
+                      : updateStatus.updates > 0
+                        ? `${updateStatus.updates} updates`
+                        : 'Up to date'}
+                  </Badge>
 
-              {updateStatus?.reboot_required && (
-                <Badge
-                  color="red"
-                  variant="light"
-                  leftSection={
-                    <IconAlertTriangle size={12} />
-                  }
-                  style={{ cursor: 'pointer' }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onOpenUpdates?.(node);
-                  }}
-                >
-                  Reboot required
-                </Badge>
+                  {updateStatus?.reboot_required && (
+                    <Badge
+                      color="red"
+                      variant="light"
+                      leftSection={
+                        <IconAlertTriangle size={12} />
+                      }
+                      style={
+                        onOpenUpdates
+                          ? { cursor: 'pointer' }
+                          : undefined
+                      }
+                      onClick={
+                        onOpenUpdates
+                          ? (event) => {
+                              event.stopPropagation();
+                              onOpenUpdates(node);
+                            }
+                          : undefined
+                      }
+                    >
+                      Reboot required
+                    </Badge>
+                  )}
+                </>
               )}
             </Stack>
           </Group>
@@ -354,129 +376,131 @@ export function NodeCard({
           </Group>
         ) : null}
 
-        <Stack
-          gap="md"
-          mt="auto"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <Stack gap="xs">
-            <Text size="xs" c="dimmed">
-              Maintenance
-            </Text>
+        {!readonly && (
+          <Stack
+            gap="md"
+            mt="auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Stack gap="xs">
+              <Text size="xs" c="dimmed">
+                Maintenance
+              </Text>
+
+              <Stack gap="xs">
+                <Group grow>
+                  <Button
+                    variant="light"
+                    color="yellow"
+                    leftSection={<IconTool size={16} />}
+                    disabled={
+                      actionRunning ||
+                      node.maintenance ||
+                      !online
+                    }
+                    onClick={() =>
+                      onMaintenanceAction(node, 'enable')
+                    }
+                  >
+                    Enable
+                  </Button>
+
+                  <Button
+                    variant="light"
+                    color="green"
+                    leftSection={<IconTool size={16} />}
+                    disabled={
+                      actionRunning ||
+                      !node.maintenance ||
+                      !online
+                    }
+                    onClick={() =>
+                      onMaintenanceAction(node, 'disable')
+                    }
+                  >
+                    Disable
+                  </Button>
+                </Group>
+
+                <Button
+                  variant="light"
+                  color="grape"
+                  fullWidth
+                  leftSection={<IconPackage size={16} />}
+                  disabled={actionRunning || !online}
+                  onClick={() =>
+                    onNodeAction(node, 'package-cleanup')
+                  }
+                >
+                  Cleanup
+                </Button>
+              </Stack>
+            </Stack>
 
             <Stack gap="xs">
+              <Text size="xs" c="dimmed">
+                Updates
+              </Text>
+
               <Group grow>
                 <Button
                   variant="light"
-                  color="yellow"
-                  leftSection={<IconTool size={16} />}
-                  disabled={
-                    actionRunning ||
-                    node.maintenance ||
-                    !online
-                  }
+                  leftSection={<IconPackage size={16} />}
+                  disabled={actionRunning || !online}
                   onClick={() =>
-                    onMaintenanceAction(node, 'enable')
+                    onNodeAction(node, 'check-updates')
                   }
                 >
-                  Enable
+                  Check
                 </Button>
 
                 <Button
                   variant="light"
-                  color="green"
-                  leftSection={<IconTool size={16} />}
-                  disabled={
-                    actionRunning ||
-                    !node.maintenance ||
-                    !online
-                  }
+                  color="yellow"
+                  leftSection={<IconPackage size={16} />}
+                  disabled={actionRunning || !online}
                   onClick={() =>
-                    onMaintenanceAction(node, 'disable')
+                    onNodeAction(node, 'install-updates')
                   }
                 >
-                  Disable
+                  Install
                 </Button>
               </Group>
+            </Stack>
 
-              <Button
-                variant="light"
-                color="grape"
-                fullWidth
-                leftSection={<IconPackage size={16} />}
-                disabled={actionRunning || !online}
-                onClick={() =>
-                  onNodeAction(node, 'package-cleanup')
-                }
-              >
-                Cleanup
-              </Button>
+            <Stack gap="xs">
+              <Text size="xs" c="dimmed">
+                Power
+              </Text>
+
+              <Group grow>
+                <Button
+                  variant="light"
+                  color="orange"
+                  leftSection={<IconRefresh size={16} />}
+                  disabled={actionRunning || !online}
+                  onClick={() =>
+                    onNodeAction(node, 'reboot')
+                  }
+                >
+                  Reboot
+                </Button>
+
+                <Button
+                  variant="light"
+                  color="red"
+                  leftSection={<IconPower size={16} />}
+                  disabled={actionRunning || !online}
+                  onClick={() =>
+                    onNodeAction(node, 'shutdown')
+                  }
+                >
+                  Shutdown
+                </Button>
+              </Group>
             </Stack>
           </Stack>
-
-          <Stack gap="xs">
-            <Text size="xs" c="dimmed">
-              Updates
-            </Text>
-
-            <Group grow>
-              <Button
-                variant="light"
-                leftSection={<IconPackage size={16} />}
-                disabled={actionRunning || !online}
-                onClick={() =>
-                  onNodeAction(node, 'check-updates')
-                }
-              >
-                Check
-              </Button>
-
-              <Button
-                variant="light"
-                color="yellow"
-                leftSection={<IconPackage size={16} />}
-                disabled={actionRunning || !online}
-                onClick={() =>
-                  onNodeAction(node, 'install-updates')
-                }
-              >
-                Install
-              </Button>
-            </Group>
-          </Stack>
-
-          <Stack gap="xs">
-            <Text size="xs" c="dimmed">
-              Power
-            </Text>
-
-            <Group grow>
-              <Button
-                variant="light"
-                color="orange"
-                leftSection={<IconRefresh size={16} />}
-                disabled={actionRunning || !online}
-                onClick={() =>
-                  onNodeAction(node, 'reboot')
-                }
-              >
-                Reboot
-              </Button>
-
-              <Button
-                variant="light"
-                color="red"
-                leftSection={<IconPower size={16} />}
-                disabled={actionRunning || !online}
-                onClick={() =>
-                  onNodeAction(node, 'shutdown')
-                }
-              >
-                Shutdown
-              </Button>
-            </Group>
-          </Stack>
-        </Stack>
+        )}
       </Stack>
     </Card>
   );
