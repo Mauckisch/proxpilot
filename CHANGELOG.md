@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.2.4] - 2026-07-31
+
+### Fixed
+
+- Automatically re-check for remaining package updates after a successful update installation
+- Refresh the update cache after installation so the Nodes page no longer shows stale update counts
+- Keep the update task active until installation and the follow-up check are complete
+
+## [1.2.3] - 2026-07-31
+
+### Changed
+
+- Added a read-only mode for node cards on the Dashboard
+- Removed administrative node actions from the Dashboard
+- Hidden update and reboot-required badges from Dashboard node cards
+- Kept all node management actions exclusively on the Nodes page
+
 ## [1.2.2] - 2026-07-30
 
 ### Fixed

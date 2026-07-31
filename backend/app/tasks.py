@@ -155,8 +155,12 @@ def _run_streaming(
         client.close()
 
 
-def _execute_update_check(task: ManagedTask) -> None:
-    manager.start(task)
+def _execute_update_check(
+    task: ManagedTask,
+    start_task: bool = True,
+) -> None:
+    if start_task:
+        manager.start(task)
 
     try:
         command = (
@@ -340,13 +344,16 @@ def _execute_update_install(task: ManagedTask) -> None:
         code, _ = _run_streaming(task, command, timeout=7200)
         if code != 0:
             raise RuntimeError(f"Update-Installation fehlgeschlagen (Exit-Code {code}).")
-        reboot_code, reboot_output = _run_streaming(
+        manager.append(
             task,
-            "if [ -f /var/run/reboot-required ]; then echo yes; else echo no; fi",
-            timeout=30,
+            "Update-Installation abgeschlossen. "
+            "Verbleibende Updates werden automatisch geprüft.",
         )
-        reboot_required = reboot_code == 0 and reboot_output.strip().endswith("yes")
-        manager.finish(task, {"reboot_required": reboot_required})
+
+        _execute_update_check(
+            task,
+            start_task=False,
+        )
     except Exception as exc:
         manager.fail(task, str(exc))
 
