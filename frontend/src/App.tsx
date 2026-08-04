@@ -17,6 +17,7 @@ import {
   useMantineColorScheme,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   IconActivity,
   IconArchive,
@@ -24,6 +25,7 @@ import {
   IconCopy,
   IconDashboard,
   IconInfoCircle,
+  IconLogout,
   IconMoon,
   IconNetwork,
   IconServer,
@@ -33,6 +35,7 @@ import {
   IconUsers,
 } from '@tabler/icons-react';
 
+import { api } from './api';
 import { DashboardPage } from './pages/DashboardPage';
 import { NodesPage } from './pages/NodesPage';
 import { HostDetailsPage } from './pages/HostDetailsPage';
@@ -68,6 +71,7 @@ const navigationItems: NavigationItem[] = [
 
 export default function App() {
   const dashboard = useDashboard();
+  const queryClient = useQueryClient();
 
   const [mobileOpened, mobileHandlers] = useDisclosure();
 
@@ -142,6 +146,18 @@ export default function App() {
       String(showActivityPanel),
     );
   }, [showActivityPanel]);
+
+  async function logout() {
+    try {
+      await api.post('/auth/logout');
+    } finally {
+      queryClient.clear();
+
+      window.dispatchEvent(
+        new Event('proxpilot-auth-required'),
+      );
+    }
+  }
 
   return (
     <AppShell
@@ -240,6 +256,18 @@ export default function App() {
                 ) : (
                   <IconMoon size={19} />
                 )}
+              </ActionIcon>
+            </Tooltip>
+
+            <Tooltip label="Sign out">
+              <ActionIcon
+                variant="subtle"
+                color="red"
+                size="lg"
+                aria-label="Sign out"
+                onClick={() => void logout()}
+              >
+                <IconLogout size={19} />
               </ActionIcon>
             </Tooltip>
 

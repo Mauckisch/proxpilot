@@ -29,6 +29,10 @@ import {
 import {
   useDashboard,
 } from '../hooks/useDashboard';
+import {
+  compareNaturalNames,
+  sortNodes,
+} from '../utils/sort';
 
 export function StoragePage() {
   const dashboard = useDashboard();
@@ -46,8 +50,9 @@ export function StoragePage() {
   const storages =
     dashboard.data?.storages ?? [];
 
-  const nodes =
-    dashboard.data?.nodes ?? [];
+  const nodes = sortNodes(
+    dashboard.data?.nodes ?? [],
+  );
 
   const storageTypes = useMemo(() => {
     return Array.from(
@@ -124,20 +129,22 @@ export function StoragePage() {
           second.node ?? '';
 
         const nodeComparison =
-          firstNode.localeCompare(secondNode);
+          compareNaturalNames(
+            firstNode,
+            secondNode,
+          );
 
         if (nodeComparison !== 0) {
           return nodeComparison;
         }
 
-        return (
+        return compareNaturalNames(
           first.storage
-          ?? first.id
-          ?? ''
-        ).localeCompare(
+            ?? first.id
+            ?? '',
           second.storage
-          ?? second.id
-          ?? '',
+            ?? second.id
+            ?? '',
         );
       });
   }, [

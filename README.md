@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.0-blue" alt="Version 1.2.0">
+  <img src="https://img.shields.io/badge/version-1.3.0-blue" alt="Version 1.3.0">
   <img src="https://img.shields.io/badge/platform-Proxmox%20VE-orange" alt="Proxmox VE">
   <img src="https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-61dafb" alt="React and TypeScript">
   <img src="https://img.shields.io/badge/backend-FastAPI-009688" alt="FastAPI">
@@ -666,6 +666,37 @@ Frontend refresh interval in seconds:
 REFRESH_INTERVAL=10
 ```
 
+#### ProxPilot authentication
+
+Authentication can be enabled for the complete web interface.
+
+```dotenv
+PROXPILOT_AUTH_ENABLED=true
+PROXPILOT_AUTH_USERNAME=admin
+PROXPILOT_AUTH_PASSWORD=replace-me
+PROXPILOT_SESSION_SECRET=replace-with-a-long-random-string
+PROXPILOT_COOKIE_SECURE=false
+PROXPILOT_SESSION_MAX_AGE=43200
+```
+
+| Variable | Description |
+| --- | --- |
+| `PROXPILOT_AUTH_ENABLED` | Enables or disables authentication |
+| `PROXPILOT_AUTH_USERNAME` | Login username |
+| `PROXPILOT_AUTH_PASSWORD` | Login password |
+| `PROXPILOT_SESSION_SECRET` | Secret used to sign HttpOnly session cookies |
+| `PROXPILOT_COOKIE_SECURE` | Set to `true` when ProxPilot is accessed via HTTPS |
+| `PROXPILOT_SESSION_MAX_AGE` | Session lifetime in seconds |
+
+To change the login credentials later, edit `.env`, modify
+`PROXPILOT_AUTH_USERNAME` and/or `PROXPILOT_AUTH_PASSWORD`, then recreate
+the backend container:
+
+```bash
+docker compose up -d --force-recreate backend
+```
+
+
 ## 9. Build and start ProxPilot
 
 Build the containers:
@@ -1011,8 +1042,9 @@ Possible future improvements include:
 - Additional charts
 - Notification support
 - Multi-cluster support
-- Authentication
 - Role-based access control
+- Built-in password change page
+- HTTPS setup wizard
 - Additional storage details
 - Additional guest operating-system information
 - Automated API permission checks

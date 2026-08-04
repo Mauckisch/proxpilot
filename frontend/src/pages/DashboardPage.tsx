@@ -25,6 +25,7 @@ import {
   type ClusterNode,
 } from '../hooks/useDashboard';
 import { useNodeActions } from '../hooks/useNodeActions';
+import { sortNodes } from '../utils/sort';
 
 type DashboardPageProps = {
   onOpenNode: (node: ClusterNode) => void;
@@ -70,12 +71,8 @@ export function DashboardPage({
     );
   }
 
-  const nodes = [...(dashboard.data?.nodes ?? [])].sort(
-    (a, b) =>
-      a.node.localeCompare(b.node, undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      }),
+  const nodes = sortNodes(
+    dashboard.data?.nodes ?? [],
   );
 
   const guests = dashboard.data?.guests ?? [];

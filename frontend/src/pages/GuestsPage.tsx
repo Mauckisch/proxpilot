@@ -28,6 +28,10 @@ import {
   useDashboard,
 } from '../hooks/useDashboard';
 import { useGuestActions } from '../hooks/useGuestActions';
+import {
+  compareNaturalNames,
+  sortNodes,
+} from '../utils/sort';
 
 export function GuestsPage() {
   const dashboard = useDashboard();
@@ -49,7 +53,9 @@ export function GuestsPage() {
     useState<Guest | null>(null);
 
   const guests = dashboard.data?.guests ?? [];
-  const nodes = dashboard.data?.nodes ?? [];
+  const nodes = sortNodes(
+    dashboard.data?.nodes ?? [],
+  );
 
   const filteredGuests = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -84,9 +90,11 @@ export function GuestsPage() {
         );
       })
       .sort((a, b) => {
-        const nodeCompare = (
-          a.node ?? ''
-        ).localeCompare(b.node ?? '');
+        const nodeCompare =
+          compareNaturalNames(
+            a.node ?? '',
+            b.node ?? '',
+          );
 
         if (nodeCompare !== 0) {
           return nodeCompare;

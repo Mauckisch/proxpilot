@@ -28,6 +28,7 @@ import {
   type HaStatusEntry,
   useDashboard,
 } from '../hooks/useDashboard';
+import { sortNodes } from '../utils/sort';
 
 function formatTimestamp(
   timestamp?: number,
@@ -54,7 +55,9 @@ function statusIncludes(
 export function ClusterPage() {
   const dashboard = useDashboard();
 
-  const nodes = dashboard.data?.nodes ?? [];
+  const nodes = sortNodes(
+    dashboard.data?.nodes ?? [],
+  );
   const guests = dashboard.data?.guests ?? [];
   const ha = dashboard.data?.ha ?? [];
 

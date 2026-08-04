@@ -1,6 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MantineProvider, createTheme } from '@mantine/core';
+import {
+  MantineProvider,
+  createTheme,
+} from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import {
   QueryClient,
@@ -11,7 +14,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './index.css';
 
-import App from './App';
+import { AuthGate } from './components/AuthGate';
 
 const theme = createTheme({
   primaryColor: 'blue',
@@ -29,18 +32,26 @@ const queryClient = new QueryClient({
   },
 });
 
-const rootElement = document.getElementById('root');
+const rootElement =
+  document.getElementById('root');
 
 if (!rootElement) {
-  throw new Error('Root element was not found.');
+  throw new Error(
+    'Root element was not found.',
+  );
 }
 
 createRoot(rootElement).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <MantineProvider theme={theme} defaultColorScheme="dark">
+    <QueryClientProvider
+      client={queryClient}
+    >
+      <MantineProvider
+        theme={theme}
+        defaultColorScheme="dark"
+      >
         <Notifications position="top-right" />
-        <App />
+        <AuthGate />
       </MantineProvider>
     </QueryClientProvider>
   </StrictMode>,

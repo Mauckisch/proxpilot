@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.3.0] - 2026-08-04
+
+### Added
+
+- Optional authentication for the entire ProxPilot web interface
+- Secure session-based login using HttpOnly cookies
+- Login page with configurable username and password
+- Logout support
+- Authentication configuration through environment variables
+- Authentication configuration added to `.env.example`
+
+### Changed
+
+- Introduced shared natural sorting utilities
+- Unified node sorting across Dashboard, Nodes, Guests, Storage, Replications, Backups and Cluster pages
+- Dashboard node cards are now read-only and serve as an overview
+
+### Security
+
+- Sensitive backend API endpoints now require authentication
+- Configurable username and password are loaded from the local `.env` file
+- Authentication uses cryptographically signed HttpOnly session cookies
+- The real `.env` file remains excluded from Git
+
 ## [1.2.4] - 2026-07-31
 
 ### Fixed

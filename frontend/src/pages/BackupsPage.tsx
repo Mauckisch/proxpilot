@@ -39,6 +39,7 @@ import {
   type BackupTask,
   useDashboard,
 } from '../hooks/useDashboard';
+import { sortNodes } from '../utils/sort';
 
 import {
   BackupTaskDrawer,
@@ -135,7 +136,9 @@ export function BackupsPage() {
   const jobs = dashboard.data?.backup_jobs ?? [];
   const tasks = dashboard.data?.backup_tasks ?? [];
   const guests = dashboard.data?.guests ?? [];
-  const nodes = dashboard.data?.nodes ?? [];
+  const nodes = sortNodes(
+    dashboard.data?.nodes ?? [],
+  );
 
   const guestNames = useMemo(() => {
     const result = new Map<number, string>();

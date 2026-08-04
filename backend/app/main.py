@@ -3,9 +3,25 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from .auth import (
+    SESSION_COOKIE_NAME,
+    AuthenticationConfigurationError,
+    create_session_token,
+    username_matches,
+    validate_auth_configuration,
+    verify_password,
+    verify_session_token,
+)
 from .config import get_settings
 from .host_details import (
     HostDetailsError,
@@ -57,6 +73,17 @@ app = FastAPI(
 )
 
 client = ProxmoxClient()
+
+
+class AuthLogin(BaseModel):
+    username: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    password: str = Field(
+        min_length=1,
+        max_length=1024,
+    )
 
 
 class GuestAction(BaseModel):
@@ -190,6 +217,176 @@ async def health():
     return {
         "status": "ok",
         "version": APP_VERSION,
+    }
+
+
+@app.middleware("http")
+async def authentication_middleware(
+    request: Request,
+    call_next,
+):
+    settings = get_settings()
+
+    if not settings.proxpilot_auth_enabled:
+        return await call_next(request)
+
+    public_paths = {
+        "/api/health",
+        "/api/auth/login",
+        "/api/auth/status",
+        "/api/auth/logout",
+    }
+
+    if (
+        not request.url.path.startswith("/api/")
+        or request.url.path in public_paths
+    ):
+        return await call_next(request)
+
+    try:
+        validate_auth_configuration()
+    except AuthenticationConfigurationError as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": str(exc),
+            },
+        )
+
+    token = request.cookies.get(
+        SESSION_COOKIE_NAME,
+    )
+
+    authenticated = verify_session_token(
+        token=token,
+        expected_username=(
+            settings.proxpilot_auth_username.strip()
+        ),
+        secret=settings.proxpilot_session_secret,
+    )
+
+    if not authenticated:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "detail": "Authentication required.",
+            },
+        )
+
+    return await call_next(request)
+
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    settings = get_settings()
+
+    if not settings.proxpilot_auth_enabled:
+        return {
+            "enabled": False,
+            "authenticated": True,
+            "username": None,
+        }
+
+    try:
+        validate_auth_configuration()
+    except AuthenticationConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
+
+    authenticated = verify_session_token(
+        token=request.cookies.get(
+            SESSION_COOKIE_NAME,
+        ),
+        expected_username=(
+            settings.proxpilot_auth_username.strip()
+        ),
+        secret=settings.proxpilot_session_secret,
+    )
+
+    return {
+        "enabled": True,
+        "authenticated": authenticated,
+        "username": (
+            settings.proxpilot_auth_username
+            if authenticated
+            else None
+        ),
+    }
+
+
+@app.post("/api/auth/login")
+async def auth_login(
+    credentials: AuthLogin,
+    response: Response,
+):
+    settings = get_settings()
+
+    if not settings.proxpilot_auth_enabled:
+        return {
+            "ok": True,
+            "authenticated": True,
+        }
+
+    try:
+        validate_auth_configuration()
+    except AuthenticationConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
+
+    valid_username = username_matches(
+        credentials.username,
+    )
+
+    valid_password = verify_password(
+        credentials.password,
+        settings.proxpilot_auth_password,
+    )
+
+    if not valid_username or not valid_password:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password.",
+        )
+
+    token = create_session_token(
+        username=(
+            settings.proxpilot_auth_username.strip()
+        ),
+        max_age=settings.proxpilot_session_max_age,
+        secret=settings.proxpilot_session_secret,
+    )
+
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=settings.proxpilot_session_max_age,
+        httponly=True,
+        secure=settings.proxpilot_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+
+    return {
+        "ok": True,
+        "authenticated": True,
+        "username": settings.proxpilot_auth_username,
+    }
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(response: Response):
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        path="/",
+    )
+
+    return {
+        "ok": True,
+        "authenticated": False,
     }
 
 

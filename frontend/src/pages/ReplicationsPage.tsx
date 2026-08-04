@@ -34,6 +34,7 @@ import {
   type Guest,
   useDashboard,
 } from '../hooks/useDashboard';
+import { sortNodes } from '../utils/sort';
 
 export function ReplicationsPage() {
   const dashboard = useDashboard();
@@ -50,8 +51,9 @@ export function ReplicationsPage() {
   const guests =
     dashboard.data?.guests ?? [];
 
-  const nodes =
-    dashboard.data?.nodes ?? [];
+  const nodes = sortNodes(
+    dashboard.data?.nodes ?? [],
+  );
 
   const guestByVmid = useMemo(() => {
     const map = new Map<number, Guest>();

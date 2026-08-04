@@ -32,6 +32,7 @@ import {
   useDashboard,
 } from '../hooks/useDashboard';
 import { useUpdates } from '../hooks/useUpdates';
+import { sortNodes } from '../utils/sort';
 
 type ConfirmState =
   | {
@@ -279,12 +280,8 @@ export function NodesPage({
     );
   }
 
-  const nodes = [...(dashboard.data?.nodes ?? [])].sort(
-    (a, b) =>
-      a.node.localeCompare(b.node, undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      }),
+  const nodes = sortNodes(
+    dashboard.data?.nodes ?? [],
   );
 
   const onlineNodes = nodes.filter(
