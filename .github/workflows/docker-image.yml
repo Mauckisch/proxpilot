@@ -1,4 +1,4 @@
-name: Build and Publish Docker Images
+name: Build and Publish ProxPilot Images
 
 on:
   push:
@@ -6,17 +6,23 @@ on:
       - main
     tags:
       - "v*"
+
   pull_request:
     branches:
       - main
+
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
 
+env:
+  REGISTRY: ghcr.io
+
 jobs:
   docker:
+    name: Build Docker images
     runs-on: ubuntu-latest
 
     steps:
@@ -24,54 +30,66 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # ------------------------------------------------------------
       # Backend
+      # ------------------------------------------------------------
 
-      - name: Extract backend metadata
+      - name: Generate backend image metadata
         id: backend-meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/proxpilot-backend
+          images: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/proxpilot-backend
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-
 
-      - name: Build and publish backend
-        uses: docker/build-push-action@v6
+      - name: Build and publish backend image
+        uses: docker/build-push-action@v7
         with:
-          context: ./backend
+          context: .
           file: ./backend/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.backend-meta.outputs.tags }}
           labels: ${{ steps.backend-meta.outputs.labels }}
+          cache-from: type=gha,scope=proxpilot-backend
+          cache-to: type=gha,mode=max,scope=proxpilot-backend
 
+      # ------------------------------------------------------------
       # Frontend
+      # ------------------------------------------------------------
 
-      - name: Extract frontend metadata
+      - name: Generate frontend image metadata
         id: frontend-meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/proxpilot-frontend
+          images: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/proxpilot-frontend
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-
 
-      - name: Build and publish frontend
-        uses: docker/build-push-action@v6
+      - name: Build and publish frontend image
+        uses: docker/build-push-action@v7
         with:
-          context: ./frontend
+          context: .
           file: ./frontend/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.frontend-meta.outputs.tags }}
           labels: ${{ steps.frontend-meta.outputs.labels }}
+          cache-from: type=gha,scope=proxpilot-frontend
+          cache-to: type=gha,mode=max,scope=proxpilot-frontend
