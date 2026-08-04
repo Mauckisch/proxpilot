@@ -5,11 +5,10 @@
 <h1 align="center">ProxPilot</h1>
 
 <p align="center">
-  A modern web interface for managing Proxmox VE homelabs.
+  A modern, lightweight web interface for monitoring and managing Proxmox VE clusters and homelabs.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.3.0-blue" alt="Version 1.3.0">
   <img src="https://img.shields.io/badge/platform-Proxmox%20VE-orange" alt="Proxmox VE">
   <img src="https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-61dafb" alt="React and TypeScript">
   <img src="https://img.shields.io/badge/backend-FastAPI-009688" alt="FastAPI">
