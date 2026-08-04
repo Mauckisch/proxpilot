@@ -15,7 +15,26 @@ const packageJson = JSON.parse(
 
 export default defineConfig({
   plugins: [react()],
+
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
+  },
+
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+
+    proxy: {
+      '/api': {
+        target: 'http://backend:8000',
+        changeOrigin: true,
+      },
+
+      '/socket.io': {
+        target: 'http://backend:8000',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
 });

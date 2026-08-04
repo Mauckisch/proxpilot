@@ -1,10 +1,16 @@
 # Secrets
 .env
+.env.*
+!.env.example
+
 ssh/
+docker-compose.dev.yml
 
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
 # Node / React
 node_modules/
@@ -16,3 +22,7 @@ dist/
 
 # Logs
 *.log
+
+# OS
+.DS_Store
+Thumbs.db

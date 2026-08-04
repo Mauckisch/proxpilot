@@ -1,8 +1,6 @@
 services:
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: ghcr.io/mauckisch/proxpilot-backend:latest
     container_name: proxpilot-backend
     restart: unless-stopped
 
@@ -29,8 +27,7 @@ services:
       retries: 3
 
   frontend:
-    build:
-      context: ./frontend
+    image: ghcr.io/mauckisch/proxpilot-frontend:latest
     container_name: proxpilot-frontend
     restart: unless-stopped
 
