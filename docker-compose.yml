@@ -12,6 +12,7 @@ services:
 
     volumes:
       - ./ssh:/app/ssh:ro
+      - ./data:/app/data
 
     expose:
       - "8000"

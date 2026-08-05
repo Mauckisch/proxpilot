@@ -1,43 +1,42 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import json
-import secrets
+from dataclasses import dataclass
 import time
+from typing import Literal
+
+from itsdangerous import (
+    BadSignature,
+    SignatureExpired,
+    URLSafeTimedSerializer,
+)
 
 from .config import get_settings
 
 
-SESSION_COOKIE_NAME = 'proxpilot_session'
+SESSION_COOKIE_NAME = "proxpilot_session"
+SESSION_SALT = "proxpilot-session-v2"
+
+UserRole = Literal["admin", "viewer"]
+UserSource = Literal["local", "ldap"]
 
 
 class AuthenticationConfigurationError(RuntimeError):
     pass
 
 
-def _encode_base64(value: bytes) -> str:
-    return base64.urlsafe_b64encode(
-        value,
-    ).decode('ascii').rstrip('=')
+@dataclass(frozen=True)
+class SessionData:
+    user_id: int
+    username: str
+    role: UserRole
+    source: UserSource
+    expires_at: int
 
 
-def _decode_base64(value: str) -> bytes:
-    padding = '=' * (-len(value) % 4)
-
-    return base64.urlsafe_b64decode(
-        (value + padding).encode('ascii'),
-    )
-
-
-def verify_password(
-    password: str,
-    configured_password: str,
-) -> bool:
-    return hmac.compare_digest(
-        password.encode('utf-8'),
-        configured_password.encode('utf-8'),
+def _get_serializer(secret: str) -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(
+        secret_key=secret,
+        salt=SESSION_SALT,
     )
 
 
@@ -45,29 +44,73 @@ def create_session_token(
     username: str,
     max_age: int,
     secret: str,
+    user_id: int = 0,
+    role: UserRole = "admin",
+    source: UserSource = "local",
 ) -> str:
     payload = {
-        'username': username,
-        'expires_at': int(time.time()) + max_age,
-        'nonce': secrets.token_urlsafe(16),
+        "uid": user_id,
+        "usr": username,
+        "rol": role,
+        "src": source,
+        "exp": int(time.time()) + max_age,
     }
 
-    encoded_payload = _encode_base64(
-        json.dumps(
-            payload,
-            separators=(',', ':'),
-        ).encode('utf-8'),
-    )
+    return _get_serializer(secret).dumps(payload)
 
-    signature = hmac.new(
-        secret.encode('utf-8'),
-        encoded_payload.encode('ascii'),
-        hashlib.sha256,
-    ).digest()
 
-    return (
-        f'{encoded_payload}.'
-        f'{_encode_base64(signature)}'
+def read_session_token(
+    token: str | None,
+    secret: str,
+    max_age: int,
+) -> SessionData | None:
+    if not token:
+        return None
+
+    try:
+        payload = _get_serializer(secret).loads(
+            token,
+            max_age=max_age,
+        )
+    except (
+        BadSignature,
+        SignatureExpired,
+    ):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    user_id = payload.get("uid")
+    username = payload.get("usr")
+    role = payload.get("rol")
+    source = payload.get("src")
+    expires_at = payload.get("exp")
+
+    if not isinstance(user_id, int):
+        return None
+
+    if not isinstance(username, str) or not username:
+        return None
+
+    if role not in {"admin", "viewer"}:
+        return None
+
+    if source not in {"local", "ldap"}:
+        return None
+
+    if not isinstance(expires_at, int):
+        return None
+
+    if expires_at < int(time.time()):
+        return None
+
+    return SessionData(
+        user_id=user_id,
+        username=username,
+        role=role,
+        source=source,
+        expires_at=expires_at,
     )
 
 
@@ -76,63 +119,18 @@ def verify_session_token(
     expected_username: str,
     secret: str,
 ) -> bool:
-    if not token:
+    settings = get_settings()
+
+    session = read_session_token(
+        token=token,
+        secret=secret,
+        max_age=settings.proxpilot_session_max_age,
+    )
+
+    if session is None:
         return False
 
-    try:
-        encoded_payload, encoded_signature = token.split(
-            '.',
-            1,
-        )
-
-        expected_signature = hmac.new(
-            secret.encode('utf-8'),
-            encoded_payload.encode('ascii'),
-            hashlib.sha256,
-        ).digest()
-
-        supplied_signature = _decode_base64(
-            encoded_signature,
-        )
-
-        if not hmac.compare_digest(
-            supplied_signature,
-            expected_signature,
-        ):
-            return False
-
-        payload = json.loads(
-            _decode_base64(
-                encoded_payload,
-            ).decode('utf-8'),
-        )
-
-        username = payload.get('username')
-        expires_at = payload.get('expires_at')
-
-        if not isinstance(username, str):
-            return False
-
-        if not isinstance(expires_at, int):
-            return False
-
-        if expires_at < int(time.time()):
-            return False
-
-        return hmac.compare_digest(
-            username.encode('utf-8'),
-            expected_username.encode('utf-8'),
-        )
-
-    except (
-        ValueError,
-        TypeError,
-        KeyError,
-        json.JSONDecodeError,
-        UnicodeDecodeError,
-        base64.binascii.Error,
-    ):
-        return False
+    return session.username == expected_username
 
 
 def validate_auth_configuration() -> None:
@@ -144,32 +142,25 @@ def validate_auth_configuration() -> None:
     missing: list[str] = []
 
     if not settings.proxpilot_auth_username.strip():
-        missing.append('PROXPILOT_AUTH_USERNAME')
+        missing.append("PROXPILOT_AUTH_USERNAME")
 
     if not settings.proxpilot_auth_password:
-        missing.append('PROXPILOT_AUTH_PASSWORD')
+        missing.append("PROXPILOT_AUTH_PASSWORD")
 
     if len(settings.proxpilot_session_secret) < 32:
         missing.append(
-            'PROXPILOT_SESSION_SECRET '
-            '(mindestens 32 Zeichen)',
+            "PROXPILOT_SESSION_SECRET "
+            "(at least 32 characters)"
+        )
+
+    if settings.proxpilot_session_max_age <= 0:
+        missing.append(
+            "PROXPILOT_SESSION_MAX_AGE "
+            "(must be greater than zero)"
         )
 
     if missing:
         raise AuthenticationConfigurationError(
-            'Ungültige Auth-Konfiguration: '
-            + ', '.join(missing)
+            "Invalid authentication configuration: "
+            + ", ".join(missing)
         )
-
-
-def username_matches(username: str) -> bool:
-    configured_username = (
-        get_settings()
-        .proxpilot_auth_username
-        .strip()
-    )
-
-    return hmac.compare_digest(
-        username.strip().encode('utf-8'),
-        configured_username.encode('utf-8'),
-    )

@@ -14,6 +14,7 @@ import {
 } from '@tabler/icons-react';
 
 import type { Guest } from '../hooks/useDashboard';
+import { AdminButton } from './AdminButton';
 import { GuestBackupButton } from './GuestBackupButton';
 import { SnapshotButton } from './SnapshotButton';
 
@@ -62,7 +63,7 @@ export function GuestCardActions({
       {running ? (
         <Stack gap="sm">
           <Group grow>
-            <Button
+            <AdminButton
               variant="light"
               color="orange"
               leftSection={<IconPower size={16} />}
@@ -72,9 +73,9 @@ export function GuestCardActions({
               }
             >
               Shutdown
-            </Button>
+            </AdminButton>
 
-            <Button
+            <AdminButton
               variant="light"
               color="blue"
               leftSection={<IconRefresh size={16} />}
@@ -84,10 +85,10 @@ export function GuestCardActions({
               }
             >
               Reboot
-            </Button>
+            </AdminButton>
           </Group>
 
-          <Button
+          <AdminButton
             variant="light"
             color="red"
             leftSection={<IconSquare size={16} />}
@@ -98,10 +99,10 @@ export function GuestCardActions({
             fullWidth
           >
             Force stop
-          </Button>
+          </AdminButton>
         </Stack>
       ) : (
-        <Button
+        <AdminButton
           variant="light"
           color="green"
           leftSection={<IconPlayerPlay size={16} />}
@@ -112,7 +113,7 @@ export function GuestCardActions({
           fullWidth
         >
           Start
-        </Button>
+        </AdminButton>
       )}
     </Stack>
   );

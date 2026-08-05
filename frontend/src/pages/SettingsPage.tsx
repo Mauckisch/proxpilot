@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { LdapSettingsCard } from '../components/LdapSettingsCard';
+import { SystemInformationCard } from '../components/SystemInformationCard';
 import {
   Alert,
   Badge,
@@ -205,6 +207,10 @@ export function SettingsPage({
           </Stack>
         </Card>
       </SimpleGrid>
+
+      <LdapSettingsCard />
+
+      <SystemInformationCard />
 
       <Card withBorder radius="lg" p="lg">
         <Stack gap="lg">

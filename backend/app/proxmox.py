@@ -1,5 +1,5 @@
 import os
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -144,6 +144,84 @@ class ProxmoxClient:
             "No Proxmox API endpoint was reachable: "
             + " | ".join(errors)
         )
+
+    async def request_node(
+        self,
+        node: str,
+        method: str,
+        path: str,
+        data: dict | None = None,
+    ):
+        node_host = self.node_host(node)
+
+        if not node_host:
+            raise ProxmoxError(
+                f"No host mapping is configured for node {node}."
+            )
+
+        if not self.s.endpoints:
+            raise ProxmoxError(
+                "No Proxmox API endpoints are configured."
+            )
+
+        reference_endpoint = urlparse(
+            self.s.endpoints[0]
+        )
+
+        scheme = reference_endpoint.scheme or "https"
+        port = reference_endpoint.port or (
+            443 if scheme == "https" else 80
+        )
+
+        if "://" in node_host:
+            parsed_host = urlparse(node_host)
+            scheme = parsed_host.scheme or scheme
+            hostname = parsed_host.hostname
+            port = parsed_host.port or port
+        else:
+            hostname = node_host
+
+        if not hostname:
+            raise ProxmoxError(
+                f"Invalid host mapping for node {node}."
+            )
+
+        url = (
+            f"{scheme}://{hostname}:{port}"
+            f"/api2/json/{path.lstrip('/')}"
+        )
+
+        try:
+            async with httpx.AsyncClient(
+                verify=self.s.pve_verify_ssl,
+                timeout=20,
+                headers=self.headers,
+            ) as api_client:
+                response = await api_client.request(
+                    method,
+                    url,
+                    data=data,
+                )
+
+        except httpx.RequestError as exc:
+            raise ProxmoxError(
+                f"Unable to reach Proxmox node {node}: {exc}"
+            ) from exc
+
+        if not response.is_success:
+            raise ProxmoxError(
+                self._format_http_error(response)
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ProxmoxError(
+                "Proxmox returned an invalid JSON response."
+            ) from exc
+
+        return payload.get("data")
+
 
     async def dashboard(self):
         resources = (
@@ -579,6 +657,66 @@ class ProxmoxClient:
             )
 
         return upid
+
+    async def create_qemu_console_ticket(
+        self,
+        node: str,
+        vmid: int,
+    ) -> dict:
+        if not node.strip():
+            raise ProxmoxError(
+                "A Proxmox node must be specified."
+            )
+
+        if vmid <= 0:
+            raise ProxmoxError(
+                "Invalid VM ID."
+            )
+
+        # vncproxy must be created through the same
+        # Proxmox node that will handle vncwebsocket.
+        result = await self.request_node(
+            node,
+            "POST",
+            f"/nodes/{node}/qemu/{vmid}/vncproxy",
+            data={
+                "websocket": 1,
+            },
+        )
+
+        if not isinstance(result, dict):
+            raise ProxmoxError(
+                "Proxmox returned an invalid VNC proxy response."
+            )
+
+        ticket = result.get("ticket")
+        port = result.get("port")
+
+        if not isinstance(ticket, str) or not ticket:
+            raise ProxmoxError(
+                "Proxmox did not return a VNC ticket."
+            )
+
+        try:
+            normalized_port = int(port)
+        except (TypeError, ValueError) as exc:
+            raise ProxmoxError(
+                "Proxmox did not return a valid VNC port."
+            ) from exc
+
+        if not 5900 <= normalized_port <= 5999:
+            raise ProxmoxError(
+                "Proxmox returned a VNC port outside "
+                "the expected range."
+            )
+
+        return {
+            "ticket": ticket,
+            "port": normalized_port,
+            "cert": result.get("cert"),
+            "user": result.get("user"),
+        }
+
 
     async def guest_action(
         self,

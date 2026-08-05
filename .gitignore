@@ -4,7 +4,6 @@
 !.env.example
 
 ssh/
-docker-compose.dev.yml
 
 # Python
 __pycache__/
@@ -26,3 +25,7 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# ProxPilot runtime data
+data/
+docker-compose.dev.yml

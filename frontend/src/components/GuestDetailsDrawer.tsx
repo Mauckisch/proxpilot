@@ -27,6 +27,7 @@ import {
   IconCheck,
   IconCpu,
   IconDatabase,
+  IconDeviceDesktop,
   IconExternalLink,
   IconInfoCircle,
   IconNetwork,
@@ -37,6 +38,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api';
+import { AdminButton } from './AdminButton';
 import type {
   ClusterNode,
   Guest,
@@ -627,6 +629,28 @@ export function GuestDetailsDrawer({
     );
   };
 
+  const openConsole = () => {
+    if (
+      !guest ||
+      guest.type !== 'qemu' ||
+      !guest.node
+    ) {
+      return;
+    }
+
+    const parameters = new URLSearchParams({
+      node: guest.node,
+      vmid: String(guest.vmid),
+      name: title,
+    });
+
+    window.open(
+      `/console?${parameters.toString()}`,
+      '_blank',
+      'noopener,noreferrer',
+    );
+  };
+
   return (
     <Drawer
       opened={opened}
@@ -673,6 +697,21 @@ export function GuestDetailsDrawer({
             </Group>
 
             <Group gap="xs">
+              <AdminButton
+                variant="light"
+                size="xs"
+                leftSection={
+                  <IconDeviceDesktop size={15} />
+                }
+                disabled={
+                  guest.type !== 'qemu' ||
+                  !running
+                }
+                onClick={openConsole}
+              >
+                Console
+              </AdminButton>
+
               <Button
                 variant="light"
                 size="xs"
@@ -1326,7 +1365,7 @@ export function GuestDetailsDrawer({
                           </Alert>
                         )}
 
-                      <Button
+                      <AdminButton
                         leftSection={
                           <IconTransfer size={18} />
                         }
@@ -1338,12 +1377,13 @@ export function GuestDetailsDrawer({
                           !targetNode ||
                           migrationRunning
                         }
+                        permissionTooltip="Only administrators can migrate guests."
                         onClick={() =>
                           void startMigration()
                         }
                       >
                         Start migration
-                      </Button>
+                      </AdminButton>
                     </Stack>
                   </Paper>
 

@@ -36,6 +36,7 @@ import {
 } from '@tabler/icons-react';
 
 import { api } from './api';
+import { useAuth } from './auth';
 import { DashboardPage } from './pages/DashboardPage';
 import { NodesPage } from './pages/NodesPage';
 import { HostDetailsPage } from './pages/HostDetailsPage';
@@ -46,6 +47,7 @@ import { StoragePage } from './pages/StoragePage';
 import { ReplicationsPage } from './pages/ReplicationsPage';
 import { BackupsPage } from './pages/BackupsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { UsersPage } from './pages/UsersPage';
 import { NetworkPage } from './pages/NetworkPage';
 import { ActivityPanel } from './components/ActivityPanel';
 import { AboutDialog } from './components/AboutDialog';
@@ -66,12 +68,14 @@ const navigationItems: NavigationItem[] = [
   { label: 'Backups', icon: IconArchive },
   { label: 'Cluster', icon: IconStack2 },
   { label: 'Tasks', icon: IconActivity },
+  { label: 'Users', icon: IconUsers },
   { label: 'Settings', icon: IconSettings },
 ];
 
 export default function App() {
   const dashboard = useDashboard();
   const queryClient = useQueryClient();
+  const { user, isAdmin } = useAuth();
 
   const [mobileOpened, mobileHandlers] = useDisclosure();
 
@@ -259,6 +263,22 @@ export default function App() {
               </ActionIcon>
             </Tooltip>
 
+            <Stack gap={0} align="flex-end" visibleFrom="sm">
+              <Text size="sm" fw={600}>
+                {user.username}
+              </Text>
+
+              <Text size="xs" c="dimmed">
+                {user.role === 'admin'
+                  ? 'Administrator'
+                  : 'Viewer'}
+                {' · '}
+                {user.source === 'local'
+                  ? 'Local'
+                  : 'LDAP'}
+              </Text>
+            </Stack>
+
             <Tooltip label="Sign out">
               <ActionIcon
                 variant="subtle"
@@ -281,7 +301,11 @@ export default function App() {
           component={ScrollArea}
         >
           <Stack gap={4}>
-            {navigationItems.map((item) => {
+            {navigationItems
+              .filter((item) =>
+                item.label !== 'Users' || isAdmin
+              )
+              .map((item) => {
               const Icon = item.icon;
 
               return (
@@ -409,6 +433,10 @@ export default function App() {
           <TasksPage />
         )}
 
+        {activeNavigation === 'Users' && isAdmin && (
+          <UsersPage />
+        )}
+
         {activeNavigation === 'Settings' && (
           <SettingsPage
             colorScheme={colorScheme}
@@ -434,6 +462,7 @@ export default function App() {
           'Cluster',
           'Tasks',
           'Network',
+          'Users',
           'Settings',
         ].includes(activeNavigation) && (
           <Stack>

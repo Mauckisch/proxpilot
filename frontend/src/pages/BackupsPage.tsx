@@ -44,6 +44,7 @@ import { sortNodes } from '../utils/sort';
 import {
   BackupTaskDrawer,
 } from '../components/BackupTaskDrawer';
+import { AdminButton } from '../components/AdminButton';
 
 function formatDate(timestamp?: number): string {
   if (!timestamp) {
@@ -560,7 +561,7 @@ export function BackupsPage() {
                     </Text>
                   </div>
 
-                  <Button
+                  <AdminButton
                     variant="light"
                     color="blue"
                     leftSection={
@@ -574,6 +575,7 @@ export function BackupsPage() {
                         runningJobId !== job.id
                       )
                     }
+                    permissionTooltip="Only administrators can start backup jobs."
                     onClick={() =>
                       void startBackup(
                         job.id,
@@ -584,7 +586,7 @@ export function BackupsPage() {
                     {job.enabled
                       ? 'Run backup now'
                       : 'Backup job disabled'}
-                  </Button>
+                  </AdminButton>
                 </Stack>
               </Card>
             ))}

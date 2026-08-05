@@ -1,6 +1,5 @@
 import {
   Badge,
-  Button,
   Card,
   Group,
   Progress,
@@ -20,6 +19,7 @@ import {
 
 import type { ClusterNode } from '../hooks/useDashboard';
 import type { NodeUpdateStatus } from '../hooks/useUpdates';
+import { AdminButton } from './AdminButton';
 
 export type NodeAction =
   | 'check-updates'
@@ -389,7 +389,7 @@ export function NodeCard({
 
               <Stack gap="xs">
                 <Group grow>
-                  <Button
+                  <AdminButton
                     variant="light"
                     color="yellow"
                     leftSection={<IconTool size={16} />}
@@ -398,14 +398,15 @@ export function NodeCard({
                       node.maintenance ||
                       !online
                     }
+                    permissionTooltip="Only administrators can enable maintenance mode."
                     onClick={() =>
                       onMaintenanceAction(node, 'enable')
                     }
                   >
                     Enable
-                  </Button>
+                  </AdminButton>
 
-                  <Button
+                  <AdminButton
                     variant="light"
                     color="green"
                     leftSection={<IconTool size={16} />}
@@ -414,26 +415,28 @@ export function NodeCard({
                       !node.maintenance ||
                       !online
                     }
+                    permissionTooltip="Only administrators can disable maintenance mode."
                     onClick={() =>
                       onMaintenanceAction(node, 'disable')
                     }
                   >
                     Disable
-                  </Button>
+                  </AdminButton>
                 </Group>
 
-                <Button
+                <AdminButton
                   variant="light"
                   color="grape"
                   fullWidth
                   leftSection={<IconPackage size={16} />}
                   disabled={actionRunning || !online}
+                  permissionTooltip="Only administrators can run package cleanup."
                   onClick={() =>
                     onNodeAction(node, 'package-cleanup')
                   }
                 >
                   Cleanup
-                </Button>
+                </AdminButton>
               </Stack>
             </Stack>
 
@@ -443,28 +446,30 @@ export function NodeCard({
               </Text>
 
               <Group grow>
-                <Button
+                <AdminButton
                   variant="light"
                   leftSection={<IconPackage size={16} />}
                   disabled={actionRunning || !online}
+                  permissionTooltip="Only administrators can check for updates."
                   onClick={() =>
                     onNodeAction(node, 'check-updates')
                   }
                 >
                   Check
-                </Button>
+                </AdminButton>
 
-                <Button
+                <AdminButton
                   variant="light"
                   color="yellow"
                   leftSection={<IconPackage size={16} />}
                   disabled={actionRunning || !online}
+                  permissionTooltip="Only administrators can install updates."
                   onClick={() =>
                     onNodeAction(node, 'install-updates')
                   }
                 >
                   Install
-                </Button>
+                </AdminButton>
               </Group>
             </Stack>
 
@@ -474,29 +479,31 @@ export function NodeCard({
               </Text>
 
               <Group grow>
-                <Button
+                <AdminButton
                   variant="light"
                   color="orange"
                   leftSection={<IconRefresh size={16} />}
                   disabled={actionRunning || !online}
+                  permissionTooltip="Only administrators can reboot nodes."
                   onClick={() =>
                     onNodeAction(node, 'reboot')
                   }
                 >
                   Reboot
-                </Button>
+                </AdminButton>
 
-                <Button
+                <AdminButton
                   variant="light"
                   color="red"
                   leftSection={<IconPower size={16} />}
                   disabled={actionRunning || !online}
+                  permissionTooltip="Only administrators can shut down nodes."
                   onClick={() =>
                     onNodeAction(node, 'shutdown')
                   }
                 >
                   Shutdown
-                </Button>
+                </AdminButton>
               </Group>
             </Stack>
           </Stack>

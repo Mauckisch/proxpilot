@@ -9,17 +9,25 @@ import {
 import { useEffect, useState } from 'react';
 import {
   IconAlertCircle,
+  IconLock,
   IconRefresh,
 } from '@tabler/icons-react';
 
 import { api } from '../api';
+import {
+  type AuthUser,
+  AuthProvider,
+} from '../auth';
 import App from '../App';
+import { ConsolePage } from '../pages/ConsolePage';
 import { LoginPage } from './LoginPage';
 
 type AuthStatus = {
   enabled: boolean;
   authenticated: boolean;
   username: string | null;
+  role: 'admin' | 'viewer' | null;
+  source: 'local' | 'ldap' | null;
 };
 
 type AuthState =
@@ -28,9 +36,54 @@ type AuthState =
   | 'unauthenticated'
   | 'error';
 
+function isConsolePage(): boolean {
+  return (
+    window.location.pathname === '/console' ||
+    window.location.pathname === '/console/'
+  );
+}
+
+function ConsoleAccessDenied() {
+  return (
+    <Center
+      mih="100vh"
+      p="md"
+      style={{
+        background: '#111111',
+      }}
+    >
+      <Alert
+        color="red"
+        icon={<IconLock size={20} />}
+        title="Administrator permissions required"
+        maw={520}
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            Only administrators can open virtual
+            machine consoles.
+          </Text>
+
+          <Button
+            variant="light"
+            onClick={() => {
+              window.location.href = '/';
+            }}
+          >
+            Return to ProxPilot
+          </Button>
+        </Stack>
+      </Alert>
+    </Center>
+  );
+}
+
 export function AuthGate() {
   const [state, setState] =
     useState<AuthState>('loading');
+
+  const [user, setUser] =
+    useState<AuthUser | null>(null);
 
   const [error, setError] =
     useState<string | null>(null);
@@ -45,17 +98,30 @@ export function AuthGate() {
           '/auth/status',
         );
 
-      setState(
-        response.data.authenticated
-          ? 'authenticated'
-          : 'unauthenticated',
-      );
+      if (
+        response.data.authenticated &&
+        response.data.username &&
+        response.data.role &&
+        response.data.source
+      ) {
+        setUser({
+          username: response.data.username,
+          role: response.data.role,
+          source: response.data.source,
+        });
+
+        setState('authenticated');
+      } else {
+        setUser(null);
+        setState('unauthenticated');
+      }
     } catch (requestError) {
       const message =
         requestError instanceof Error
           ? requestError.message
           : 'Authentication status could not be loaded.';
 
+      setUser(null);
       setError(message);
       setState('error');
     }
@@ -65,6 +131,7 @@ export function AuthGate() {
     void checkSession();
 
     function handleAuthenticationRequired() {
+      setUser(null);
       setState('unauthenticated');
     }
 
@@ -132,11 +199,29 @@ export function AuthGate() {
     return (
       <LoginPage
         onAuthenticated={() =>
-          setState('authenticated')
+          void checkSession()
         }
       />
     );
   }
 
-  return <App />;
+  if (user === null) {
+    return null;
+  }
+
+  const consolePage = isConsolePage();
+
+  return (
+    <AuthProvider user={user}>
+      {consolePage ? (
+        user.role === 'admin' ? (
+          <ConsolePage />
+        ) : (
+          <ConsoleAccessDenied />
+        )
+      ) : (
+        <App />
+      )}
+    </AuthProvider>
+  );
 }

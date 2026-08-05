@@ -3,3 +3,7 @@ uvicorn[standard]==0.35.0
 httpx==0.28.1
 paramiko==3.5.1
 pydantic-settings==2.10.1
+argon2-cffi==25.1.0
+itsdangerous==2.2.0
+ldap3==2.9.1
+websockets==15.0.1

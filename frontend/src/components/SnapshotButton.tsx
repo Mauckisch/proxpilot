@@ -24,6 +24,7 @@ import { useEffect, useState } from 'react';
 
 import type { Guest } from '../hooks/useDashboard';
 import { api } from '../api';
+import { AdminButton } from './AdminButton';
 
 type Snapshot = {
   name: string;
@@ -291,18 +292,19 @@ export function SnapshotButton({
 
   return (
     <>
-      <Button
+      <AdminButton
         variant="light"
         color="cyan"
         leftSection={<IconCamera size={16} />}
         disabled={!canManage}
+        permissionTooltip="Only administrators can manage snapshots."
         onClick={() => setOpened(true)}
       >
         Snapshots
         {(guest.snapshot_count ?? 0) > 0
           ? ` (${guest.snapshot_count})`
           : ''}
-      </Button>
+      </AdminButton>
 
       <Modal
         opened={opened}
@@ -337,16 +339,17 @@ export function SnapshotButton({
                 Refresh
               </Button>
 
-              <Button
+              <AdminButton
                 leftSection={<IconCamera size={16} />}
                 disabled={operationRunning}
+                permissionTooltip="Only administrators can create snapshots."
                 onClick={() => {
                   setError(null);
                   setCreateOpened(true);
                 }}
               >
                 Create snapshot
-              </Button>
+              </AdminButton>
             </Group>
           </Group>
 
@@ -440,33 +443,35 @@ export function SnapshotButton({
                     )}
 
                     <Group justify="flex-end">
-                      <Button
+                      <AdminButton
                         variant="light"
                         color="orange"
                         leftSection={
                           <IconRestore size={16} />
                         }
                         disabled={operationRunning}
+                        permissionTooltip="Only administrators can roll back snapshots."
                         onClick={() =>
                           void rollbackSnapshot(snapshot)
                         }
                       >
                         Rollback
-                      </Button>
+                      </AdminButton>
 
-                      <Button
+                      <AdminButton
                         variant="light"
                         color="red"
                         leftSection={
                           <IconTrash size={16} />
                         }
                         disabled={operationRunning}
+                        permissionTooltip="Only administrators can delete snapshots."
                         onClick={() =>
                           void deleteSnapshot(snapshot)
                         }
                       >
                         Delete
-                      </Button>
+                      </AdminButton>
                     </Group>
                   </Stack>
                 </Paper>
@@ -532,13 +537,14 @@ export function SnapshotButton({
               Cancel
             </Button>
 
-            <Button
+            <AdminButton
               leftSection={<IconCamera size={16} />}
               disabled={!snapshotName.trim()}
+              permissionTooltip="Only administrators can create snapshots."
               onClick={() => void createSnapshot()}
             >
               Create snapshot
-            </Button>
+            </AdminButton>
           </Group>
         </Stack>
       </Modal>

@@ -26,6 +26,7 @@ import {
   type Guest,
   useDashboard,
 } from '../hooks/useDashboard';
+import { AdminButton } from './AdminButton';
 
 type GuestBackupButtonProps = {
   guest: Guest;
@@ -192,14 +193,15 @@ export function GuestBackupButton({
 
   return (
     <>
-      <Button
+      <AdminButton
         variant="light"
         color="indigo"
         leftSection={<IconArchive size={16} />}
+        permissionTooltip="Only administrators can start guest backups."
         onClick={() => setOpened(true)}
       >
         Backup
-      </Button>
+      </AdminButton>
 
       <Modal
         opened={opened}
@@ -368,7 +370,7 @@ export function GuestBackupButton({
               {successMessage ? 'Close' : 'Cancel'}
             </Button>
 
-            <Button
+            <AdminButton
               color="indigo"
               leftSection={<IconArchive size={16} />}
               loading={submitting}
@@ -378,10 +380,11 @@ export function GuestBackupButton({
                 || enabledJobs.length === 0
                 || Boolean(successMessage)
               }
+              permissionTooltip="Only administrators can start guest backups."
               onClick={() => void startBackup()}
             >
               Start backup
-            </Button>
+            </AdminButton>
           </Group>
         </Stack>
       </Modal>
