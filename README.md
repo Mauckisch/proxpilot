@@ -117,19 +117,6 @@ Configure `.env` before starting.
 
 ---
 
-# Contributing
-
-Issues, feature requests and pull requests are welcome.
-
----
-
-# License
-
-MIT License.
-
-See `LICENSE`.
-# README - Part 2
-
 # Why ProxPilot?
 
 ProxPilot was created to simplify the daily administration of Proxmox VE environments.
@@ -319,7 +306,6 @@ HTTPS is recommended to ensure secure WebSocket communication and Secure cookie 
 
 ---
 
-Continue with **README Part 3** for installation, documentation, roadmap, contributing and license.
 # Installation
 
 The complete installation guide is available in:
@@ -470,15 +456,3 @@ See `LICENSE` for details.
 ProxPilot is an independent open-source project.
 
 It is not affiliated with, endorsed by or supported by Proxmox Server Solutions GmbH.
-
----
-
-## Merge Order
-
-Combine the files in this order:
-
-1. `proxpilot_readme_new.md`
-2. `README_PART2.md`
-3. `README_PART3.md`
-
-The result becomes the new `README.md`.
