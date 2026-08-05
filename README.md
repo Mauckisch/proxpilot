@@ -9,14 +9,12 @@ A modern, lightweight web interface for monitoring and managing Proxmox VE clust
 </p>
 
 <p align="center">
-
-![License](https://img.shields.io/github/license/Mauckisch/proxpilot)
-![Release](https://img.shields.io/github/v/release/Mauckisch/proxpilot)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)
-![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)
-![React](https://img.shields.io/badge/React-TypeScript-61DAFB)
-![Proxmox](https://img.shields.io/badge/Platform-Proxmox%20VE-orange)
-
+  <img src="https://img.shields.io/github/license/Mauckisch/proxpilot" alt="License">
+  <img src="https://img.shields.io/github/v/release/Mauckisch/proxpilot" alt="Release">
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED" alt="Docker">
+  <img src="https://img.shields.io/badge/FastAPI-Backend-009688" alt="FastAPI">
+  <img src="https://img.shields.io/badge/React-TypeScript-61DAFB" alt="React">
+  <img src="https://img.shields.io/badge/Platform-Proxmox%20VE-orange" alt="Proxmox VE">
 </p>
 
 ---
