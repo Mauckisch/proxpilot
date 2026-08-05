@@ -44,7 +44,13 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 
 # Screenshots
 
-> Screenshots will be added in a future release.
+## Dashboard
+
+<p align="center">
+  <img src="docs/images/Dashboard.png" alt="Dashboard" width="1000">
+</p>
+
+The dashboard provides a complete overview of your Proxmox cluster, including node status, guests, storage, resource utilization and recent activity.
 
 ---
 
