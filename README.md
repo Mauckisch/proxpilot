@@ -1,135 +1,484 @@
-# ProxPilot
+<p align="center">
+  <img src="frontend/public/branding/proxpilot-logo.svg" alt="ProxPilot Logo" width="560">
+</p>
 
-> Modern web interface for monitoring and managing Proxmox VE clusters.
+<h1 align="center">ProxPilot</h1>
 
-## Overview
+<p align="center">
+A modern, lightweight web interface for monitoring and managing Proxmox VE clusters and homelabs.
+</p>
 
-ProxPilot is a lightweight web application built with:
+<p align="center">
 
--   **Frontend:** React + TypeScript + Mantine
--   **Backend:** FastAPI
--   **Deployment:** Docker Compose
+![License](https://img.shields.io/github/license/Mauckisch/proxpilot)
+![Release](https://img.shields.io/github/v/release/Mauckisch/proxpilot)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)
+![React](https://img.shields.io/badge/React-TypeScript-61DAFB)
+![Proxmox](https://img.shields.io/badge/Platform-Proxmox%20VE-orange)
 
-It focuses on day-to-day Proxmox administration while keeping the
-interface clean and responsive.
+</p>
 
-## Features
+---
 
-### Dashboard
+# Overview
 
--   Cluster overview
--   Node health
--   VM and LXC overview
--   Storage utilization
--   Live task activity
+ProxPilot is an open-source management interface for **Proxmox VE**.
 
-### Node Management
+It complements the native Proxmox interface by providing a clean dashboard, simplified daily administration, integrated monitoring and commonly used management actions.
 
--   Package updates
--   Autoremove / autoclean
--   Maintenance mode
--   Reboot / shutdown
--   Hardware information
--   ZFS information
--   Network information
--   Temperature information
+---
 
-### Guests
+# Highlights
 
--   Start / Stop / Shutdown
--   Reboot
--   Suspend / Resume
--   Migration
--   Snapshots
--   Backups
--   Guest configuration
--   Integrated noVNC console
+- Modern React interface
+- FastAPI backend
+- Docker deployment
+- Local and LDAP authentication
+- Integrated noVNC browser console
+- VM and LXC management
+- Snapshot and backup management
+- Node maintenance
+- Update management
+- Storage and cluster overview
 
-### Authentication
+---
 
--   Local users
--   LDAP authentication
--   Session cookies
--   Role based administration
--   User management through the web interface
+# Screenshots
 
-## Requirements
+> Screenshots will be added in a future release.
 
--   Proxmox VE 8 or newer
--   Docker Engine
--   Docker Compose
+---
 
-## Installation
+# Architecture
 
-``` bash
+```text
+Browser
+   │
+   ▼
+Reverse Proxy (optional)
+   │
+   ▼
+Frontend (React)
+   │
+   ▼
+Backend (FastAPI)
+   ├── Proxmox API
+   ├── SSH
+   └── SQLite
+```
+
+---
+
+# Quick Start
+
+```bash
 git clone https://github.com/Mauckisch/proxpilot.git
 cd proxpilot
 cp .env.example .env
 docker compose up -d --build
 ```
 
-Fill in the values in `.env` before starting the application.
+Configure `.env` before starting.
 
-## Important Notes
+---
 
-### SQLite database
+# Documentation
 
-The application automatically creates:
+| Document | Description |
+|-----------|-------------|
+| docs/INSTALLATION.md | Installation |
+| docs/CONFIGURATION.md | Configuration |
+| docs/API-PERMISSIONS.md | Required Proxmox permissions |
+| docs/AUTHENTICATION.md | Local users & LDAP |
+| docs/HTTPS_AND_REVERSE_PROXY.md | HTTPS and reverse proxies |
+| docs/TROUBLESHOOTING.md | Troubleshooting |
+| docs/DEVELOPMENT.md | Development |
 
-    ./data/proxpilot.db
+---
 
-during the first startup.
+# Requirements
 
-Do **not** commit this file.
+- Proxmox VE
+- Docker Engine
+- Docker Compose
+- API token
+- SSH access
 
-### SSH keys
+---
 
-Place the SSH key inside:
+# Roadmap
 
-    ./ssh/
+- Historical statistics
+- Notifications
+- Multi-cluster support
+- Additional charts
+- RBAC improvements
 
-The directory is ignored by Git.
+---
 
-### Guest Console
+# Contributing
 
-The integrated noVNC console requires a **secure browser context**.
+Issues, feature requests and pull requests are welcome.
 
-This means:
+---
 
--   HTTPS must be used.
--   A reverse proxy (for example Caddy or Nginx) should terminate TLS.
--   Plain HTTP cannot be used for the browser console.
+# License
 
-Administrative actions continue to work without HTTPS, but the browser
-console does not.
+MIT License.
 
-### Cookies
+See `LICENSE`.
+# README - Part 2
 
-When HTTPS is used:
+# Why ProxPilot?
 
-    PROXPILOT_COOKIE_SECURE=true
+ProxPilot was created to simplify the daily administration of Proxmox VE environments.
 
-For local HTTP development only:
+The official Proxmox VE interface is extremely powerful and exposes every available feature of the platform. For day-to-day administration, however, many users repeatedly navigate through the same menus to perform common tasks.
 
-    PROXPILOT_COOKIE_SECURE=false
+ProxPilot focuses on these everyday operations and presents them in a clean, modern interface while continuing to use the official Proxmox API and SSH.
 
-## Security
+## Design Goals
 
-Never commit:
+- Fast access to common operations
+- Clean, responsive interface
+- Safe administration
+- Easy deployment with Docker
+- Works with single-node and clustered environments
+- Modern authentication
+- Open source
 
--   `.env`
--   `./data`
--   `./ssh`
+---
 
-Use a dedicated Proxmox API user with the minimum required permissions.
+# Why not replace the Proxmox interface?
 
-## Updating
+ProxPilot is **not** intended to replace the official Proxmox VE web interface.
 
-``` bash
-git pull
-docker compose up -d --build
+Instead it complements it.
+
+The official interface remains the best choice for advanced cluster configuration, storage creation, networking, firewall configuration and every feature provided by Proxmox VE.
+
+ProxPilot focuses on operational tasks:
+
+- Monitor cluster health
+- Manage guests
+- Perform maintenance
+- Execute backups
+- Open browser consoles
+- View hardware information
+- Review tasks
+- Manage users
+
+---
+
+# Feature Matrix
+
+| Area | Supported |
+|------|:---------:|
+| Dashboard | ✅ |
+| Cluster overview | ✅ |
+| Node overview | ✅ |
+| VM management | ✅ |
+| LXC management | ✅ |
+| Guest power actions | ✅ |
+| Live migration | ✅ |
+| Snapshots | ✅ |
+| Backups | ✅ |
+| Browser console (noVNC) | ✅ |
+| Storage overview | ✅ |
+| Network overview | ✅ |
+| Replication overview | ✅ |
+| HA overview | ✅ |
+| Package updates | ✅ |
+| Maintenance mode | ✅ |
+| Hardware information | ✅ |
+| ZFS information | ✅ |
+| Temperature monitoring | ✅ |
+| Local users | ✅ |
+| LDAP authentication | ✅ |
+| Role management | ✅ |
+
+---
+
+# Detailed Features
+
+## Dashboard
+
+The dashboard combines the most important cluster information on a single page.
+
+Highlights include:
+
+- Cluster summary
+- Node status
+- Resource utilisation
+- Running guests
+- Storage usage
+- Recent activity
+
+## Nodes
+
+Each node provides:
+
+- CPU
+- Memory
+- Storage
+- Update status
+- Hardware details
+- Physical disks
+- ZFS pools
+- Temperatures
+- Network interfaces
+
+Administrative actions include:
+
+- Install updates
+- Package cleanup
+- Maintenance mode
+- Reboot
+- Shutdown
+
+## Guests
+
+Supported operations:
+
+- Start
+- Stop
+- Shutdown
+- Reset
+- Suspend
+- Resume
+- Migration
+- Snapshots
+- Manual backups
+- Configuration viewer
+- Integrated browser console
+
+## Storage
+
+Displays:
+
+- Total capacity
+- Used capacity
+- Free capacity
+- Storage type
+- Shared/local status
+- Supported content types
+
+## Network
+
+Provides:
+
+- Bridges
+- Physical interfaces
+- VLAN interfaces
+- Guest network assignments
+- Relationship visualisation
+
+## Replication
+
+Displays:
+
+- Replication jobs
+- Source node
+- Target node
+- Schedule
+- Status
+
+## Cluster & HA
+
+Overview of:
+
+- Cluster members
+- HA resources
+- Guest distribution
+- Node availability
+
+## Tasks
+
+Task monitoring includes:
+
+- Running tasks
+- Completed tasks
+- Exit status
+- Task log output
+
+## Authentication
+
+Supports:
+
+- Local users
+- LDAP
+- Secure session cookies
+- Administrator/User roles
+
+## Browser Console
+
+The integrated noVNC console allows direct browser access to guests without opening the Proxmox interface.
+
+HTTPS is recommended to ensure secure WebSocket communication and Secure cookie support.
+
+---
+
+Continue with **README Part 3** for installation, documentation, roadmap, contributing and license.
+# Installation
+
+The complete installation guide is available in:
+
+- `docs/INSTALLATION.md`
+
+Configuration details:
+
+- `docs/CONFIGURATION.md`
+
+Required Proxmox permissions:
+
+- `docs/API-PERMISSIONS.md`
+
+Authentication:
+
+- `docs/AUTHENTICATION.md`
+
+HTTPS and reverse proxies:
+
+- `docs/HTTPS_AND_REVERSE_PROXY.md`
+
+Troubleshooting:
+
+- `docs/TROUBLESHOOTING.md`
+
+Development:
+
+- `docs/DEVELOPMENT.md`
+
+---
+
+# Project Structure
+
+```text
+proxpilot/
+├── backend/
+├── frontend/
+├── docs/
+├── ssh/
+├── data/
+├── docker-compose.yml
+├── .env.example
+├── README.md
+└── CHANGELOG.md
 ```
 
-## License
+---
 
-MIT
+# Documentation
+
+| Document | Description |
+|----------|-------------|
+| INSTALLATION.md | Complete installation guide |
+| CONFIGURATION.md | Environment variables |
+| API-PERMISSIONS.md | Required Proxmox permissions |
+| AUTHENTICATION.md | Local users and LDAP |
+| HTTPS_AND_REVERSE_PROXY.md | Reverse proxy configuration |
+| TROUBLESHOOTING.md | Common problems |
+| DEVELOPMENT.md | Development and release workflow |
+
+---
+
+# FAQ
+
+### Does ProxPilot replace the official Proxmox interface?
+
+No. It complements the official interface by focusing on everyday administration.
+
+### Is HTTPS required?
+
+Strongly recommended.
+
+The integrated browser console works best with HTTPS and Secure cookies.
+
+### Is LDAP required?
+
+No.
+
+Local authentication works without LDAP.
+
+### Where are users stored?
+
+Local users are stored inside:
+
+```text
+./data/proxpilot.db
+```
+
+---
+
+# Roadmap
+
+Planned improvements include:
+
+- Historical metrics
+- Notifications
+- Better charts
+- Guest agent information
+- Multi-cluster support
+- Additional storage information
+- Extended RBAC
+
+---
+
+# Contributing
+
+Contributions are welcome.
+
+Before opening an issue, include:
+
+- ProxPilot version
+- Proxmox VE version
+- Docker version
+- Browser
+- Logs
+- Reproduction steps
+
+Never publish:
+
+- API token secrets
+- Passwords
+- SSH private keys
+- SQLite databases
+
+---
+
+# Support
+
+Please use GitHub Issues for:
+
+- Bug reports
+- Feature requests
+- Documentation improvements
+
+---
+
+# License
+
+ProxPilot is licensed under the MIT License.
+
+See `LICENSE` for details.
+
+---
+
+# Disclaimer
+
+ProxPilot is an independent open-source project.
+
+It is not affiliated with, endorsed by or supported by Proxmox Server Solutions GmbH.
+
+---
+
+## Merge Order
+
+Combine the files in this order:
+
+1. `proxpilot_readme_new.md`
+2. `README_PART2.md`
+3. `README_PART3.md`
+
+The result becomes the new `README.md`.
