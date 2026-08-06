@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.4.1] - 2026-08-06
+
+### Changed
+
+- Removed the Watchtower exclusion labels from the public production Compose configuration
+- Production deployments can now receive automatic image updates through Watchtower
+- The development Compose configuration continues to disable Watchtower for local development
+
 ## [1.4.0] - 2026-08-05
 
 ### Added

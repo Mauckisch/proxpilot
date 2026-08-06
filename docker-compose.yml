@@ -4,9 +4,6 @@ services:
     container_name: proxpilot-backend
     restart: unless-stopped
 
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false"
-
     env_file:
       - .env
 
@@ -34,9 +31,6 @@ services:
     image: ghcr.io/mauckisch/proxpilot-frontend:latest
     container_name: proxpilot-frontend
     restart: unless-stopped
-
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false"
 
     depends_on:
       backend:
