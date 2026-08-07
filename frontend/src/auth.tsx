@@ -4,7 +4,7 @@ import {
   useContext,
 } from 'react';
 
-export type UserRole = 'admin' | 'viewer';
+export type UserRole = 'admin' | 'operator' | 'viewer';
 export type UserSource = 'local' | 'ldap';
 
 export type AuthUser = {
@@ -16,6 +16,8 @@ export type AuthUser = {
 type AuthContextValue = {
   user: AuthUser;
   isAdmin: boolean;
+  isOperator: boolean;
+  canOperate: boolean;
 };
 
 const AuthContext =
@@ -30,11 +32,17 @@ export function AuthProvider({
   user,
   children,
 }: AuthProviderProps) {
+  const isAdmin = user.role === 'admin';
+  const isOperator = user.role === 'operator';
+
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAdmin: user.role === 'admin',
+        isAdmin,
+        isOperator,
+        canOperate:
+          isAdmin || isOperator,
       }}
     >
       {children}

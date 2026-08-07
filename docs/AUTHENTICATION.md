@@ -1,233 +1,921 @@
 # ProxPilot Authentication Guide
 
-This document explains authentication, user management and LDAP
-integration.
+This document explains authentication, user management, role-based access control,
+LDAP / Active Directory integration, session handling, and authentication-related
+audit logging in ProxPilot 1.5.0.
+
+---
 
 # Overview
 
 ProxPilot supports:
 
--   Local authentication
--   LDAP authentication
--   Session-based authentication using HttpOnly cookies
--   Role-based access (Administrator / User)
+- Local authentication
+- LDAP / Active Directory authentication
+- Session-based authentication using signed HttpOnly cookies
+- Three built-in roles:
+  - Administrator
+  - Operator
+  - Viewer
+- LDAP group-to-role mapping
+- Local administrator fallback
+- Persistent user storage in SQLite
+- Audit logging for authentication and user-management actions
 
-LDAP configuration is performed entirely through the web interface.
+Authentication is enabled globally through the environment configuration.
+LDAP-specific settings are managed through the ProxPilot web interface.
 
-------------------------------------------------------------------------
+---
 
-# Local Authentication
+# Authentication Enablement
 
-Local authentication is enabled with:
+Authentication is enabled with:
 
-``` dotenv
+```dotenv
 PROXPILOT_AUTH_ENABLED=true
 ```
 
-Initial credentials are taken from `.env` only during the first startup
-when no matching user exists in the SQLite database.
+When authentication is enabled, protected API routes require a valid session.
 
-After that, users are managed exclusively through the web interface.
+If authentication is disabled, ProxPilot does not require a login for normal use.
 
-------------------------------------------------------------------------
+---
 
-# First Login
+# Initial Administrator
 
-1.  Start ProxPilot.
-2.  Open the web interface.
-3.  Sign in using the initial administrator credentials.
-4.  Verify access to the Settings and Users pages.
+The initial administrator credentials are provided through `.env`.
 
-------------------------------------------------------------------------
+Example:
 
-# User Roles
+```dotenv
+PROXPILOT_AUTH_USERNAME=admin
+PROXPILOT_AUTH_PASSWORD=change-me
+```
 
-## Administrator
+These values are used for initial provisioning.
 
-Administrators can:
+After the local administrator exists in the SQLite database, users are managed
+through the web interface.
 
--   Manage users
--   Configure LDAP
--   Change system settings
--   Execute administrative guest and node actions
+The local user database is stored in:
 
-## User
-
-Regular users can access the dashboard and permitted management
-functions but cannot modify authentication settings.
-
-------------------------------------------------------------------------
-
-# User Management
-
-Administrators can:
-
--   Create users
--   Delete users
--   Reset passwords
--   Change roles
--   Enable or disable accounts
-
-All user data is stored in:
-
-``` text
+```text
 ./data/proxpilot.db
 ```
 
-------------------------------------------------------------------------
+Do not commit this database to Git.
+
+---
 
 # Password Storage
 
-Passwords are not stored in plain text.
+Local passwords are never stored in plain text.
 
-ProxPilot hashes passwords before storing them.
+ProxPilot stores password hashes in the SQLite user database.
 
-Never copy the SQLite database to a public location.
+The current implementation uses Argon2 password hashing.
 
-------------------------------------------------------------------------
+Passwords must not be written to:
 
-# LDAP Authentication
+- Application logs
+- Audit event details
+- Frontend responses
+- API responses
 
-LDAP is configured through:
+---
 
-Settings → Authentication → LDAP
+# Session Handling
 
-Configuration includes:
+Successful authentication creates a signed session token.
 
--   Enable LDAP
--   Server URI
--   Base DN
--   Bind DN
--   Bind password
--   User search filter
--   Username attribute
--   Display name attribute
--   Email attribute
+The browser receives the session as an HttpOnly cookie.
 
-------------------------------------------------------------------------
+The session contains the authenticated user's:
 
-# LDAP Test
+- User ID
+- Username
+- Role
+- Authentication source
 
-Use the built-in LDAP test before enabling LDAP.
+The supported authentication sources are:
 
-Verify:
+```text
+local
+ldap
+```
 
--   Server connectivity
--   Bind account
--   Search base
--   User lookup
+The session role is used by backend permission checks and by frontend
+permission-aware controls.
 
-Correct any reported errors before saving the configuration.
+---
 
-------------------------------------------------------------------------
+# Session Lifetime
 
-# Login Flow
+The session lifetime is configured with:
 
-When LDAP is enabled:
+```dotenv
+PROXPILOT_SESSION_MAX_AGE=43200
+```
 
-1.  User enters username and password.
-2.  ProxPilot performs LDAP authentication.
-3.  If authentication succeeds, the user is synchronized into the local
-    database if required.
-4.  A signed HttpOnly session cookie is created.
+The value is specified in seconds.
 
-------------------------------------------------------------------------
+Example:
 
-# Local Fallback
+```text
+43200 seconds = 12 hours
+```
 
-Depending on the configured authentication mode, local users can
-continue to log in even when LDAP is unavailable.
+---
 
-This allows emergency administrator access.
+# Session Secret
 
-------------------------------------------------------------------------
+Session signing uses:
 
-# Session Cookies
+```dotenv
+PROXPILOT_SESSION_SECRET=<generated-secret>
+```
 
-Successful logins create an HttpOnly session cookie.
+Generate a sufficiently long random value, for example:
 
-When HTTPS is used:
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(64))"
+```
 
-``` dotenv
+The secret must:
+
+- Remain private
+- Not be committed to Git
+- Remain stable across container restarts
+
+Changing the session secret invalidates existing browser sessions.
+
+---
+
+# Secure Cookies
+
+When ProxPilot is served over HTTPS, use:
+
+```dotenv
 PROXPILOT_COOKIE_SECURE=true
 ```
 
-For local HTTP testing only:
+For plain HTTP development only:
 
-``` dotenv
+```dotenv
 PROXPILOT_COOKIE_SECURE=false
 ```
 
-Browsers will not send Secure cookies over plain HTTP.
+Browsers do not send Secure cookies over plain HTTP.
 
-------------------------------------------------------------------------
+The integrated browser console should be used through HTTPS in production.
+
+---
+
+# Login Flow
+
+ProxPilot checks authentication in this order:
+
+1. The user submits username and password.
+2. ProxPilot validates its authentication configuration.
+3. Local authentication is attempted first.
+4. If local authentication fails and LDAP is enabled, LDAP authentication is attempted.
+5. If LDAP authentication succeeds, ProxPilot determines the user's role.
+6. The LDAP user is created or synchronized in the local SQLite database.
+7. A signed session cookie is created.
+8. The login event is recorded in the audit log.
+
+This means LDAP is an additional authentication method and does not replace local
+authentication.
+
+Existing local accounts therefore continue to work when LDAP is enabled.
+
+---
 
 # Logout
 
-Logout invalidates the current browser session.
+Logout removes the browser's session cookie.
 
-The browser must authenticate again to continue.
+The user must authenticate again before accessing protected routes.
 
-------------------------------------------------------------------------
+Logout events are recorded in the audit log.
+
+---
+
+# User Roles
+
+ProxPilot 1.5.0 has three roles:
+
+```text
+Administrator
+Operator
+Viewer
+```
+
+The roles are intentionally separated into:
+
+- Security administration
+- Operational administration
+- Read-only access
+
+---
+
+# Administrator
+
+Administrators have unrestricted ProxPilot permissions.
+
+Administrators can:
+
+- View all pages
+- Manage local users
+- Create local users
+- Delete local users
+- Enable and disable users
+- Change user roles
+- Change local user passwords
+- Configure LDAP
+- Test LDAP configuration
+- Configure LDAP role mappings
+- Change audit retention
+- View the audit log
+- Export audit events
+- Perform guest power actions
+- Start guest backups
+- Start configured backup jobs
+- Manage snapshots
+- Roll back snapshots
+- Delete snapshots
+- Migrate guests
+- Open QEMU browser consoles
+- Manage node maintenance mode
+- Check node updates
+- Install node updates
+- Run package cleanup
+- Reboot nodes
+- Shut down nodes
+- View system information
+- View operational status and health information
+
+---
+
+# Operator
+
+Operators have operational permissions but do not have access to security or user
+administration.
+
+Operators can:
+
+- View normal operational pages
+- Perform guest power actions
+- Start guest backups
+- Start configured backup jobs
+- Create snapshots
+- Roll back snapshots
+- Delete snapshots
+- Migrate guests
+- Open QEMU browser consoles
+- Enable and disable node maintenance mode
+- Check node updates
+- Install node updates
+- Run package cleanup
+- Reboot nodes
+- Shut down nodes
+- View system information
+- View the audit log
+- Export audit events
+
+Operators cannot:
+
+- Manage users
+- Create users
+- Delete users
+- Change user roles
+- Change local user passwords
+- Configure LDAP
+- Change LDAP settings
+- Change LDAP role mappings
+- Change audit retention
+- Modify authentication configuration
+
+---
+
+# Viewer
+
+Viewers have read-only access.
+
+Viewers can inspect available information such as:
+
+- Dashboard
+- Cluster status
+- Nodes
+- Guests
+- Storage
+- Network
+- Replication
+- Backups
+- Tasks
+- Guest Agent information
+- Guest disk usage information
+- ZFS health information
+- SMART warnings
+- Hardware and runtime information
+
+Viewers cannot execute privileged guest or node operations.
+
+---
+
+# Administrator Protection
+
+ProxPilot protects against accidental administrator lockout.
+
+The last enabled administrator cannot be:
+
+- Deleted
+- Disabled
+- Downgraded to Operator
+- Downgraded to Viewer
+
+An administrator also cannot remove their own administrator role.
+
+This prevents the system from ending up without an enabled administrator.
+
+---
+
+# User Management
+
+User management is available to administrators only.
+
+The Users page supports:
+
+- Local user creation
+- Role assignment
+- Enable / disable
+- Password changes for local users
+- User deletion
+
+The available roles are:
+
+```text
+admin
+operator
+viewer
+```
+
+LDAP users are synchronized automatically after successful LDAP authentication.
+
+LDAP usernames are managed by the directory and are not renamed through ProxPilot.
+
+---
+
+# Local and LDAP Users
+
+Users have a source:
+
+```text
+local
+ldap
+```
+
+Local users authenticate against the password hash stored in ProxPilot.
+
+LDAP users authenticate against the configured directory.
+
+A same-named existing local user is not silently replaced by an LDAP account.
+
+This protects local administrative fallback accounts.
+
+---
+
+# LDAP / Active Directory
+
+LDAP configuration is managed through:
+
+```text
+Settings → Authentication → LDAP
+```
+
+The implementation is suitable for generic LDAP and Microsoft Active Directory.
+
+---
+
+# LDAP Settings
+
+The LDAP configuration includes:
+
+- Enabled
+- LDAP server
+- Port
+- Use LDAPS
+- Use StartTLS
+- Verify TLS certificate
+- Bind DN
+- Bind password
+- Base DN
+- User filter
+- Default role
+- Administrator group DN
+- Operator group DN
+- Viewer group DN
+
+---
+
+# LDAP Server
+
+Enter the LDAP server hostname or IP address without a URI scheme.
+
+Example:
+
+```text
+dc01.example.local
+```
+
+Do not enter:
+
+```text
+ldap://dc01.example.local
+```
+
+or:
+
+```text
+ldaps://dc01.example.local
+```
+
+Encryption mode is configured separately.
+
+---
+
+# LDAP Ports
+
+Common values are:
+
+```text
+389  LDAP / StartTLS
+636  LDAPS
+```
+
+The configured port is independent of the encryption checkboxes.
+
+---
+
+# LDAPS
+
+When `Use LDAPS` is enabled, encryption starts immediately when the connection is
+opened.
+
+Typical configuration:
+
+```text
+Port: 636
+Use LDAPS: enabled
+Use StartTLS: disabled
+```
+
+---
+
+# StartTLS
+
+When `Use StartTLS` is enabled, ProxPilot first opens a normal LDAP connection
+and upgrades it to TLS.
+
+Typical configuration:
+
+```text
+Port: 389
+Use LDAPS: disabled
+Use StartTLS: enabled
+```
+
+LDAPS and StartTLS cannot be enabled at the same time.
+
+---
+
+# TLS Certificate Verification
+
+`Verify TLS certificate` controls whether the LDAP server certificate is validated.
+
+For production environments this should normally remain enabled.
+
+Disabling certificate verification can be useful during isolated testing but
+reduces connection security.
+
+---
+
+# Bind Account
+
+If the directory requires a service account for searching, configure:
+
+- Bind DN
+- Bind password
+
+Example Active Directory DN:
+
+```text
+CN=svc-proxpilot,OU=Service Accounts,DC=example,DC=local
+```
+
+The bind password is stored by ProxPilot but is not returned by the settings API.
+
+The frontend only receives whether a bind password has already been configured.
+
+---
+
+# Base DN
+
+The Base DN defines where ProxPilot searches for users.
+
+Example:
+
+```text
+DC=example,DC=local
+```
+
+User searches use subtree scope below this Base DN.
+
+---
+
+# User Filter
+
+The LDAP user filter must contain:
+
+```text
+{username}
+```
+
+Example for Active Directory:
+
+```text
+(&(objectClass=user)(sAMAccountName={username}))
+```
+
+The entered username is escaped before being inserted into the LDAP filter.
+
+---
+
+# LDAP Authentication Process
+
+For an LDAP login, ProxPilot:
+
+1. Opens a search connection.
+2. Uses the configured bind account when available.
+3. Searches below the Base DN using the configured user filter.
+4. Reads the matched user's distinguished name.
+5. Reads the user's `memberOf` values.
+6. Opens a second LDAP connection using the user's own DN and submitted password.
+7. Performs a user bind.
+8. Determines the ProxPilot role from LDAP group membership.
+9. Creates or updates the local representation of the LDAP user.
+
+Authentication succeeds only when the user bind succeeds.
+
+---
+
+# LDAP Role Mapping
+
+LDAP roles are determined from group membership.
+
+Available mappings:
+
+```text
+Administrator group DN -> admin
+Operator group DN      -> operator
+Viewer group DN        -> viewer
+```
+
+Example:
+
+```text
+CN=ProxPilot-Admins,OU=Groups,DC=example,DC=local
+CN=ProxPilot-Operators,OU=Groups,DC=example,DC=local
+CN=ProxPilot-Viewers,OU=Groups,DC=example,DC=local
+```
+
+The group DN comparison is case-insensitive.
+
+---
+
+# LDAP Role Precedence
+
+Role evaluation uses this order:
+
+```text
+Administrator
+Operator
+Viewer
+Default role
+```
+
+Therefore, if a user is a member of both Administrator and Operator groups, the
+Administrator role wins.
+
+If no configured group matches, the configured default role is used.
+
+---
+
+# LDAP Role Synchronization
+
+LDAP role evaluation happens during authentication.
+
+When an LDAP user's directory group membership changes, ProxPilot updates the
+local role after the user's next successful LDAP login.
+
+For example:
+
+```text
+Viewer group -> Operator group
+```
+
+After the next successful LDAP login, the user is synchronized to:
+
+```text
+operator
+```
+
+An active session does not automatically change role in the middle of the session.
+The user should log out and authenticate again.
+
+---
+
+# LDAP Test
+
+The Settings page contains an LDAP connection test.
+
+The test uses the values currently entered in the form, including unsaved values.
+
+The test verifies:
+
+- LDAP server connectivity
+- Port
+- Encryption configuration
+- Bind account
+- Base DN query
+
+A successful connection test does not authenticate a specific end user.
+
+LDAP tests are written to the audit log.
+
+---
+
+# Local Administrator Fallback
+
+Local authentication is always checked before LDAP.
+
+Keeping at least one local administrator is recommended.
+
+This provides emergency access when:
+
+- LDAP is offline
+- Active Directory is offline
+- DNS fails
+- Network connectivity fails
+- LDAP certificates are invalid
+- LDAP settings are accidentally misconfigured
+
+---
+
+# Browser Console Authorization
+
+The integrated QEMU noVNC console is available to:
+
+```text
+Administrator
+Operator
+```
+
+Viewer sessions are rejected.
+
+Authorization is enforced in both:
+
+- HTTP console ticket creation
+- WebSocket console session validation
+
+Console sessions use short-lived backend-managed identifiers.
+
+Opening a console creates an audit event.
+
+---
+
+# Audit Logging
+
+Authentication and security-related operations are written to the persistent
+audit log.
+
+Examples include:
+
+- Successful login
+- Failed login
+- Logout
+- User creation
+- User updates
+- User password changes
+- User deletion
+- LDAP connection tests
+- LDAP configuration changes
+- Console opening
+- Audit retention changes
+
+Audit events may contain:
+
+- Timestamp
+- User ID
+- Username
+- Role
+- Authentication source
+- Client IP address
+- Action
+- Target type
+- Target
+- Node
+- Result
+- Severity
+- Duration
+- Structured details
+
+Passwords and LDAP bind passwords must never be stored in audit details.
+
+---
+
+# Audit Access
+
+The Audit Log page is available to:
+
+```text
+Administrator
+Operator
+```
+
+Viewers do not have operational access to privileged audit-management features.
+
+Administrators can additionally change the retention configuration.
+
+---
+
+# Audit Retention
+
+The default audit retention is:
+
+```text
+90 days
+```
+
+Retention can be changed through the ProxPilot web interface.
+
+Changing retention itself creates an audit event.
+
+Expired entries are removed automatically according to the configured retention.
+
+---
+
+# Client IP Addresses
+
+Audit events use the client address from the request.
+
+When a reverse proxy is present, ProxPilot can read:
+
+```text
+X-Forwarded-For
+X-Real-IP
+```
+
+The first `X-Forwarded-For` address is used when present.
+
+Only trusted reverse proxies should be allowed to supply these headers.
+
+---
 
 # Security Recommendations
 
--   Use HTTPS
--   Use Secure cookies
--   Use strong administrator passwords
--   Restrict access to trusted networks
--   Protect the SQLite database
--   Protect SSH keys
--   Use a dedicated Proxmox API user
+For production use:
 
-------------------------------------------------------------------------
+- Use HTTPS
+- Enable Secure cookies
+- Use a strong session secret
+- Keep at least one local administrator
+- Use strong local passwords
+- Use LDAPS or StartTLS for LDAP where possible
+- Enable LDAP certificate verification
+- Use a dedicated LDAP bind account
+- Give the bind account only the directory permissions it requires
+- Restrict ProxPilot to trusted networks
+- Protect the SQLite database
+- Protect `.env`
+- Protect SSH keys
+- Review audit events regularly
+- Avoid exposing ProxPilot directly to the public Internet without appropriate access controls
 
-# Common LDAP Problems
+---
 
-## Invalid credentials
+# Troubleshooting LDAP
 
-Verify:
-
--   Bind DN
--   Bind password
-
-------------------------------------------------------------------------
-
-## User not found
-
-Verify:
-
--   Base DN
--   User search filter
--   Username attribute
-
-------------------------------------------------------------------------
-
-## Cannot connect
+## LDAP connection test fails
 
 Verify:
 
--   Firewall
--   DNS
--   LDAP server URI
--   TCP port (389 or 636)
+- DNS resolution
+- Firewall rules
+- LDAP hostname
+- LDAP port
+- LDAPS / StartTLS selection
+- TLS certificate trust
+- Bind DN
+- Bind password
+- Base DN
 
-------------------------------------------------------------------------
+---
 
-## LDAP works but login fails
+## LDAP user is not found
 
 Verify:
 
--   LDAP test succeeds
--   User synchronization
--   Role assignment
+- Base DN
+- User filter
+- `{username}` placeholder
+- `sAMAccountName` when using Active Directory
+- Search permissions of the bind account
 
-------------------------------------------------------------------------
+Example Active Directory filter:
+
+```text
+(&(objectClass=user)(sAMAccountName={username}))
+```
+
+---
+
+## LDAP connection succeeds but login fails
+
+The connection test and user authentication are separate operations.
+
+Verify:
+
+- The user is found by the configured filter
+- The user's submitted password is correct
+- The user's DN can be bound
+- The LDAP account is not disabled
+- The bind account can read required user attributes
+
+---
+
+## Wrong role after LDAP login
+
+Verify:
+
+- Administrator group DN
+- Operator group DN
+- Viewer group DN
+- User's `memberOf` values
+- Default role
+
+Group DNs must match the values returned by the directory.
+
+After changing directory group membership:
+
+1. Log out of ProxPilot.
+2. Log in again.
+3. Verify the role displayed in ProxPilot.
+
+---
+
+## Local login unexpectedly wins over LDAP
+
+This is expected behavior.
+
+ProxPilot checks local users first.
+
+If an existing local account successfully authenticates, LDAP is not attempted for
+that login.
+
+This protects local administrator fallback accounts.
+
+---
+
+## Secure cookie prevents login over HTTP
+
+If:
+
+```dotenv
+PROXPILOT_COOKIE_SECURE=true
+```
+
+the browser will not send the session cookie over plain HTTP.
+
+For production:
+
+```text
+Use HTTPS.
+```
+
+For local HTTP development only:
+
+```dotenv
+PROXPILOT_COOKIE_SECURE=false
+```
+
+---
 
 # Related Documentation
 
--   INSTALLATION.md
--   CONFIGURATION.md
--   API-PERMISSIONS.md
--   HTTPS_AND_REVERSE_PROXY.md
--   TROUBLESHOOTING.md
+- `README.md`
+- `CONFIGURATION.md`
+- `API-PERMISSIONS.md`
+- `INSTALLATION.md`
+- `HTTPS_AND_REVERSE_PROXY.md`
+- `TROUBLESHOOTING.md`

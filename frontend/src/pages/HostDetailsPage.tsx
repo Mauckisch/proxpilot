@@ -40,6 +40,7 @@ import {
 import {
   type HostBlockDevice,
   type HostFilesystem,
+  type HostSmartDevice,
   useHostDetails,
 } from '../hooks/useHostDetails';
 import { useNetwork } from '../hooks/useNetwork';
@@ -257,6 +258,36 @@ function flattenBlockDevices(
   ]);
 }
 
+function smartColor(
+  health?: HostSmartDevice['health'],
+): string {
+  switch (health) {
+    case 'healthy':
+      return 'green';
+    case 'warning':
+      return 'yellow';
+    case 'critical':
+      return 'red';
+    default:
+      return 'gray';
+  }
+}
+
+function smartLabel(
+  health?: HostSmartDevice['health'],
+): string {
+  switch (health) {
+    case 'healthy':
+      return 'Healthy';
+    case 'warning':
+      return 'Warning';
+    case 'critical':
+      return 'Critical';
+    default:
+      return 'Unknown';
+  }
+}
+
 export function HostDetailsPage({
   node,
   onBack,
@@ -325,6 +356,28 @@ export function HostDetailsPage({
   const blockDevices = flattenBlockDevices(
     data.storage.block_devices ?? [],
   );
+
+  const smartDevices =
+    data.storage.smart_devices ?? [];
+
+  const smartByPath = new Map(
+    smartDevices.map((device) => [
+      device.path,
+      device,
+    ]),
+  );
+
+  const criticalSmartDevices =
+    smartDevices.filter(
+      (device) =>
+        device.health === 'critical',
+    );
+
+  const warningSmartDevices =
+    smartDevices.filter(
+      (device) =>
+        device.health === 'warning',
+    );
 
   return (
     <Stack gap="xl">
@@ -716,6 +769,40 @@ export function HostDetailsPage({
           <Stack gap="lg">
             <Title order={4}>Mounted filesystems</Title>
 
+            {smartDevices.length > 0 &&
+              criticalSmartDevices.length === 0 &&
+              warningSmartDevices.length === 0 && (
+                <Alert
+                  color="green"
+                  title="SMART health OK"
+                >
+                  All {smartDevices.length} physical drive
+                  {smartDevices.length === 1 ? '' : 's'} report a healthy SMART status.
+                </Alert>
+              )}
+
+            {criticalSmartDevices.length > 0 && (
+              <Alert
+                color="red"
+                icon={<IconAlertCircle size={18} />}
+                title="Critical SMART warning"
+              >
+                {criticalSmartDevices.length} physical drive
+                {criticalSmartDevices.length === 1 ? '' : 's'} report a critical SMART condition.
+              </Alert>
+            )}
+
+            {warningSmartDevices.length > 0 && (
+              <Alert
+                color="yellow"
+                icon={<IconAlertCircle size={18} />}
+                title="SMART warning detected"
+              >
+                {warningSmartDevices.length} physical drive
+                {warningSmartDevices.length === 1 ? '' : 's'} contain SMART attributes that require attention.
+              </Alert>
+            )}
+
             <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }}>
               {data.storage.filesystems.map((filesystem) => (
                 <FilesystemUsage
@@ -742,6 +829,7 @@ export function HostDetailsPage({
                         <Table.Th>Type</Table.Th>
                         <Table.Th>Size</Table.Th>
                         <Table.Th>Model</Table.Th>
+                        <Table.Th>SMART</Table.Th>
                         <Table.Th>Transport</Table.Th>
                         <Table.Th>Filesystem</Table.Th>
                         <Table.Th>Mountpoints</Table.Th>
@@ -774,6 +862,63 @@ export function HostDetailsPage({
                               .filter(Boolean)
                               .join(' ') || '—'}
                           </Table.Td>
+
+                          <Table.Td>
+                            {(() => {
+                              const smart =
+                                smartByPath.get(
+                                  device.path ?? '',
+                                );
+
+                              if (!smart) {
+                                return '—';
+                              }
+
+                              return (
+                                <Stack gap={3}>
+                                  <Badge
+                                    variant="light"
+                                    color={smartColor(
+                                      smart.health,
+                                    )}
+                                  >
+                                    {smartLabel(
+                                      smart.health,
+                                    )}
+                                  </Badge>
+
+                                  {smart.wear_remaining_percent !==
+                                    undefined &&
+                                    smart.wear_remaining_percent !==
+                                      null && (
+                                      <Text
+                                        size="xs"
+                                        c="dimmed"
+                                      >
+                                        Wear remaining:{' '}
+                                        {smart.wear_remaining_percent}%
+                                      </Text>
+                                    )}
+
+                                  {smart.warnings.length > 0 && (
+                                    <Text
+                                      size="xs"
+                                      c={
+                                        smart.health === 'critical'
+                                          ? 'red'
+                                          : 'yellow'
+                                      }
+                                    >
+                                      {smart.warnings.join(
+                                        ' · ',
+                                      )}
+                                    </Text>
+                                  )}
+                                </Stack>
+                              );
+                            })()}
+                          </Table.Td>
+
                           <Table.Td>{device.tran ?? '—'}</Table.Td>
                           <Table.Td>{device.fstype ?? '—'}</Table.Td>
                           <Table.Td>

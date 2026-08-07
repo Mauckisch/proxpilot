@@ -11,11 +11,13 @@ import {
 } from '@mantine/core';
 import {
   IconAlertCircle,
+  IconCheck,
 } from '@tabler/icons-react';
 
 import type {
   HostBlockDevice,
   HostDetails,
+  HostSmartDevice,
 } from '../../hooks/useHostDetails';
 import { NodeFilesystemCard } from './NodeInfoComponents';
 import { formatBytes } from './format';
@@ -45,7 +47,10 @@ function getDeviceKind(
   device: HostBlockDevice,
 ): string {
   if (device.type === 'disk') {
-    if (device.rota === true || device.rota === 1) {
+    if (
+      device.rota === true ||
+      device.rota === 1
+    ) {
       return 'HDD';
     }
 
@@ -73,6 +78,42 @@ function getMountpoints(
     .join(', ') || '—';
 }
 
+function smartColor(
+  health?: HostSmartDevice['health'],
+): string {
+  switch (health) {
+    case 'healthy':
+      return 'green';
+
+    case 'warning':
+      return 'yellow';
+
+    case 'critical':
+      return 'red';
+
+    default:
+      return 'gray';
+  }
+}
+
+function smartLabel(
+  health?: HostSmartDevice['health'],
+): string {
+  switch (health) {
+    case 'healthy':
+      return 'Healthy';
+
+    case 'warning':
+      return 'Warning';
+
+    case 'critical':
+      return 'Critical';
+
+    default:
+      return 'Unknown';
+  }
+}
+
 export function NodeStorage({
   details,
 }: {
@@ -81,9 +122,32 @@ export function NodeStorage({
   const filesystems =
     details.storage.filesystems ?? [];
 
-  const blockDevices = flattenBlockDevices(
-    details.storage.block_devices ?? [],
+  const blockDevices =
+    flattenBlockDevices(
+      details.storage.block_devices ?? [],
+    );
+
+  const smartDevices =
+    details.storage.smart_devices ?? [];
+
+  const smartByPath = new Map(
+    smartDevices.map((device) => [
+      device.path,
+      device,
+    ]),
   );
+
+  const criticalDevices =
+    smartDevices.filter(
+      (device) =>
+        device.health === 'critical',
+    );
+
+  const warningDevices =
+    smartDevices.filter(
+      (device) =>
+        device.health === 'warning',
+    );
 
   return (
     <Stack gap="lg">
@@ -130,6 +194,54 @@ export function NodeStorage({
         </SimpleGrid>
       )}
 
+      {smartDevices.length > 0 &&
+        criticalDevices.length === 0 &&
+        warningDevices.length === 0 && (
+          <Alert
+            color="green"
+            icon={<IconCheck size={18} />}
+            title="SMART health OK"
+          >
+            All {smartDevices.length} physical
+            drive
+            {smartDevices.length === 1
+              ? ''
+              : 's'}{' '}
+            report a healthy SMART status.
+          </Alert>
+        )}
+
+      {criticalDevices.length > 0 && (
+        <Alert
+          color="red"
+          icon={<IconAlertCircle size={18} />}
+          title="Critical SMART warning"
+        >
+          {criticalDevices.length} physical
+          drive
+          {criticalDevices.length === 1
+            ? ''
+            : 's'}{' '}
+          report a critical SMART condition.
+        </Alert>
+      )}
+
+      {warningDevices.length > 0 && (
+        <Alert
+          color="yellow"
+          icon={<IconAlertCircle size={18} />}
+          title="SMART warning detected"
+        >
+          {warningDevices.length} physical
+          drive
+          {warningDevices.length === 1
+            ? ''
+            : 's'}{' '}
+          contain SMART attributes that require
+          attention.
+        </Alert>
+      )}
+
       <Paper withBorder radius="md" p="lg">
         <Stack>
           <div>
@@ -160,101 +272,184 @@ export function NodeStorage({
                 striped
                 highlightOnHover
                 withTableBorder
-                miw={1200}
+                miw={1300}
               >
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>Device</Table.Th>
-                    <Table.Th>Kind</Table.Th>
-                    <Table.Th>Size</Table.Th>
-                    <Table.Th>Vendor / Model</Table.Th>
-                    <Table.Th>Serial</Table.Th>
-                    <Table.Th>Transport</Table.Th>
-                    <Table.Th>Filesystem</Table.Th>
-                    <Table.Th>Mountpoints</Table.Th>
-                    <Table.Th>State</Table.Th>
+                    <Table.Th>
+                      Device
+                    </Table.Th>
+                    <Table.Th>
+                      Kind
+                    </Table.Th>
+                    <Table.Th>
+                      Size
+                    </Table.Th>
+                    <Table.Th>
+                      Vendor / Model
+                    </Table.Th>
+                    <Table.Th>
+                      Serial
+                    </Table.Th>
+                    <Table.Th>
+                      SMART
+                    </Table.Th>
+                    <Table.Th>
+                      Transport
+                    </Table.Th>
+                    <Table.Th>
+                      Filesystem
+                    </Table.Th>
+                    <Table.Th>
+                      Mountpoints
+                    </Table.Th>
+                    <Table.Th>
+                      State
+                    </Table.Th>
                   </Table.Tr>
                 </Table.Thead>
 
                 <Table.Tbody>
                   {blockDevices.map(
-                    (device, index) => (
-                      <Table.Tr
-                        key={[
-                          device.path,
-                          device.name,
-                          index,
-                        ].join('-')}
-                      >
-                        <Table.Td>
-                          <Text
-                            size="sm"
-                            fw={600}
-                            pl={
-                              device.depth * 18
-                            }
-                          >
-                            {device.depth > 0
-                              ? '↳ '
-                              : ''}
-                            {device.path ??
-                              device.name ??
-                              'Unknown'}
-                          </Text>
-                        </Table.Td>
+                    (device, index) => {
+                      const path =
+                        device.path ??
+                        '';
 
-                        <Table.Td>
-                          <Badge
-                            variant="light"
-                            color={
-                              device.type ===
-                              'disk'
-                                ? 'blue'
-                                : 'gray'
-                            }
-                          >
-                            {getDeviceKind(
+                      const smart =
+                        smartByPath.get(
+                          path,
+                        );
+
+                      return (
+                        <Table.Tr
+                          key={[
+                            device.path,
+                            device.name,
+                            index,
+                          ].join('-')}
+                        >
+                          <Table.Td>
+                            <Text
+                              size="sm"
+                              fw={600}
+                              pl={
+                                device.depth *
+                                18
+                              }
+                            >
+                              {device.depth >
+                              0
+                                ? '↳ '
+                                : ''}
+                              {device.path ??
+                                device.name ??
+                                'Unknown'}
+                            </Text>
+                          </Table.Td>
+
+                          <Table.Td>
+                            <Badge
+                              variant="light"
+                              color={
+                                device.type ===
+                                'disk'
+                                  ? 'blue'
+                                  : 'gray'
+                              }
+                            >
+                              {getDeviceKind(
+                                device,
+                              )}
+                            </Badge>
+                          </Table.Td>
+
+                          <Table.Td>
+                            {formatBytes(
+                              device.size,
+                            )}
+                          </Table.Td>
+
+                          <Table.Td>
+                            {[
+                              device.vendor,
+                              device.model,
+                            ]
+                              .filter(
+                                Boolean,
+                              )
+                              .join(' ') ||
+                              '—'}
+                          </Table.Td>
+
+                          <Table.Td>
+                            {device.serial ??
+                              '—'}
+                          </Table.Td>
+
+                          <Table.Td>
+                            {smart ? (
+                              <Stack
+                                gap={3}
+                              >
+                                <Badge
+                                  variant="light"
+                                  color={smartColor(
+                                    smart.health,
+                                  )}
+                                >
+                                  {smartLabel(
+                                    smart.health,
+                                  )}
+                                </Badge>
+
+                                {smart
+                                  .warnings
+                                  .length >
+                                  0 && (
+                                  <Text
+                                    size="xs"
+                                    c={
+                                      smart.health ===
+                                      'critical'
+                                        ? 'red'
+                                        : 'yellow'
+                                    }
+                                  >
+                                    {smart.warnings.join(
+                                      ' · ',
+                                    )}
+                                  </Text>
+                                )}
+                              </Stack>
+                            ) : (
+                              '—'
+                            )}
+                          </Table.Td>
+
+                          <Table.Td>
+                            {device.tran ??
+                              '—'}
+                          </Table.Td>
+
+                          <Table.Td>
+                            {device.fstype ??
+                              '—'}
+                          </Table.Td>
+
+                          <Table.Td>
+                            {getMountpoints(
                               device,
                             )}
-                          </Badge>
-                        </Table.Td>
+                          </Table.Td>
 
-                        <Table.Td>
-                          {formatBytes(
-                            device.size,
-                          )}
-                        </Table.Td>
-
-                        <Table.Td>
-                          {[
-                            device.vendor,
-                            device.model,
-                          ]
-                            .filter(Boolean)
-                            .join(' ') || '—'}
-                        </Table.Td>
-
-                        <Table.Td>
-                          {device.serial ?? '—'}
-                        </Table.Td>
-
-                        <Table.Td>
-                          {device.tran ?? '—'}
-                        </Table.Td>
-
-                        <Table.Td>
-                          {device.fstype ?? '—'}
-                        </Table.Td>
-
-                        <Table.Td>
-                          {getMountpoints(device)}
-                        </Table.Td>
-
-                        <Table.Td>
-                          {device.state ?? '—'}
-                        </Table.Td>
-                      </Table.Tr>
-                    ),
+                          <Table.Td>
+                            {device.state ??
+                              '—'}
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                    },
                   )}
                 </Table.Tbody>
               </Table>

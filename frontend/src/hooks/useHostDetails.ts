@@ -127,9 +127,34 @@ export interface HostBlockDevice {
   children?: HostBlockDevice[];
 }
 
+export interface HostSmartDevice {
+  path: string;
+  model?: string | null;
+  serial?: string | null;
+  protocol?: string | null;
+  passed?: boolean | null;
+  health:
+    | 'healthy'
+    | 'warning'
+    | 'critical'
+    | 'unknown';
+  warnings: string[];
+  temperature_celsius?: number | null;
+  percentage_used?: number | null;
+  wear_remaining_percent?: number | null;
+  critical_warning?: number;
+  media_errors?: number;
+  reallocated_sectors?: number;
+  reported_uncorrect?: number;
+  pending_sectors?: number;
+  offline_uncorrectable?: number;
+  crc_errors?: number;
+}
+
 export interface HostStorage {
   filesystems: HostFilesystem[];
   block_devices: HostBlockDevice[];
+  smart_devices: HostSmartDevice[];
 }
 
 export interface HostPciDevice {
@@ -170,6 +195,9 @@ export interface HostZfsPool {
   state?: string;
   scan?: string;
   errors?: string;
+  read_errors?: number;
+  write_errors?: number;
+  checksum_errors?: number;
   raw_status?: string;
 }
 

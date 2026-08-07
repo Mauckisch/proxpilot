@@ -68,7 +68,7 @@ type SystemInformation = {
   current_user: {
     id: number;
     username: string;
-    role: 'admin' | 'viewer';
+    role: 'admin' | 'operator' | 'viewer';
     source: 'local' | 'ldap';
   };
 };

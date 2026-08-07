@@ -1,4 +1,8 @@
-import { useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import {
   Alert,
@@ -21,21 +25,61 @@ import {
 
 import { TaskCard } from '../components/TaskCard';
 import { useTasks } from '../hooks/useTasks';
+import {
+  getTaskType,
+  type TaskType,
+} from '../utils/taskType';
 
-export function TasksPage() {
+type TasksPageProps = {
+  selectedTaskId?: string | null;
+};
+
+export function TasksPage({
+  selectedTaskId,
+}: TasksPageProps) {
   const tasksQuery = useTasks();
 
   const [search, setSearch] = useState('');
+
   const [stateFilter, setStateFilter] =
     useState<string | null>('all');
 
+  const [typeFilter, setTypeFilter] =
+    useState<string | null>('all');
+
   const tasks = tasksQuery.data?.tasks ?? [];
+
+  useEffect(() => {
+    if (!selectedTaskId) {
+      return;
+    }
+
+    setSearch('');
+    setStateFilter('all');
+    setTypeFilter('all');
+
+    const timeout = window.setTimeout(() => {
+      const element = document.getElementById(
+        `task-${selectedTaskId}`,
+      );
+
+      element?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }, 100);
+
+    return () => window.clearTimeout(timeout);
+  }, [selectedTaskId]);
 
   const filteredTasks = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return tasks
       .filter((task) => {
+        const taskType =
+          getTaskType(task).type;
+
         const matchesSearch =
           !query ||
           `${task.title} ${task.node ?? ''} ${
@@ -48,7 +92,15 @@ export function TasksPage() {
           stateFilter === 'all' ||
           task.state === stateFilter;
 
-        return matchesSearch && matchesState;
+        const matchesType =
+          typeFilter === 'all' ||
+          taskType === typeFilter;
+
+        return (
+          matchesSearch &&
+          matchesState &&
+          matchesType
+        );
       })
       .sort((a, b) => {
         const firstDate = new Date(
@@ -61,7 +113,12 @@ export function TasksPage() {
 
         return secondDate - firstDate;
       });
-  }, [search, stateFilter, tasks]);
+  }, [
+    search,
+    stateFilter,
+    typeFilter,
+    tasks,
+  ]);
 
   if (tasksQuery.isLoading) {
     return (
@@ -104,6 +161,52 @@ export function TasksPage() {
     (task) => task.state === 'error',
   ).length;
 
+  const typeOptions: Array<{
+    value: TaskType | 'all';
+    label: string;
+  }> = [
+    {
+      value: 'all',
+      label: 'All task types',
+    },
+    {
+      value: 'backup',
+      label: 'Backup',
+    },
+    {
+      value: 'snapshot',
+      label: 'Snapshot',
+    },
+    {
+      value: 'migration',
+      label: 'Migration',
+    },
+    {
+      value: 'update',
+      label: 'Update',
+    },
+    {
+      value: 'cleanup',
+      label: 'Cleanup',
+    },
+    {
+      value: 'power',
+      label: 'Power',
+    },
+    {
+      value: 'maintenance',
+      label: 'Maintenance',
+    },
+    {
+      value: 'console',
+      label: 'Console',
+    },
+    {
+      value: 'other',
+      label: 'Other',
+    },
+  ];
+
   return (
     <Stack gap="xl">
       <Group
@@ -121,7 +224,9 @@ export function TasksPage() {
         <Group gap="xs">
           <Badge
             color={
-              runningTasks > 0 ? 'orange' : 'gray'
+              runningTasks > 0
+                ? 'orange'
+                : 'gray'
             }
             variant="light"
             size="lg"
@@ -141,9 +246,13 @@ export function TasksPage() {
 
           <Button
             variant="light"
-            leftSection={<IconRefresh size={16} />}
+            leftSection={
+              <IconRefresh size={16} />
+            }
             loading={tasksQuery.isFetching}
-            onClick={() => tasksQuery.refetch()}
+            onClick={() =>
+              tasksQuery.refetch()
+            }
           >
             Refresh
           </Button>
@@ -156,9 +265,13 @@ export function TasksPage() {
           placeholder="Title, node or action"
           value={search}
           onChange={(event) =>
-            setSearch(event.currentTarget.value)
+            setSearch(
+              event.currentTarget.value,
+            )
           }
-          leftSection={<IconSearch size={16} />}
+          leftSection={
+            <IconSearch size={16} />
+          }
           style={{ flex: 1 }}
         />
 
@@ -192,12 +305,26 @@ export function TasksPage() {
           w={220}
         />
 
-        {(search || stateFilter !== 'all') && (
+        <Select
+          label="Task type"
+          value={typeFilter}
+          onChange={setTypeFilter}
+          allowDeselect={false}
+          data={typeOptions}
+          w={220}
+        />
+
+        {(
+          search ||
+          stateFilter !== 'all' ||
+          typeFilter !== 'all'
+        ) && (
           <Button
             variant="subtle"
             onClick={() => {
               setSearch('');
               setStateFilter('all');
+              setTypeFilter('all');
             }}
           >
             Reset
@@ -213,7 +340,9 @@ export function TasksPage() {
       {filteredTasks.length === 0 ? (
         <Alert
           color="blue"
-          icon={<IconAlertCircle size={20} />}
+          icon={
+            <IconAlertCircle size={20} />
+          }
           title="No tasks found"
         >
           No tasks match the selected filters.
@@ -221,10 +350,26 @@ export function TasksPage() {
       ) : (
         <Stack gap="md">
           {filteredTasks.map((task) => (
-            <TaskCard
+            <div
               key={task.id}
-              task={task}
-            />
+              id={`task-${task.id}`}
+              style={{
+                borderRadius:
+                  'var(--mantine-radius-md)',
+                outline:
+                  selectedTaskId === task.id
+                    ? '2px solid var(--mantine-color-blue-6)'
+                    : undefined,
+                outlineOffset:
+                  selectedTaskId === task.id
+                    ? '4px'
+                    : undefined,
+                transition:
+                  'outline 150ms ease',
+              }}
+            >
+              <TaskCard task={task} />
+            </div>
           ))}
         </Stack>
       )}

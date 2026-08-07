@@ -589,6 +589,250 @@ class ProxmoxClient:
             or {}
         )
 
+        guest_agent_network = []
+        guest_agent_hostname = None
+        guest_agent_os = None
+        guest_agent_filesystems = []
+
+        if (
+            guest_type == "qemu"
+            and str(status.get("status", "")).lower() == "running"
+        ):
+            try:
+                agent_response = await self.request_node(
+                    node,
+                    "GET",
+                    (
+                        f"/nodes/{node}/qemu/{vmid}"
+                        "/agent/network-get-interfaces"
+                    ),
+                )
+
+                if isinstance(agent_response, dict):
+                    interfaces = agent_response.get(
+                        "result",
+                        [],
+                    )
+                elif isinstance(agent_response, list):
+                    interfaces = agent_response
+                else:
+                    interfaces = []
+
+                if isinstance(interfaces, list):
+                    for interface in interfaces:
+                        if not isinstance(interface, dict):
+                            continue
+
+                        name = str(
+                            interface.get("name", "")
+                        ).strip()
+
+                        if name == "lo":
+                            continue
+
+                        addresses = []
+
+                        for address in (
+                            interface.get(
+                                "ip-addresses",
+                                [],
+                            )
+                            or []
+                        ):
+                            if not isinstance(address, dict):
+                                continue
+
+                            ip_address = str(
+                                address.get(
+                                    "ip-address",
+                                    "",
+                                )
+                            ).strip()
+
+                            if (
+                                not ip_address
+                                or ip_address == "::1"
+                                or ip_address.startswith(
+                                    "127."
+                                )
+                            ):
+                                continue
+
+                            addresses.append(
+                                {
+                                    "address": ip_address,
+                                    "type": address.get(
+                                        "ip-address-type"
+                                    ),
+                                    "prefix": address.get(
+                                        "prefix"
+                                    ),
+                                }
+                            )
+
+                        guest_agent_network.append(
+                            {
+                                "name": name,
+                                "hardware_address": interface.get(
+                                    "hardware-address"
+                                ),
+                                "ip_addresses": addresses,
+                            }
+                        )
+
+            except ProxmoxError:
+                guest_agent_network = []
+
+            try:
+                hostname_response = await self.request_node(
+                    node,
+                    "GET",
+                    (
+                        f"/nodes/{node}/qemu/{vmid}"
+                        "/agent/get-host-name"
+                    ),
+                )
+
+                if isinstance(hostname_response, dict):
+                    result = hostname_response.get("result")
+
+                    if isinstance(result, dict):
+                        guest_agent_hostname = result.get(
+                            "host-name"
+                        )
+
+            except ProxmoxError:
+                guest_agent_hostname = None
+
+            try:
+                os_response = await self.request_node(
+                    node,
+                    "GET",
+                    (
+                        f"/nodes/{node}/qemu/{vmid}"
+                        "/agent/get-osinfo"
+                    ),
+                )
+
+                if isinstance(os_response, dict):
+                    result = os_response.get("result")
+
+                    if isinstance(result, dict):
+                        guest_agent_os = result
+
+            except ProxmoxError:
+                guest_agent_os = None
+
+            try:
+                fs_response = await self.request_node(
+                    node,
+                    "GET",
+                    (
+                        f"/nodes/{node}/qemu/{vmid}"
+                        "/agent/get-fsinfo"
+                    ),
+                )
+
+                if isinstance(fs_response, dict):
+                    filesystems = fs_response.get(
+                        "result",
+                        [],
+                    )
+                elif isinstance(fs_response, list):
+                    filesystems = fs_response
+                else:
+                    filesystems = []
+
+                ignored_types = {
+                    "tmpfs",
+                    "devtmpfs",
+                    "overlay",
+                    "squashfs",
+                    "erofs",
+                    "ramfs",
+                }
+
+                ignored_mountpoints = {
+                    "/tmp",
+                    "/run",
+                    "/proc",
+                    "/sys",
+                    "/dev",
+                    "/boot",
+                    "/boot/efi",
+                    "/mnt/overlay",
+                }
+
+                if isinstance(filesystems, list):
+                    for filesystem in filesystems:
+                        if not isinstance(filesystem, dict):
+                            continue
+
+                        mountpoint = str(
+                            filesystem.get(
+                                "mountpoint",
+                                "",
+                            )
+                        ).strip()
+
+                        filesystem_type = str(
+                            filesystem.get(
+                                "type",
+                                "",
+                            )
+                        ).strip().lower()
+
+                        name = str(
+                            filesystem.get(
+                                "name",
+                                "",
+                            )
+                        ).strip().lower()
+
+                        if (
+                            not mountpoint
+                            or mountpoint in ignored_mountpoints
+                            or filesystem_type in ignored_types
+                            or name.startswith("zram")
+                        ):
+                            continue
+
+                        try:
+                            total_bytes = int(
+                                filesystem.get(
+                                    "total-bytes",
+                                    0,
+                                )
+                            )
+                            used_bytes = int(
+                                filesystem.get(
+                                    "used-bytes",
+                                    0,
+                                )
+                            )
+                        except (TypeError, ValueError):
+                            continue
+
+                        if total_bytes <= 0:
+                            continue
+
+                        guest_agent_filesystems.append(
+                            {
+                                "mountpoint": mountpoint,
+                                "name": filesystem.get(
+                                    "name"
+                                ),
+                                "type": filesystem.get(
+                                    "type"
+                                ),
+                                "total_bytes": total_bytes,
+                                "used_bytes": used_bytes,
+                            }
+                        )
+
+            except ProxmoxError:
+                guest_agent_filesystems = []
+
         return {
             "node": node,
             "node_host": self.node_host(node),
@@ -596,7 +840,132 @@ class ProxmoxClient:
             "vmid": vmid,
             "config": config,
             "status": status,
+            "guest_agent_network": guest_agent_network,
+            "guest_agent_hostname": guest_agent_hostname,
+            "guest_agent_os": guest_agent_os,
+            "guest_agent_filesystems": guest_agent_filesystems,
         }
+
+    async def guest_disk_usage(
+        self,
+        node: str,
+        vmid: int,
+    ) -> dict:
+        try:
+            fs_response = await self.request_node(
+                node,
+                "GET",
+                (
+                    f"/nodes/{node}/qemu/{vmid}"
+                    "/agent/get-fsinfo"
+                ),
+            )
+        except ProxmoxError:
+            return {
+                "available": False,
+                "used_bytes": 0,
+                "total_bytes": 0,
+            }
+
+        if isinstance(fs_response, dict):
+            filesystems = fs_response.get(
+                "result",
+                [],
+            )
+        elif isinstance(fs_response, list):
+            filesystems = fs_response
+        else:
+            filesystems = []
+
+        ignored_types = {
+            "tmpfs",
+            "devtmpfs",
+            "overlay",
+            "squashfs",
+            "erofs",
+            "ramfs",
+        }
+
+        ignored_mountpoints = {
+            "/tmp",
+            "/run",
+            "/proc",
+            "/sys",
+            "/dev",
+            "/boot",
+            "/boot/efi",
+            "/mnt/overlay",
+        }
+
+        used_bytes = 0
+        total_bytes = 0
+
+        if isinstance(filesystems, list):
+            for filesystem in filesystems:
+                if not isinstance(filesystem, dict):
+                    continue
+
+                mountpoint = str(
+                    filesystem.get(
+                        "mountpoint",
+                        "",
+                    )
+                ).strip()
+
+                filesystem_type = str(
+                    filesystem.get(
+                        "type",
+                        "",
+                    )
+                ).strip().lower()
+
+                name = str(
+                    filesystem.get(
+                        "name",
+                        "",
+                    )
+                ).strip().lower()
+
+                if (
+                    not mountpoint
+                    or mountpoint in ignored_mountpoints
+                    or filesystem_type in ignored_types
+                    or name.startswith("zram")
+                ):
+                    continue
+
+                try:
+                    filesystem_total = int(
+                        filesystem.get(
+                            "total-bytes",
+                            0,
+                        )
+                    )
+
+                    filesystem_used = int(
+                        filesystem.get(
+                            "used-bytes",
+                            0,
+                        )
+                    )
+                except (TypeError, ValueError):
+                    continue
+
+                if filesystem_total <= 0:
+                    continue
+
+                total_bytes += filesystem_total
+                used_bytes += max(
+                    0,
+                    filesystem_used,
+                )
+
+        return {
+            "available": total_bytes > 0,
+            "used_bytes": used_bytes,
+            "total_bytes": total_bytes,
+        }
+
 
     async def migrate_guest(
         self,

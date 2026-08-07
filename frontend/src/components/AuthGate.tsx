@@ -26,7 +26,7 @@ type AuthStatus = {
   enabled: boolean;
   authenticated: boolean;
   username: string | null;
-  role: 'admin' | 'viewer' | null;
+  role: 'admin' | 'operator' | 'viewer' | null;
   source: 'local' | 'ldap' | null;
 };
 
@@ -214,7 +214,10 @@ export function AuthGate() {
   return (
     <AuthProvider user={user}>
       {consolePage ? (
-        user.role === 'admin' ? (
+        (
+          user.role === 'admin'
+          || user.role === 'operator'
+        ) ? (
           <ConsolePage />
         ) : (
           <ConsoleAccessDenied />

@@ -130,6 +130,286 @@ def _run_json(
         return None
 
 
+def _smart_attribute_normalized(
+    data: dict[str, Any],
+    attribute_ids: set[int],
+    names: set[str] | None = None,
+) -> int | None:
+    attributes = (
+        data.get("ata_smart_attributes", {})
+        .get("table", [])
+    )
+
+    if not isinstance(attributes, list):
+        return None
+
+    normalized_names = {
+        name.lower()
+        for name in (names or set())
+    }
+
+    for attribute in attributes:
+        if not isinstance(attribute, dict):
+            continue
+
+        attribute_id = attribute.get("id")
+        attribute_name = str(
+            attribute.get("name", "")
+        ).lower()
+
+        if (
+            attribute_id not in attribute_ids
+            and attribute_name not in normalized_names
+        ):
+            continue
+
+        try:
+            value = int(attribute.get("value"))
+        except (TypeError, ValueError):
+            continue
+
+        if 0 <= value <= 100:
+            return value
+
+    return None
+
+
+def _smart_attribute_raw(
+    data: dict[str, Any],
+    attribute_id: int,
+) -> int:
+    attributes = (
+        data.get("ata_smart_attributes", {})
+        .get("table", [])
+    )
+
+    if not isinstance(attributes, list):
+        return 0
+
+    for attribute in attributes:
+        if not isinstance(attribute, dict):
+            continue
+
+        if attribute.get("id") != attribute_id:
+            continue
+
+        raw = attribute.get("raw", {})
+
+        if not isinstance(raw, dict):
+            return 0
+
+        try:
+            return int(raw.get("value", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    return 0
+
+
+def _parse_smart_device(
+    path: str,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    passed = data.get(
+        "smart_status",
+        {},
+    ).get("passed")
+
+    warnings: list[str] = []
+    critical = False
+
+    if passed is False:
+        critical = True
+        warnings.append(
+            "SMART overall health check failed"
+        )
+
+    protocol = str(
+        data.get("device", {}).get(
+            "protocol",
+            "",
+        )
+    ).upper()
+
+    temperature = data.get(
+        "temperature",
+        {},
+    ).get("current")
+
+    percentage_used = None
+    wear_remaining_percent = None
+    critical_warning = 0
+    media_errors = 0
+
+    if protocol == "NVME":
+        nvme = data.get(
+            "nvme_smart_health_information_log",
+            {},
+        )
+
+        if isinstance(nvme, dict):
+            try:
+                critical_warning = int(
+                    nvme.get(
+                        "critical_warning",
+                        0,
+                    )
+                )
+            except (TypeError, ValueError):
+                critical_warning = 0
+
+            try:
+                media_errors = int(
+                    nvme.get(
+                        "media_errors",
+                        0,
+                    )
+                )
+            except (TypeError, ValueError):
+                media_errors = 0
+
+            try:
+                percentage_used = int(
+                    nvme.get(
+                        "percentage_used",
+                        0,
+                    )
+                )
+
+                wear_remaining_percent = max(
+                    0,
+                    min(
+                        100,
+                        100 - percentage_used,
+                    ),
+                )
+            except (TypeError, ValueError):
+                percentage_used = None
+                wear_remaining_percent = None
+
+            try:
+                available_spare = int(
+                    nvme.get(
+                        "available_spare",
+                        100,
+                    )
+                )
+                spare_threshold = int(
+                    nvme.get(
+                        "available_spare_threshold",
+                        0,
+                    )
+                )
+            except (TypeError, ValueError):
+                available_spare = 100
+                spare_threshold = 0
+
+            if critical_warning > 0:
+                critical = True
+                warnings.append(
+                    "NVMe critical warning is active"
+                )
+
+            if media_errors > 0:
+                warnings.append(
+                    f"{media_errors} NVMe media error(s)"
+                )
+
+            if available_spare < spare_threshold:
+                warnings.append(
+                    "NVMe available spare is below threshold"
+                )
+
+    if protocol != "NVME":
+        wear_remaining_percent = (
+            _smart_attribute_normalized(
+                data,
+                {202, 231, 233},
+                {
+                    "Media_Wearout_Indicator",
+                    "Percent_Lifetime_Remain",
+                    "SSD_Life_Left",
+                    "Remaining_Lifetime_Perc",
+                },
+            )
+        )
+
+    reallocated = _smart_attribute_raw(
+        data,
+        5,
+    )
+    reported_uncorrect = _smart_attribute_raw(
+        data,
+        187,
+    )
+    pending = _smart_attribute_raw(
+        data,
+        197,
+    )
+    offline_uncorrectable = _smart_attribute_raw(
+        data,
+        198,
+    )
+    crc_errors = _smart_attribute_raw(
+        data,
+        199,
+    )
+
+    if reallocated > 0:
+        warnings.append(
+            f"{reallocated} reallocated sector(s)"
+        )
+
+    if reported_uncorrect > 0:
+        warnings.append(
+            f"{reported_uncorrect} reported uncorrectable error(s)"
+        )
+
+    if pending > 0:
+        warnings.append(
+            f"{pending} pending sector(s)"
+        )
+
+    if offline_uncorrectable > 0:
+        warnings.append(
+            f"{offline_uncorrectable} offline uncorrectable sector(s)"
+        )
+
+    if crc_errors > 0:
+        warnings.append(
+            f"{crc_errors} interface CRC error(s)"
+        )
+
+    if critical:
+        health = "critical"
+    elif warnings:
+        health = "warning"
+    elif passed is True:
+        health = "healthy"
+    else:
+        health = "unknown"
+
+    return {
+        "path": path,
+        "model": data.get("model_name"),
+        "serial": data.get("serial_number"),
+        "protocol": protocol or None,
+        "passed": passed,
+        "health": health,
+        "warnings": warnings,
+        "temperature_celsius": temperature,
+        "percentage_used": percentage_used,
+        "wear_remaining_percent": wear_remaining_percent,
+        "critical_warning": critical_warning,
+        "media_errors": media_errors,
+        "reallocated_sectors": reallocated,
+        "reported_uncorrect": reported_uncorrect,
+        "pending_sectors": pending,
+        "offline_uncorrectable": offline_uncorrectable,
+        "crc_errors": crc_errors,
+    }
+
+
 def _read_text_file(
     client: paramiko.SSHClient,
     path: str,
@@ -506,9 +786,36 @@ def _parse_zpool_status(output: str) -> list[dict[str, Any]]:
             flags=re.MULTILINE,
         )
 
+        pool_name = pool_match.group(1).strip()
+
+        read_errors = 0
+        write_errors = 0
+        checksum_errors = 0
+
+        pool_error_match = re.search(
+            (
+                r"^\s*"
+                + re.escape(pool_name)
+                + r"\s+\S+\s+(\d+)\s+(\d+)\s+(\d+)\s*$"
+            ),
+            section,
+            flags=re.MULTILINE,
+        )
+
+        if pool_error_match:
+            read_errors = int(
+                pool_error_match.group(1)
+            )
+            write_errors = int(
+                pool_error_match.group(2)
+            )
+            checksum_errors = int(
+                pool_error_match.group(3)
+            )
+
         statuses.append(
             {
-                "name": pool_match.group(1).strip(),
+                "name": pool_name,
                 "state": (
                     state_match.group(1).strip()
                     if state_match
@@ -524,6 +831,9 @@ def _parse_zpool_status(output: str) -> list[dict[str, Any]]:
                     if errors_match
                     else None
                 ),
+                "read_errors": read_errors,
+                "write_errors": write_errors,
+                "checksum_errors": checksum_errors,
                 "raw_status": section.strip(),
             }
         )
@@ -753,6 +1063,63 @@ def collect_host_details(node: str) -> dict[str, Any]:
             required=False,
         )
 
+        smart_devices: list[dict[str, Any]] = []
+
+        if isinstance(block_devices, dict):
+            for device in block_devices.get(
+                "blockdevices",
+                [],
+            ):
+                if not isinstance(device, dict):
+                    continue
+
+                if device.get("type") != "disk":
+                    continue
+
+                device_path = str(
+                    device.get("path", "")
+                ).strip()
+
+                device_name = str(
+                    device.get("name", "")
+                ).strip()
+
+                if not device_path:
+                    continue
+
+                # Ignore virtual/logical block devices such
+                # as ZFS zvols, loop and device-mapper disks.
+                if (
+                    device_name.startswith("zd")
+                    or device_name.startswith("loop")
+                    or device_name.startswith("dm-")
+                    or device_name.startswith("md")
+                ):
+                    continue
+
+                smart_data = _run_json(
+                    client,
+                    (
+                        "smartctl -a -j "
+                        + shlex.quote(device_path)
+                        + " 2>/dev/null || true"
+                    ),
+                    required=False,
+                )
+
+                if not isinstance(
+                    smart_data,
+                    dict,
+                ):
+                    continue
+
+                smart_devices.append(
+                    _parse_smart_device(
+                        device_path,
+                        smart_data,
+                    )
+                )
+
         pci_output = _run_command(
             client,
             "lspci -Dnn 2>/dev/null",
@@ -832,6 +1199,18 @@ def collect_host_details(node: str) -> dict[str, Any]:
                     "state": status.get("state"),
                     "scan": status.get("scan"),
                     "errors": status.get("errors"),
+                    "read_errors": status.get(
+                        "read_errors",
+                        0,
+                    ),
+                    "write_errors": status.get(
+                        "write_errors",
+                        0,
+                    ),
+                    "checksum_errors": status.get(
+                        "checksum_errors",
+                        0,
+                    ),
                     "raw_status": status.get("raw_status"),
                 }
             )
@@ -870,6 +1249,7 @@ def collect_host_details(node: str) -> dict[str, Any]:
                     if isinstance(block_devices, dict)
                     else []
                 ),
+                "smart_devices": smart_devices,
             },
             "pci": {
                 "devices": _parse_pci(pci_output),

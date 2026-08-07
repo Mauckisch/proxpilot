@@ -469,17 +469,19 @@ export function UsersPage() {
                         <Table.Td>
                           <Badge
                             color={
-                              user.role ===
-                              'admin'
+                              user.role === 'admin'
                                 ? 'blue'
-                                : 'gray'
+                                : user.role === 'operator'
+                                  ? 'violet'
+                                  : 'gray'
                             }
                             variant="light"
                           >
-                            {user.role ===
-                            'admin'
+                            {user.role === 'admin'
                               ? 'Administrator'
-                              : 'Viewer'}
+                              : user.role === 'operator'
+                                ? 'Operator'
+                                : 'Viewer'}
                           </Badge>
                         </Table.Td>
 
@@ -679,6 +681,10 @@ export function UsersPage() {
                 value: 'viewer',
               },
               {
+                label: 'Operator',
+                value: 'operator',
+              },
+              {
                 label: 'Administrator',
                 value: 'admin',
               },
@@ -687,7 +693,9 @@ export function UsersPage() {
               setEditRole(
                 value === 'admin'
                   ? 'admin'
-                  : 'viewer',
+                  : value === 'operator'
+                    ? 'operator'
+                    : 'viewer',
               )
             }
           />
@@ -968,6 +976,10 @@ export function UsersPage() {
                 value: 'viewer',
               },
               {
+                label: 'Operator',
+                value: 'operator',
+              },
+              {
                 label: 'Administrator',
                 value: 'admin',
               },
@@ -976,7 +988,9 @@ export function UsersPage() {
               setRole(
                 value === 'admin'
                   ? 'admin'
-                  : 'viewer',
+                  : value === 'operator'
+                    ? 'operator'
+                    : 'viewer',
               )
             }
           />

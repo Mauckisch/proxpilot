@@ -38,11 +38,44 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api';
-import { AdminButton } from './AdminButton';
+import { OperatorButton } from './OperatorButton';
 import type {
   ClusterNode,
   Guest,
 } from '../hooks/useDashboard';
+
+type GuestAgentIpAddress = {
+  address: string;
+  type?: string | null;
+  prefix?: number | null;
+};
+
+type GuestAgentNetworkInterface = {
+  name: string;
+  hardware_address?: string | null;
+  ip_addresses: GuestAgentIpAddress[];
+};
+
+type GuestAgentOsInfo = {
+  id?: string;
+  name?: string;
+  'pretty-name'?: string;
+  version?: string;
+  'version-id'?: string;
+  'kernel-release'?: string;
+  'kernel-version'?: string;
+  machine?: string;
+  variant?: string;
+  'variant-id'?: string;
+};
+
+type GuestAgentFilesystem = {
+  mountpoint: string;
+  name?: string | null;
+  type?: string | null;
+  total_bytes: number;
+  used_bytes: number;
+};
 
 type GuestDetailsResponse = {
   node: string;
@@ -51,6 +84,10 @@ type GuestDetailsResponse = {
   vmid: number;
   config: Record<string, unknown>;
   status: Record<string, unknown>;
+  guest_agent_network?: GuestAgentNetworkInterface[];
+  guest_agent_hostname?: string | null;
+  guest_agent_os?: GuestAgentOsInfo | null;
+  guest_agent_filesystems?: GuestAgentFilesystem[];
 };
 
 type ProxmoxTaskResponse = {
@@ -467,6 +504,40 @@ export function GuestDetailsDrawer({
   const config = details?.config ?? {};
   const status = details?.status ?? {};
 
+  const guestFilesystemUsage = useMemo(() => {
+    const filesystems =
+      details?.guest_agent_filesystems ?? [];
+
+    const totalBytes = filesystems.reduce(
+      (sum, filesystem) =>
+        sum + filesystem.total_bytes,
+      0,
+    );
+
+    const usedBytes = filesystems.reduce(
+      (sum, filesystem) =>
+        sum + filesystem.used_bytes,
+      0,
+    );
+
+    const percent =
+      totalBytes > 0
+        ? Math.min(
+            100,
+            Math.max(
+              0,
+              (usedBytes / totalBytes) * 100,
+            ),
+          )
+        : 0;
+
+    return {
+      totalBytes,
+      usedBytes,
+      percent,
+    };
+  }, [details?.guest_agent_filesystems]);
+
   const networkDevices = useMemo(
     () =>
       Object.entries(config)
@@ -697,7 +768,7 @@ export function GuestDetailsDrawer({
             </Group>
 
             <Group gap="xs">
-              <AdminButton
+              <OperatorButton
                 variant="light"
                 size="xs"
                 leftSection={
@@ -710,7 +781,7 @@ export function GuestDetailsDrawer({
                 onClick={openConsole}
               >
                 Console
-              </AdminButton>
+              </OperatorButton>
 
               <Button
                 variant="light"
@@ -831,6 +902,43 @@ export function GuestDetailsDrawer({
                         status.uptime ??
                           guest.uptime,
                       )}
+                    />
+
+                    <DetailItem
+                      label="Guest hostname"
+                      value={
+                        details?.guest_agent_hostname ??
+                        '—'
+                      }
+                    />
+
+                    <DetailItem
+                      label="Operating system"
+                      value={
+                        details?.guest_agent_os?.[
+                          'pretty-name'
+                        ] ??
+                        details?.guest_agent_os?.name ??
+                        '—'
+                      }
+                    />
+
+                    <DetailItem
+                      label="Kernel"
+                      value={
+                        details?.guest_agent_os?.[
+                          'kernel-release'
+                        ] ??
+                        '—'
+                      }
+                    />
+
+                    <DetailItem
+                      label="Architecture"
+                      value={
+                        details?.guest_agent_os?.machine ??
+                        '—'
+                      }
                     />
 
                     <DetailItem
@@ -1030,6 +1138,32 @@ export function GuestDetailsDrawer({
                           ) ?? ''
                         ];
 
+                      const normalizedMac =
+                        mac?.toLowerCase();
+
+                      const agentInterface =
+                        details?.guest_agent_network?.find(
+                          (item) =>
+                            item.hardware_address
+                              ?.toLowerCase() ===
+                            normalizedMac,
+                        );
+
+                      const agentAddresses =
+                        agentInterface?.ip_addresses
+                          ?.map((address) => {
+                            if (
+                              address.prefix ===
+                                undefined ||
+                              address.prefix === null
+                            ) {
+                              return address.address;
+                            }
+
+                            return `${address.address}/${address.prefix}`;
+                          })
+                          .join(', ') || '—';
+
                       return (
                         <Paper
                           key={device.key}
@@ -1098,6 +1232,11 @@ export function GuestDetailsDrawer({
                             />
 
                             <DetailItem
+                              label="IP addresses (Guest Agent)"
+                              value={agentAddresses}
+                            />
+
+                            <DetailItem
                               label="Firewall"
                               value={
                                 device.values.firewall ===
@@ -1135,6 +1274,53 @@ export function GuestDetailsDrawer({
               </Tabs.Panel>
 
               <Tabs.Panel value="storage" pt="md">
+                <Stack gap="md">
+                  {guestFilesystemUsage.totalBytes > 0 && (
+                    <Paper
+                      withBorder
+                      radius="md"
+                      p="md"
+                    >
+                      <Group
+                        justify="space-between"
+                        align="flex-end"
+                        mb="xs"
+                      >
+                        <div>
+                          <Text
+                            size="xs"
+                            c="dimmed"
+                          >
+                            Guest disk usage
+                          </Text>
+
+                          <Text fw={700} mt={2}>
+                            {formatBytes(
+                              guestFilesystemUsage.usedBytes,
+                            )}{' '}
+                            /{' '}
+                            {formatBytes(
+                              guestFilesystemUsage.totalBytes,
+                            )}
+                          </Text>
+                        </div>
+
+                        <Text fw={700}>
+                          {guestFilesystemUsage.percent.toFixed(
+                            1,
+                          )}
+                          %
+                        </Text>
+                      </Group>
+
+                      <Progress
+                        value={
+                          guestFilesystemUsage.percent
+                        }
+                      />
+                    </Paper>
+                  )}
+
                 {diskDevices.length === 0 ? (
                   <Alert
                     color="gray"
@@ -1247,6 +1433,7 @@ export function GuestDetailsDrawer({
                     ))}
                   </Stack>
                 )}
+                </Stack>
               </Tabs.Panel>
 
               <Tabs.Panel value="migration" pt="md">
@@ -1365,7 +1552,7 @@ export function GuestDetailsDrawer({
                           </Alert>
                         )}
 
-                      <AdminButton
+                      <OperatorButton
                         leftSection={
                           <IconTransfer size={18} />
                         }
@@ -1377,13 +1564,13 @@ export function GuestDetailsDrawer({
                           !targetNode ||
                           migrationRunning
                         }
-                        permissionTooltip="Only administrators can migrate guests."
+                        permissionTooltip="Operator or administrator permissions required to migrate guests."
                         onClick={() =>
                           void startMigration()
                         }
                       >
                         Start migration
-                      </AdminButton>
+                      </OperatorButton>
                     </Stack>
                   </Paper>
 

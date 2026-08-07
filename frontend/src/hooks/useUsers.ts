@@ -6,7 +6,7 @@ import {
 
 import { api } from '../api';
 
-export type UserRole = 'admin' | 'viewer';
+export type UserRole = 'admin' | 'operator' | 'viewer';
 export type UserSource = 'local' | 'ldap';
 
 export type ProxPilotUser = {

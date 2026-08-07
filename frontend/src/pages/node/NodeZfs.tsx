@@ -14,6 +14,7 @@ import {
 
 import {
   IconAlertCircle,
+  IconCheck,
   IconDatabase,
 } from '@tabler/icons-react';
 
@@ -32,6 +33,38 @@ function usageColor(value: number) {
   }
 
   return 'blue';
+}
+
+function healthColor(
+  health?: string,
+): string {
+  switch (health?.toUpperCase()) {
+    case 'ONLINE':
+      return 'green';
+
+    case 'DEGRADED':
+      return 'orange';
+
+    case 'FAULTED':
+    case 'UNAVAIL':
+    case 'REMOVED':
+      return 'red';
+
+    default:
+      return 'gray';
+  }
+}
+
+function hasPoolErrors(
+  readErrors: number,
+  writeErrors: number,
+  checksumErrors: number,
+): boolean {
+  return (
+    readErrors > 0 ||
+    writeErrors > 0 ||
+    checksumErrors > 0
+  );
 }
 
 export function NodeZfs({
@@ -53,110 +86,214 @@ export function NodeZfs({
 
   return (
     <Stack gap="lg">
-      {details.zfs.pools.map((pool) => (
-        <Paper
-          key={pool.name}
-          withBorder
-          radius="md"
-          p="lg"
-        >
-          <Stack>
-            <Group justify="space-between">
-              <div>
-                <Title order={4}>
-                  {pool.name}
-                </Title>
+      {details.zfs.pools.map((pool) => {
+        const health =
+          pool.health ??
+          pool.state ??
+          'UNKNOWN';
 
-                <Text
-                  size="sm"
-                  c="dimmed"
+        const readErrors =
+          pool.read_errors ?? 0;
+
+        const writeErrors =
+          pool.write_errors ?? 0;
+
+        const checksumErrors =
+          pool.checksum_errors ?? 0;
+
+        const unhealthy =
+          health.toUpperCase() !== 'ONLINE';
+
+        const poolHasErrors =
+          hasPoolErrors(
+            readErrors,
+            writeErrors,
+            checksumErrors,
+          );
+
+        return (
+          <Paper
+            key={pool.name}
+            withBorder
+            radius="md"
+            p="lg"
+          >
+            <Stack>
+              <Group justify="space-between">
+                <div>
+                  <Title order={4}>
+                    {pool.name}
+                  </Title>
+
+                  <Text
+                    size="sm"
+                    c="dimmed"
+                  >
+                    {pool.scan ??
+                      'No scan information available'}
+                  </Text>
+                </div>
+
+                <Badge
+                  color={healthColor(health)}
+                  variant="light"
+                  size="lg"
                 >
-                  {pool.scan}
-                </Text>
-              </div>
+                  {health}
+                </Badge>
+              </Group>
 
-              <Badge
-                color={
-                  pool.health === 'ONLINE'
-                    ? 'green'
-                    : 'red'
-                }
-                variant="light"
-              >
-                {pool.health ??
-                  pool.state}
-              </Badge>
-            </Group>
-
-            <Progress
-              value={
-                pool.capacity_percent ?? 0
-              }
-              color={usageColor(
-                pool.capacity_percent ?? 0,
-              )}
-            />
-
-            <SimpleGrid cols={4}>
-              <NodeInfoCard
-                label="Size"
-                value={formatBytes(
-                  pool.size,
-                )}
-                icon={
-                  <IconDatabase size={18} />
-                }
-              />
-
-              <NodeInfoCard
-                label="Allocated"
-                value={formatBytes(
-                  pool.allocated,
-                )}
-                icon={
-                  <IconDatabase size={18} />
-                }
-              />
-
-              <NodeInfoCard
-                label="Free"
-                value={formatBytes(
-                  pool.free,
-                )}
-                icon={
-                  <IconDatabase size={18} />
-                }
-              />
-
-              <NodeInfoCard
-                label="Fragmentation"
-                value={`${
-                  pool.fragmentation_percent ??
-                  0
-                }%`}
-                icon={
-                  <IconDatabase size={18} />
-                }
-              />
-            </SimpleGrid>
-
-            {pool.errors &&
-              pool.errors !==
-                'No known data errors' && (
+              {unhealthy && (
                 <Alert
                   color="red"
                   icon={
-                    <IconAlertCircle size={
-                      18
-                    } />
+                    <IconAlertCircle size={18} />
                   }
+                  title="ZFS pool health warning"
                 >
-                  {pool.errors}
+                  Pool {pool.name} is currently{' '}
+                  <strong>{health}</strong>.
                 </Alert>
               )}
-          </Stack>
-        </Paper>
-      ))}
+
+              {!unhealthy &&
+                !poolHasErrors && (
+                  <Alert
+                    color="green"
+                    icon={
+                      <IconCheck size={18} />
+                    }
+                    title="ZFS pool healthy"
+                  >
+                    The pool is ONLINE and no
+                    read, write or checksum
+                    errors are reported.
+                  </Alert>
+                )}
+
+              <Progress
+                value={
+                  pool.capacity_percent ?? 0
+                }
+                color={usageColor(
+                  pool.capacity_percent ?? 0,
+                )}
+              />
+
+              <SimpleGrid
+                cols={{
+                  base: 2,
+                  sm: 4,
+                }}
+              >
+                <NodeInfoCard
+                  label="Size"
+                  value={formatBytes(
+                    pool.size,
+                  )}
+                  icon={
+                    <IconDatabase size={18} />
+                  }
+                />
+
+                <NodeInfoCard
+                  label="Allocated"
+                  value={formatBytes(
+                    pool.allocated,
+                  )}
+                  icon={
+                    <IconDatabase size={18} />
+                  }
+                />
+
+                <NodeInfoCard
+                  label="Free"
+                  value={formatBytes(
+                    pool.free,
+                  )}
+                  icon={
+                    <IconDatabase size={18} />
+                  }
+                />
+
+                <NodeInfoCard
+                  label="Fragmentation"
+                  value={`${
+                    pool.fragmentation_percent ??
+                    0
+                  }%`}
+                  icon={
+                    <IconDatabase size={18} />
+                  }
+                />
+              </SimpleGrid>
+
+              <SimpleGrid
+                cols={{
+                  base: 1,
+                  sm: 3,
+                }}
+              >
+                <NodeInfoCard
+                  label="Read errors"
+                  value={String(readErrors)}
+                  icon={
+                    <IconDatabase size={18} />
+                  }
+                />
+
+                <NodeInfoCard
+                  label="Write errors"
+                  value={String(writeErrors)}
+                  icon={
+                    <IconDatabase size={18} />
+                  }
+                />
+
+                <NodeInfoCard
+                  label="Checksum errors"
+                  value={String(
+                    checksumErrors,
+                  )}
+                  icon={
+                    <IconDatabase size={18} />
+                  }
+                />
+              </SimpleGrid>
+
+              {poolHasErrors && (
+                <Alert
+                  color="red"
+                  icon={
+                    <IconAlertCircle size={18} />
+                  }
+                  title="ZFS I/O errors detected"
+                >
+                  Read: {readErrors} · Write:{' '}
+                  {writeErrors} · Checksum:{' '}
+                  {checksumErrors}
+                </Alert>
+              )}
+
+              {pool.errors &&
+                pool.errors !==
+                  'No known data errors' && (
+                  <Alert
+                    color="red"
+                    icon={
+                      <IconAlertCircle
+                        size={18}
+                      />
+                    }
+                    title="ZFS data errors"
+                  >
+                    {pool.errors}
+                  </Alert>
+                )}
+            </Stack>
+          </Paper>
+        );
+      })}
 
       <Paper
         withBorder
@@ -179,9 +316,15 @@ export function NodeZfs({
                   <Table.Th>Name</Table.Th>
                   <Table.Th>Type</Table.Th>
                   <Table.Th>Used</Table.Th>
-                  <Table.Th>Available</Table.Th>
-                  <Table.Th>Referenced</Table.Th>
-                  <Table.Th>Mountpoint</Table.Th>
+                  <Table.Th>
+                    Available
+                  </Table.Th>
+                  <Table.Th>
+                    Referenced
+                  </Table.Th>
+                  <Table.Th>
+                    Mountpoint
+                  </Table.Th>
                 </Table.Tr>
               </Table.Thead>
 

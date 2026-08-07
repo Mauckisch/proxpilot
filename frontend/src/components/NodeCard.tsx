@@ -19,7 +19,7 @@ import {
 
 import type { ClusterNode } from '../hooks/useDashboard';
 import type { NodeUpdateStatus } from '../hooks/useUpdates';
-import { AdminButton } from './AdminButton';
+import { OperatorButton } from './OperatorButton';
 
 export type NodeAction =
   | 'check-updates'
@@ -389,7 +389,7 @@ export function NodeCard({
 
               <Stack gap="xs">
                 <Group grow>
-                  <AdminButton
+                  <OperatorButton
                     variant="light"
                     color="yellow"
                     leftSection={<IconTool size={16} />}
@@ -398,15 +398,15 @@ export function NodeCard({
                       node.maintenance ||
                       !online
                     }
-                    permissionTooltip="Only administrators can enable maintenance mode."
+                    permissionTooltip="Operator or administrator permissions required to enable maintenance mode."
                     onClick={() =>
                       onMaintenanceAction(node, 'enable')
                     }
                   >
                     Enable
-                  </AdminButton>
+                  </OperatorButton>
 
-                  <AdminButton
+                  <OperatorButton
                     variant="light"
                     color="green"
                     leftSection={<IconTool size={16} />}
@@ -415,28 +415,28 @@ export function NodeCard({
                       !node.maintenance ||
                       !online
                     }
-                    permissionTooltip="Only administrators can disable maintenance mode."
+                    permissionTooltip="Operator or administrator permissions required to disable maintenance mode."
                     onClick={() =>
                       onMaintenanceAction(node, 'disable')
                     }
                   >
                     Disable
-                  </AdminButton>
+                  </OperatorButton>
                 </Group>
 
-                <AdminButton
+                <OperatorButton
                   variant="light"
                   color="grape"
                   fullWidth
                   leftSection={<IconPackage size={16} />}
                   disabled={actionRunning || !online}
-                  permissionTooltip="Only administrators can run package cleanup."
+                  permissionTooltip="Operator or administrator permissions required to run package cleanup."
                   onClick={() =>
                     onNodeAction(node, 'package-cleanup')
                   }
                 >
                   Cleanup
-                </AdminButton>
+                </OperatorButton>
               </Stack>
             </Stack>
 
@@ -446,30 +446,30 @@ export function NodeCard({
               </Text>
 
               <Group grow>
-                <AdminButton
+                <OperatorButton
                   variant="light"
                   leftSection={<IconPackage size={16} />}
                   disabled={actionRunning || !online}
-                  permissionTooltip="Only administrators can check for updates."
+                  permissionTooltip="Operator or administrator permissions required to check for updates."
                   onClick={() =>
                     onNodeAction(node, 'check-updates')
                   }
                 >
                   Check
-                </AdminButton>
+                </OperatorButton>
 
-                <AdminButton
+                <OperatorButton
                   variant="light"
                   color="yellow"
                   leftSection={<IconPackage size={16} />}
                   disabled={actionRunning || !online}
-                  permissionTooltip="Only administrators can install updates."
+                  permissionTooltip="Operator or administrator permissions required to install updates."
                   onClick={() =>
                     onNodeAction(node, 'install-updates')
                   }
                 >
                   Install
-                </AdminButton>
+                </OperatorButton>
               </Group>
             </Stack>
 
@@ -479,31 +479,31 @@ export function NodeCard({
               </Text>
 
               <Group grow>
-                <AdminButton
+                <OperatorButton
                   variant="light"
                   color="orange"
                   leftSection={<IconRefresh size={16} />}
                   disabled={actionRunning || !online}
-                  permissionTooltip="Only administrators can reboot nodes."
+                  permissionTooltip="Operator or administrator permissions required to reboot nodes."
                   onClick={() =>
                     onNodeAction(node, 'reboot')
                   }
                 >
                   Reboot
-                </AdminButton>
+                </OperatorButton>
 
-                <AdminButton
+                <OperatorButton
                   variant="light"
                   color="red"
                   leftSection={<IconPower size={16} />}
                   disabled={actionRunning || !online}
-                  permissionTooltip="Only administrators can shut down nodes."
+                  permissionTooltip="Operator or administrator permissions required to shut down nodes."
                   onClick={() =>
                     onNodeAction(node, 'shutdown')
                   }
                 >
                   Shutdown
-                </AdminButton>
+                </OperatorButton>
               </Group>
             </Stack>
           </Stack>

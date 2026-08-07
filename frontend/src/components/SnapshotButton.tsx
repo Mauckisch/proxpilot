@@ -24,7 +24,7 @@ import { useEffect, useState } from 'react';
 
 import type { Guest } from '../hooks/useDashboard';
 import { api } from '../api';
-import { AdminButton } from './AdminButton';
+import { OperatorButton } from './OperatorButton';
 
 type Snapshot = {
   name: string;
@@ -292,19 +292,19 @@ export function SnapshotButton({
 
   return (
     <>
-      <AdminButton
+      <OperatorButton
         variant="light"
         color="cyan"
         leftSection={<IconCamera size={16} />}
         disabled={!canManage}
-        permissionTooltip="Only administrators can manage snapshots."
+        permissionTooltip="Operator or administrator permissions required to manage snapshots."
         onClick={() => setOpened(true)}
       >
         Snapshots
         {(guest.snapshot_count ?? 0) > 0
           ? ` (${guest.snapshot_count})`
           : ''}
-      </AdminButton>
+      </OperatorButton>
 
       <Modal
         opened={opened}
@@ -339,17 +339,17 @@ export function SnapshotButton({
                 Refresh
               </Button>
 
-              <AdminButton
+              <OperatorButton
                 leftSection={<IconCamera size={16} />}
                 disabled={operationRunning}
-                permissionTooltip="Only administrators can create snapshots."
+                permissionTooltip="Operator or administrator permissions required to create snapshots."
                 onClick={() => {
                   setError(null);
                   setCreateOpened(true);
                 }}
               >
                 Create snapshot
-              </AdminButton>
+              </OperatorButton>
             </Group>
           </Group>
 
@@ -443,35 +443,35 @@ export function SnapshotButton({
                     )}
 
                     <Group justify="flex-end">
-                      <AdminButton
+                      <OperatorButton
                         variant="light"
                         color="orange"
                         leftSection={
                           <IconRestore size={16} />
                         }
                         disabled={operationRunning}
-                        permissionTooltip="Only administrators can roll back snapshots."
+                        permissionTooltip="Operator or administrator permissions required to roll back snapshots."
                         onClick={() =>
                           void rollbackSnapshot(snapshot)
                         }
                       >
                         Rollback
-                      </AdminButton>
+                      </OperatorButton>
 
-                      <AdminButton
+                      <OperatorButton
                         variant="light"
                         color="red"
                         leftSection={
                           <IconTrash size={16} />
                         }
                         disabled={operationRunning}
-                        permissionTooltip="Only administrators can delete snapshots."
+                        permissionTooltip="Operator or administrator permissions required to delete snapshots."
                         onClick={() =>
                           void deleteSnapshot(snapshot)
                         }
                       >
                         Delete
-                      </AdminButton>
+                      </OperatorButton>
                     </Group>
                   </Stack>
                 </Paper>
@@ -537,14 +537,14 @@ export function SnapshotButton({
               Cancel
             </Button>
 
-            <AdminButton
+            <OperatorButton
               leftSection={<IconCamera size={16} />}
               disabled={!snapshotName.trim()}
-              permissionTooltip="Only administrators can create snapshots."
+              permissionTooltip="Operator or administrator permissions required to create snapshots."
               onClick={() => void createSnapshot()}
             >
               Create snapshot
-            </AdminButton>
+            </OperatorButton>
           </Group>
         </Stack>
       </Modal>

@@ -148,6 +148,7 @@ VM.Audit
 VM.Console
 VM.Migrate
 VM.PowerMgmt
+VM.GuestAgent.Audit
 ```
 
 ### Privilege explanation
@@ -160,19 +161,20 @@ VM.PowerMgmt
 | `VM.Console` | Opening the integrated QEMU noVNC console |
 | `VM.Migrate` | Live and offline guest migration |
 | `VM.PowerMgmt` | Start, shutdown, stop, reboot, suspend and resume |
+| `VM.GuestAgent.Audit` | Reading disk utilization and IP addresses of VMs |
 
 ### Create the role
 
 ```bash
 pveum role add DashboardManager \
-  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt VM.GuestAgent.Audit"
 ```
 
 ### Update an existing role
 
 ```bash
 pveum role modify DashboardManager \
-  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt VM.GuestAgent.Audit"
 ```
 
 ### Verify the role
@@ -190,6 +192,7 @@ VM.Audit
 VM.Console
 VM.Migrate
 VM.PowerMgmt
+VM.GuestAgent.Audit
 ```
 
 ---
@@ -437,6 +440,7 @@ Sys.Audit
 VM.Audit
 VM.Backup
 VM.Console
+VM.GuestAgent.Audit
 VM.Migrate
 VM.PowerMgmt
 VM.Snapshot
@@ -497,7 +501,7 @@ If it is missing, update the role:
 
 ```bash
 pveum role modify DashboardManager \
-  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.GuestAgent.Audit VM.Console VM.Migrate VM.PowerMgmt"
 ```
 
 Then verify:

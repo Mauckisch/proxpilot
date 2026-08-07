@@ -24,6 +24,7 @@ import {
   type ManagedTask,
   useTasks,
 } from '../hooks/useTasks';
+import { getTaskType } from '../utils/taskType';
 
 function formatTaskTime(task: ManagedTask): string {
   const value =
@@ -139,7 +140,13 @@ function getTaskAppearance(
   }
 }
 
-export function ActivityPanel() {
+type ActivityPanelProps = {
+  onOpenTask?: (taskId: string) => void;
+};
+
+export function ActivityPanel({
+  onOpenTask,
+}: ActivityPanelProps) {
   const tasksQuery = useTasks();
 
   const tasks = [
@@ -246,24 +253,76 @@ export function ActivityPanel() {
               const appearance =
                 getTaskAppearance(task);
 
+              const taskType =
+                getTaskType(task);
+
+              const TaskTypeIcon =
+                taskType.icon;
+
               return (
                 <Group
                   key={task.id}
                   align="flex-start"
                   wrap="nowrap"
+                  onClick={() =>
+                    onOpenTask?.(task.id)
+                  }
+                  role={
+                    onOpenTask
+                      ? 'button'
+                      : undefined
+                  }
+                  tabIndex={
+                    onOpenTask ? 0 : undefined
+                  }
+                  onKeyDown={(event) => {
+                    if (
+                      onOpenTask &&
+                      (
+                        event.key === 'Enter' ||
+                        event.key === ' '
+                      )
+                    ) {
+                      event.preventDefault();
+                      onOpenTask(task.id);
+                    }
+                  }}
+                  style={{
+                    cursor: onOpenTask
+                      ? 'pointer'
+                      : 'default',
+                    borderRadius:
+                      'var(--mantine-radius-md)',
+                    padding: '8px',
+                    margin: '-8px',
+                  }}
                 >
                   <ThemeIcon
                     variant="light"
-                    color={appearance.color}
+                    color={taskType.color}
                     radius="xl"
                   >
-                    {appearance.icon}
+                    <TaskTypeIcon size={16} />
                   </ThemeIcon>
 
                   <div style={{ flex: 1 }}>
-                    <Text size="sm" fw={600}>
-                      {task.title}
-                    </Text>
+                    <Group
+                      gap="xs"
+                      justify="space-between"
+                      wrap="nowrap"
+                    >
+                      <Text size="sm" fw={600}>
+                        {task.title}
+                      </Text>
+
+                      <Badge
+                        variant="light"
+                        color={taskType.color}
+                        size="xs"
+                      >
+                        {taskType.label}
+                      </Badge>
+                    </Group>
 
                     <Text
                       size="xs"
@@ -279,15 +338,30 @@ export function ActivityPanel() {
                       )}
                     </Text>
 
-                    <Group gap={5} mt={6}>
-                      <IconClock size={12} />
+                    <Group
+                      gap="xs"
+                      mt={6}
+                      justify="space-between"
+                    >
+                      <Group gap={5}>
+                        <IconClock size={12} />
 
-                      <Text
-                        size="xs"
-                        c="dimmed"
+                        <Text
+                          size="xs"
+                          c="dimmed"
+                        >
+                          {formatTaskTime(task)}
+                        </Text>
+                      </Group>
+
+                      <ThemeIcon
+                        variant="subtle"
+                        color={appearance.color}
+                        size="sm"
+                        radius="xl"
                       >
-                        {formatTaskTime(task)}
-                      </Text>
+                        {appearance.icon}
+                      </ThemeIcon>
                     </Group>
                   </div>
                 </Group>

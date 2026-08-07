@@ -26,7 +26,7 @@ import {
   type Guest,
   useDashboard,
 } from '../hooks/useDashboard';
-import { AdminButton } from './AdminButton';
+import { OperatorButton } from './OperatorButton';
 
 type GuestBackupButtonProps = {
   guest: Guest;
@@ -193,15 +193,15 @@ export function GuestBackupButton({
 
   return (
     <>
-      <AdminButton
+      <OperatorButton
         variant="light"
         color="indigo"
         leftSection={<IconArchive size={16} />}
-        permissionTooltip="Only administrators can start guest backups."
+        permissionTooltip="Operator or administrator permissions required to start guest backups."
         onClick={() => setOpened(true)}
       >
         Backup
-      </AdminButton>
+      </OperatorButton>
 
       <Modal
         opened={opened}
@@ -370,7 +370,7 @@ export function GuestBackupButton({
               {successMessage ? 'Close' : 'Cancel'}
             </Button>
 
-            <AdminButton
+            <OperatorButton
               color="indigo"
               leftSection={<IconArchive size={16} />}
               loading={submitting}
@@ -380,11 +380,11 @@ export function GuestBackupButton({
                 || enabledJobs.length === 0
                 || Boolean(successMessage)
               }
-              permissionTooltip="Only administrators can start guest backups."
+              permissionTooltip="Operator or administrator permissions required to start guest backups."
               onClick={() => void startBackup()}
             >
               Start backup
-            </AdminButton>
+            </OperatorButton>
           </Group>
         </Stack>
       </Modal>

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
         '(&(objectClass=user)(sAMAccountName={username}))'
     )
     proxpilot_ldap_admin_group_dn: str = ''
+    proxpilot_ldap_operator_group_dn: str = ''
     proxpilot_ldap_viewer_group_dn: str = ''
     proxpilot_ldap_default_role: str = 'viewer'
 

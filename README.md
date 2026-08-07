@@ -39,6 +39,13 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 - Node maintenance
 - Update management
 - Storage and cluster overview
+- Integrated audit log
+- Administrator, Operator and Viewer roles
+- Guest Agent information
+- Guest filesystem and disk usage
+- ZFS health monitoring
+- S.M.A.R.T. monitoring
+- Improved task monitoring
 
 ---
 
@@ -158,7 +165,16 @@ ProxPilot focuses on operational tasks:
 - Open browser consoles
 - View hardware information
 - Review tasks
-- Manage users
+- Manage users and roles
+- Review the audit log
+- Inspect guest agent and disk usage information
+- S.M.A.R.T.Monitor ZFS and S.M.A.R.T. health
+- Review the audit log
+- Manage users and roles
+- View Guest Agent information
+- View guest filesystem and disk usage
+- Monitor ZFS health
+- Monitor S.M.A.R.T. health
 
 ---
 
@@ -183,11 +199,26 @@ ProxPilot focuses on operational tasks:
 | Package updates | ✅ |
 | Maintenance mode | ✅ |
 | Hardware information | ✅ |
+| Guest Agent information | ✅ |
+| Guest disk usage | ✅ |
 | ZFS information | ✅ |
+| ZFS health monitoring | ✅ |
+| S.M.A.R.T. warnings | ✅ |
 | Temperature monitoring | ✅ |
 | Local users | ✅ |
 | LDAP authentication | ✅ |
-| Role management | ✅ |
+| Administrator / Operator / Viewer roles | ✅ |
+| Audit log | ✅ |
+| Audit CSV / JSON export | ✅ |
+| Guest Agent information | ✅ |
+| Guest disk usage | ✅ |
+| ZFS health monitoring | ✅ |
+| S.M.A.R.T. monitoring | ✅ |
+| Administrator / Operator / Viewer roles | ✅ |
+| Audit log | ✅ |
+| Audit CSV export | ✅ |
+| Audit JSON export | ✅ |
+
 
 ---
 
@@ -216,9 +247,17 @@ Each node provides:
 - Update status
 - Hardware details
 - Physical disks
-- ZFS pools
+- ZFS pools and health status
+- S.M.A.R.T. health information and warnings
 - Temperatures
 - Network interfaces
+- Physical disks
+- S.M.A.R.T. information
+- S.M.A.R.T. health warnings
+- ZFS pool status
+- ZFS health
+- ZFS scrub information (if available)
+- Temperatures
 
 Administrative actions include:
 
@@ -242,6 +281,14 @@ Supported operations:
 - Snapshots
 - Manual backups
 - Configuration viewer
+- Guest Agent information
+- Guest filesystem and disk usage information
+- Integrated browser console
+- Guest Agent information
+- Guest operating system
+- Guest IP addresses
+- Guest filesystem information
+- Guest disk usage
 - Integrated browser console
 
 ## Storage
@@ -290,17 +337,64 @@ Task monitoring includes:
 
 - Running tasks
 - Completed tasks
+- Failed tasks
+- Improved task categorization
 - Exit status
 - Task log output
+- Integration with the activity panel
+- Running tasks
+- Completed tasks
+- Failed tasks
+- Improved task categorization
+- Task duration
+- Exit status
+- Task log output
+- Activity panel integration
 
 ## Authentication
 
 Supports:
 
 - Local users
-- LDAP
+- LDAP / Active Directory
 - Secure session cookies
-- Administrator/User roles
+- Administrator, Operator and Viewer roles
+- LDAP group-to-role mapping
+- Local users
+- LDAP / Active Directory
+- Administrator
+- Operator
+- Viewer
+- LDAP group-to-role mapping
+- Secure session cookies
+
+## Audit Log
+
+ProxPilot includes a built-in audit log for administrative and operational activities.
+
+Recorded information includes:
+
+- User
+- Role
+- Authentication source
+- Client IP address
+- Target object
+- Proxmox node
+- Action
+- Result
+- Severity
+- Structured JSON details
+
+Features include:
+
+- Multi-select filters
+- Context-aware filter values
+- CSV export
+- JSON export
+- Configurable retention
+- Automatic cleanup
+
+Exported audit data respects the currently active filters.
 
 ## Browser Console
 

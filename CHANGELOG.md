@@ -4,6 +4,123 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.5.0] - 2026-08-07
+
+### Added
+
+#### Audit
+
+- Comprehensive audit logging framework
+- Dedicated Audit Log page
+- Detailed audit event dialog with structured JSON details
+- CSV export of filtered audit events
+- JSON export of filtered audit events
+- Audit summary with total events, warnings, errors and failed operations
+- Configurable audit retention period
+- Automatic cleanup of expired audit entries
+- Dynamic audit filter values
+- Multi-select filtering across all audit categories
+- Context-aware filter suggestions that automatically adapt to the currently selected filters
+- Audit logging for:
+  - Authentication
+  - User management
+  - LDAP configuration changes
+  - LDAP connection tests
+  - Guest actions
+  - Guest migrations
+  - Guest backups
+  - Manual backup execution
+  - Snapshot creation, rollback and deletion
+  - Node maintenance mode
+  - Node actions
+  - Console sessions
+  - Audit retention configuration changes
+
+#### Virtual Machines
+
+- Guest Agent information
+- Guest disk usage analysis
+- Guest filesystem information
+- Additional guest runtime information
+- Extended guest details drawer
+
+#### Storage
+
+- ZFS pool health overview
+- Detailed ZFS pool information
+- SMART warning detection
+- Improved storage information
+
+#### Permissions
+
+- Operator role between Administrator and Viewer
+- Shared operator-aware UI components
+- Operator-aware backend permission enforcement
+
+### Changed
+
+#### Tasks
+
+- Improved task detection
+- Improved task categorization
+- Better task presentation
+- Better activity panel integration
+
+#### User Interface
+
+- Improved guest details page
+- Expanded host details page
+- Enhanced Storage page
+- Enhanced ZFS page
+- Improved Activity Panel
+- Improved permission-aware action buttons
+- Improved audit filtering experience
+
+#### Authentication
+
+- Operator permissions implemented consistently throughout frontend and backend
+- Updated authentication model to support Administrator, Operator and Viewer roles
+
+#### API
+
+- Added Audit API endpoints
+- Added audit summary endpoint
+- Added audit export endpoints
+- Added audit filter endpoint
+- Extended guest information endpoints
+- Extended host details endpoints
+- Extended storage information endpoints
+- Extended task information returned by the backend
+- Administrative endpoints now generate comprehensive audit events
+
+### Security
+
+- All privileged operations are now fully audited
+- Audit events now include user, role, authentication source, client IP, target object, node and structured metadata
+- LDAP bind passwords continue to remain protected and are never returned by the API
+- Operator permissions are enforced independently in frontend and backend
+
+### Fixed
+
+- Numerous permission inconsistencies between Administrator, Operator and Viewer
+- Missing audit events for several administrative operations
+- Various task handling inconsistencies
+- Multiple guest information inconsistencies
+- Storage and ZFS presentation improvements
+- Various frontend consistency issues
+- Various backend robustness improvements
+
+### Documentation
+
+- Expanded API documentation
+- Updated authentication documentation
+- Updated configuration documentation
+- Updated development documentation
+- Updated installation documentation
+- Updated reverse proxy documentation
+- Updated README
+- General documentation polish
+
 ## [1.4.1] - 2026-08-06
 
 ### Changed

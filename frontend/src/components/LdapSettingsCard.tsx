@@ -25,7 +25,7 @@ import { useEffect, useState } from 'react';
 
 import { api } from '../api';
 
-type LdapRole = 'admin' | 'viewer';
+type LdapRole = 'admin' | 'operator' | 'viewer';
 
 type LdapSettings = {
   enabled: boolean;
@@ -39,6 +39,7 @@ type LdapSettings = {
   base_dn: string;
   user_filter: string;
   admin_group_dn: string;
+  operator_group_dn: string;
   viewer_group_dn: string;
   default_role: LdapRole;
 };
@@ -180,6 +181,8 @@ export function LdapSettingsCard() {
       user_filter: settings.user_filter.trim(),
       admin_group_dn:
         settings.admin_group_dn.trim(),
+      operator_group_dn:
+        settings.operator_group_dn.trim(),
       viewer_group_dn:
         settings.viewer_group_dn.trim(),
       default_role: settings.default_role,
@@ -244,6 +247,8 @@ export function LdapSettingsCard() {
         user_filter: settings.user_filter.trim(),
         admin_group_dn:
           settings.admin_group_dn.trim(),
+        operator_group_dn:
+          settings.operator_group_dn.trim(),
         viewer_group_dn:
           settings.viewer_group_dn.trim(),
         default_role: settings.default_role,
@@ -390,6 +395,7 @@ export function LdapSettingsCard() {
 
               <NumberInput
                 label="Port"
+                description="LDAP service port"
                 value={settings.port}
                 min={1}
                 max={65535}
@@ -531,6 +537,10 @@ export function LdapSettingsCard() {
                   value: 'viewer',
                 },
                 {
+                  label: 'Operator',
+                  value: 'operator',
+                },
+                {
                   label: 'Administrator',
                   value: 'admin',
                 },
@@ -540,7 +550,9 @@ export function LdapSettingsCard() {
                   'default_role',
                   value === 'admin'
                     ? 'admin'
-                    : 'viewer',
+                    : value === 'operator'
+                      ? 'operator'
+                      : 'viewer',
                 )
               }
             />
@@ -548,7 +560,7 @@ export function LdapSettingsCard() {
             <SimpleGrid
               cols={{
                 base: 1,
-                md: 2,
+                md: 3,
               }}
             >
               <TextInput
@@ -560,6 +572,20 @@ export function LdapSettingsCard() {
                 onChange={(event) =>
                   updateSetting(
                     'admin_group_dn',
+                    event.currentTarget.value,
+                  )
+                }
+              />
+
+              <TextInput
+                label="Operator group DN"
+                description="Optional"
+                placeholder="CN=ProxPilot-Operators,OU=Groups,DC=example,DC=local"
+                value={settings.operator_group_dn}
+                disabled={saving}
+                onChange={(event) =>
+                  updateSetting(
+                    'operator_group_dn',
                     event.currentTarget.value,
                   )
                 }

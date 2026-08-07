@@ -21,7 +21,7 @@ def _utc_now() -> str:
 
 
 def _validate_role(role: str) -> None:
-    if role not in {"admin", "viewer"}:
+    if role not in {"admin", "operator", "viewer"}:
         raise ValueError("Invalid role.")
 
 

@@ -67,7 +67,7 @@ class ConsoleTicketRequest(BaseModel):
     vmid: int = Field(gt=0)
 
 
-def require_admin(request: Request) -> None:
+def require_operator_or_admin(request: Request) -> None:
     session = getattr(
         request.state,
         "session",
@@ -80,10 +80,16 @@ def require_admin(request: Request) -> None:
             detail="Authentication required.",
         )
 
-    if session.role != "admin":
+    if session.role not in {
+        "admin",
+        "operator",
+    }:
         raise HTTPException(
             status_code=403,
-            detail="Administrator permissions required.",
+            detail=(
+                "Operator or administrator "
+                "permissions required."
+            ),
         )
 
 
@@ -185,7 +191,13 @@ def read_admin_websocket_session(
         max_age=settings.proxpilot_session_max_age,
     )
 
-    if session is None or session.role != "admin":
+    if (
+        session is None
+        or session.role not in {
+            "admin",
+            "operator",
+        }
+    ):
         return None
 
     return session
@@ -196,7 +208,7 @@ async def create_console_ticket(
     console_request: ConsoleTicketRequest,
     request: Request,
 ):
-    require_admin(request)
+    require_operator_or_admin(request)
     cleanup_console_sessions()
 
     try:
@@ -222,6 +234,22 @@ async def create_console_ticket(
             time.monotonic()
             + CONSOLE_SESSION_TTL
         ),
+    )
+
+    from ..audit import write_request_audit_event
+
+    write_request_audit_event(
+        request,
+        action="console.open",
+        result="success",
+        severity="info",
+        target_type="qemu",
+        target=f"QEMU {console_request.vmid}",
+        node=console_request.node,
+        details={
+            "vmid": console_request.vmid,
+            "node": console_request.node,
+        },
     )
 
     return {

@@ -17,7 +17,7 @@ import {
 
 import type { ClusterNode } from '../hooks/useDashboard';
 import type { NodeUpdateStatus } from '../hooks/useUpdates';
-import { AdminButton } from './AdminButton';
+import { OperatorButton } from './OperatorButton';
 
 type NodeUpdatesModalProps = {
   node: ClusterNode | null;
@@ -188,15 +188,15 @@ export function NodeUpdatesModal({
         )}
 
         <Group justify="space-between">
-          <AdminButton
+          <OperatorButton
             variant="light"
             leftSection={<IconPackage size={16} />}
             disabled={actionRunning}
-            permissionTooltip="Only administrators can check for updates."
+            permissionTooltip="Operator or administrator permissions required to check for updates."
             onClick={() => onCheckUpdates(node)}
           >
             Check again
-          </AdminButton>
+          </OperatorButton>
 
           <Group>
             <Button
@@ -207,7 +207,7 @@ export function NodeUpdatesModal({
               Close
             </Button>
 
-            <AdminButton
+            <OperatorButton
               color="yellow"
               leftSection={<IconPackage size={16} />}
               disabled={
@@ -215,11 +215,11 @@ export function NodeUpdatesModal({
                 !hasUpdates ||
                 node.status?.toLowerCase() !== 'online'
               }
-              permissionTooltip="Only administrators can install updates."
+              permissionTooltip="Operator or administrator permissions required to install updates."
               onClick={() => onInstallUpdates(node)}
             >
               Install updates
-            </AdminButton>
+            </OperatorButton>
           </Group>
         </Group>
       </Stack>

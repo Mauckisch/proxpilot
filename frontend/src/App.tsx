@@ -20,6 +20,7 @@ import { useDisclosure } from '@mantine/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   IconActivity,
+  IconClipboardList,
   IconArchive,
   IconBuildingWarehouse,
   IconCopy,
@@ -48,6 +49,7 @@ import { ReplicationsPage } from './pages/ReplicationsPage';
 import { BackupsPage } from './pages/BackupsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { UsersPage } from './pages/UsersPage';
+import { AuditLogPage } from './pages/AuditLogPage';
 import { NetworkPage } from './pages/NetworkPage';
 import { ActivityPanel } from './components/ActivityPanel';
 import { AboutDialog } from './components/AboutDialog';
@@ -68,6 +70,7 @@ const navigationItems: NavigationItem[] = [
   { label: 'Backups', icon: IconArchive },
   { label: 'Cluster', icon: IconStack2 },
   { label: 'Tasks', icon: IconActivity },
+  { label: 'Audit Log', icon: IconClipboardList },
   { label: 'Users', icon: IconUsers },
   { label: 'Settings', icon: IconSettings },
 ];
@@ -92,6 +95,9 @@ export default function App() {
   const [activeNavigation, setActiveNavigation] = useState('Dashboard');
 
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+
+  const [selectedTaskId, setSelectedTaskId] =
+    useState<string | null>(null);
 
   const {
     colorScheme,
@@ -271,7 +277,9 @@ export default function App() {
               <Text size="xs" c="dimmed">
                 {user.role === 'admin'
                   ? 'Administrator'
-                  : 'Viewer'}
+                  : user.role === 'operator'
+                    ? 'Operator'
+                    : 'Viewer'}
                 {' · '}
                 {user.source === 'local'
                   ? 'Local'
@@ -430,7 +438,13 @@ export default function App() {
         )}
 
         {activeNavigation === 'Tasks' && (
-          <TasksPage />
+          <TasksPage
+            selectedTaskId={selectedTaskId}
+          />
+        )}
+
+        {activeNavigation === 'Audit Log' && (
+          <AuditLogPage />
         )}
 
         {activeNavigation === 'Users' && isAdmin && (
@@ -462,6 +476,7 @@ export default function App() {
           'Cluster',
           'Tasks',
           'Network',
+          'Audit Log',
           'Users',
           'Settings',
         ].includes(activeNavigation) && (
@@ -480,7 +495,14 @@ export default function App() {
 
       <AppShell.Aside p="md">
         {showActivityPanel && (
-          <ActivityPanel />
+          <ActivityPanel
+            onOpenTask={(taskId) => {
+              setSelectedTaskId(taskId);
+              setActiveNavigation('Tasks');
+              setSelectedNode(null);
+              mobileHandlers.close();
+            }}
+          />
         )}
       </AppShell.Aside>
 

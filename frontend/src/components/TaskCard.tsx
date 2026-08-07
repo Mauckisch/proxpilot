@@ -21,6 +21,7 @@ import type {
   ManagedTask,
   TaskState,
 } from '../hooks/useTasks';
+import { getTaskType } from '../utils/taskType';
 
 type TaskCardProps = {
   task: ManagedTask;
@@ -79,6 +80,8 @@ export function TaskCard({
   task,
 }: TaskCardProps) {
   const state = getStateConfiguration(task.state);
+  const taskType = getTaskType(task);
+  const TaskTypeIcon = taskType.icon;
   const output = task.output ?? [];
 
   return (
@@ -106,6 +109,16 @@ export function TaskCard({
             </Group>
 
             <Group gap="xs" mt={6}>
+              <Badge
+                variant="light"
+                color={taskType.color}
+                leftSection={
+                  <TaskTypeIcon size={12} />
+                }
+              >
+                {taskType.label}
+              </Badge>
+
               {task.node && (
                 <Badge
                   variant="light"

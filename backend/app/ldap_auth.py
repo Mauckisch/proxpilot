@@ -23,7 +23,7 @@ from .settings_store import (
 )
 
 
-LdapRole = Literal["admin", "viewer"]
+LdapRole = Literal["admin", "operator", "viewer"]
 
 
 @dataclass
@@ -39,6 +39,7 @@ class LdapConfiguration:
     base_dn: str
     user_filter: str
     admin_group_dn: str
+    operator_group_dn: str
     viewer_group_dn: str
     default_role: str
 
@@ -113,6 +114,13 @@ def load_ldap_configuration() -> LdapConfiguration:
             get_setting(
                 "ldap.admin_group_dn",
                 defaults.proxpilot_ldap_admin_group_dn,
+            )
+            or ""
+        ).strip(),
+        operator_group_dn=(
+            get_setting(
+                "ldap.operator_group_dn",
+                defaults.proxpilot_ldap_operator_group_dn,
             )
             or ""
         ).strip(),
@@ -298,17 +306,26 @@ def _determine_role(
         return "admin"
 
     if (
+        configuration.operator_group_dn
+        and configuration.operator_group_dn.casefold()
+        in normalized_groups
+    ):
+        return "operator"
+
+    if (
         configuration.viewer_group_dn
         and configuration.viewer_group_dn.casefold()
         in normalized_groups
     ):
         return "viewer"
 
-    return (
-        "admin"
-        if configuration.default_role == "admin"
-        else "viewer"
-    )
+    if configuration.default_role == "admin":
+        return "admin"
+
+    if configuration.default_role == "operator":
+        return "operator"
+
+    return "viewer"
 
 
 def authenticate_ldap_user(

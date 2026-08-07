@@ -16,7 +16,7 @@ from .config import get_settings
 SESSION_COOKIE_NAME = "proxpilot_session"
 SESSION_SALT = "proxpilot-session-v2"
 
-UserRole = Literal["admin", "viewer"]
+UserRole = Literal["admin", "operator", "viewer"]
 UserSource = Literal["local", "ldap"]
 
 
@@ -93,7 +93,7 @@ def read_session_token(
     if not isinstance(username, str) or not username:
         return None
 
-    if role not in {"admin", "viewer"}:
+    if role not in {"admin", "operator", "viewer"}:
         return None
 
     if source not in {"local", "ldap"}:

@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 import json
 import os
 import platform
@@ -16,9 +18,18 @@ from fastapi import (
     Request,
     Response,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from .audit import (
+    clear_audit_events,
+    get_audit_filter_values,
+    get_audit_summary,
+    list_audit_events,
+    purge_expired_audit_events,
+    write_audit_event,
+    write_request_audit_event,
+)
 from .auth import (
     SESSION_COOKIE_NAME,
     AuthenticationConfigurationError,
@@ -220,6 +231,34 @@ def require_admin(request: Request) -> None:
         )
 
 
+def require_operator_or_admin(
+    request: Request,
+) -> None:
+    session = getattr(
+        request.state,
+        "session",
+        None,
+    )
+
+    if session is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+        )
+
+    if session.role not in {
+        "admin",
+        "operator",
+    }:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Operator or administrator "
+                "permissions required."
+            ),
+        )
+
+
 @app.on_event("startup")
 async def initialize_application() -> None:
     settings = get_settings()
@@ -253,7 +292,11 @@ class UserCreate(BaseModel):
         min_length=8,
         max_length=1024,
     )
-    role: Literal["admin", "viewer"] = "viewer"
+    role: Literal[
+        "admin",
+        "operator",
+        "viewer",
+    ] = "viewer"
 
 
 class UserUpdate(BaseModel):
@@ -262,7 +305,11 @@ class UserUpdate(BaseModel):
         min_length=1,
         max_length=128,
     )
-    role: Literal["admin", "viewer"] | None = None
+    role: Literal[
+        "admin",
+        "operator",
+        "viewer",
+    ] | None = None
     enabled: bool | None = None
 
 
@@ -311,11 +358,19 @@ class LdapSettingsUpdate(BaseModel):
         default="",
         max_length=1024,
     )
+    operator_group_dn: str = Field(
+        default="",
+        max_length=1024,
+    )
     viewer_group_dn: str = Field(
         default="",
         max_length=1024,
     )
-    default_role: Literal["admin", "viewer"] = "viewer"
+    default_role: Literal[
+        "admin",
+        "operator",
+        "viewer",
+    ] = "viewer"
 
 
 class GuestAction(BaseModel):
@@ -558,6 +613,7 @@ async def auth_status(request: Request):
 async def auth_login(
     credentials: AuthLogin,
     response: Response,
+    request: Request,
 ):
     settings = get_settings()
 
@@ -597,6 +653,19 @@ async def auth_login(
             )
 
     if user is None:
+        write_audit_event(
+            action="auth.login",
+            result="failed",
+            severity="warning",
+            request=request,
+            username=credentials.username.strip(),
+            target_type="authentication",
+            target="login",
+            details={
+                "reason": "invalid_credentials",
+            },
+        )
+
         raise HTTPException(
             status_code=401,
             detail="Invalid username or password.",
@@ -621,6 +690,19 @@ async def auth_login(
         path="/",
     )
 
+    write_audit_event(
+        action="auth.login",
+        result="success",
+        severity="info",
+        request=request,
+        user_id=int(user["id"]),
+        username=user["username"],
+        role=user["role"],
+        source=user["source"],
+        target_type="authentication",
+        target="login",
+    )
+
     return {
         "ok": True,
         "authenticated": True,
@@ -631,7 +713,34 @@ async def auth_login(
 
 
 @app.post("/api/auth/logout")
-async def auth_logout(response: Response):
+async def auth_logout(
+    response: Response,
+    request: Request,
+):
+    settings = get_settings()
+
+    session = read_session_token(
+        token=request.cookies.get(
+            SESSION_COOKIE_NAME,
+        ),
+        secret=settings.proxpilot_session_secret,
+        max_age=settings.proxpilot_session_max_age,
+    )
+
+    if session is not None:
+        write_audit_event(
+            action="auth.logout",
+            result="success",
+            severity="info",
+            request=request,
+            user_id=session.user_id,
+            username=session.username,
+            role=session.role,
+            source=session.source,
+            target_type="authentication",
+            target="logout",
+        )
+
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         path="/",
@@ -670,6 +779,22 @@ async def users_create(
             status_code=500,
             detail="User was created but could not be loaded.",
         )
+
+    write_request_audit_event(
+        request,
+        action="user.create",
+        result="success",
+        severity="info",
+        target_type="user",
+        target=created_user["username"],
+        details={
+            "user_id": created_user["id"],
+            "username": created_user["username"],
+            "role": created_user["role"],
+            "source": created_user["source"],
+            "enabled": created_user["enabled"],
+        },
+    )
 
     return created_user
 
@@ -714,17 +839,23 @@ async def users_update(
                 detail="You cannot disable your own account.",
             )
 
-        if user_data.role == "viewer":
+        if (
+            user_data.role is not None
+            and user_data.role != "admin"
+        ):
             raise HTTPException(
                 status_code=400,
-                detail="You cannot change your own role to viewer.",
+                detail="You cannot remove your own administrator role.",
             )
 
     removes_enabled_admin = (
         existing_user["role"] == "admin"
         and bool(existing_user["enabled"])
         and (
-            user_data.role == "viewer"
+            (
+                user_data.role is not None
+                and user_data.role != "admin"
+            )
             or user_data.enabled is False
         )
     )
@@ -753,6 +884,25 @@ async def users_update(
             status_code=404,
             detail="User not found.",
         )
+
+    write_request_audit_event(
+        request,
+        action="user.update",
+        result="success",
+        severity="info",
+        target_type="user",
+        target=updated_user["username"],
+        details={
+            "user_id": updated_user["id"],
+            "old_username": existing_user["username"],
+            "new_username": updated_user["username"],
+            "old_role": existing_user["role"],
+            "new_role": updated_user["role"],
+            "old_enabled": bool(existing_user["enabled"]),
+            "new_enabled": updated_user["enabled"],
+            "source": updated_user["source"],
+        },
+    )
 
     return updated_user
 
@@ -795,6 +945,20 @@ async def users_update_password(
             status_code=404,
             detail="User not found.",
         )
+
+    write_request_audit_event(
+        request,
+        action="user.password.change",
+        result="success",
+        severity="warning",
+        target_type="user",
+        target=updated_user["username"],
+        details={
+            "user_id": updated_user["id"],
+            "username": updated_user["username"],
+            "source": updated_user["source"],
+        },
+    )
 
     return {
         "ok": True,
@@ -840,6 +1004,22 @@ async def users_delete(
             detail="User not found.",
         )
 
+    write_request_audit_event(
+        request,
+        action="user.delete",
+        result="success",
+        severity="warning",
+        target_type="user",
+        target=existing_user["username"],
+        details={
+            "user_id": user_id,
+            "username": existing_user["username"],
+            "role": existing_user["role"],
+            "source": existing_user["source"],
+            "enabled": bool(existing_user["enabled"]),
+        },
+    )
+
     return {
         "ok": True,
         "deleted_user_id": user_id,
@@ -881,6 +1061,9 @@ async def ldap_settings_test(
         admin_group_dn=(
             ldap_data.admin_group_dn.strip()
         ),
+        operator_group_dn=(
+            ldap_data.operator_group_dn.strip()
+        ),
         viewer_group_dn=(
             ldap_data.viewer_group_dn.strip()
         ),
@@ -892,13 +1075,48 @@ async def ldap_settings_test(
             test_ldap_configuration,
             configuration,
         )
+
+        write_request_audit_event(
+            request,
+            action="ldap.test",
+            result="success",
+            severity="info",
+            target_type="ldap",
+            target=configuration.server,
+            details={
+                "server": configuration.server,
+                "port": configuration.port,
+                "use_ssl": configuration.use_ssl,
+                "start_tls": configuration.start_tls,
+                "verify_ssl": configuration.verify_ssl,
+                "base_dn": configuration.base_dn,
+                "bind_dn_configured": bool(
+                    configuration.bind_dn
+                ),
+            },
+        )
+
+        return result
+
     except ValueError as exc:
+        write_request_audit_event(
+            request,
+            action="ldap.test",
+            result="failed",
+            severity="warning",
+            target_type="ldap",
+            target=configuration.server,
+            details={
+                "server": configuration.server,
+                "port": configuration.port,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=400,
             detail=str(exc),
         ) from exc
-
-    return result
 
 
 @app.get("/api/settings/ldap")
@@ -957,6 +1175,10 @@ async def ldap_settings_get(
         "admin_group_dn": get_setting(
             "ldap.admin_group_dn",
             defaults.proxpilot_ldap_admin_group_dn,
+        ) or "",
+        "operator_group_dn": get_setting(
+            "ldap.operator_group_dn",
+            defaults.proxpilot_ldap_operator_group_dn,
         ) or "",
         "viewer_group_dn": get_setting(
             "ldap.viewer_group_dn",
@@ -1060,6 +1282,10 @@ async def ldap_settings_update(
         ldap_data.admin_group_dn.strip(),
     )
     set_setting(
+        "ldap.operator_group_dn",
+        ldap_data.operator_group_dn.strip(),
+    )
+    set_setting(
         "ldap.viewer_group_dn",
         ldap_data.viewer_group_dn.strip(),
     )
@@ -1074,9 +1300,467 @@ async def ldap_settings_update(
             ldap_data.bind_password,
         )
 
+    write_request_audit_event(
+        request,
+        action="ldap.settings.update",
+        result="success",
+        severity="warning",
+        target_type="ldap",
+        target=server or "LDAP",
+        details={
+            "enabled": ldap_data.enabled,
+            "server": server,
+            "port": ldap_data.port,
+            "use_ssl": ldap_data.use_ssl,
+            "start_tls": ldap_data.start_tls,
+            "verify_ssl": ldap_data.verify_ssl,
+            "bind_dn": bind_dn,
+            "bind_password_changed":
+                ldap_data.bind_password is not None,
+            "base_dn": base_dn,
+            "user_filter": user_filter,
+            "admin_group_dn":
+                ldap_data.admin_group_dn.strip(),
+            "operator_group_dn":
+                ldap_data.operator_group_dn.strip(),
+            "viewer_group_dn":
+                ldap_data.viewer_group_dn.strip(),
+            "default_role":
+                ldap_data.default_role,
+        },
+    )
+
     return {
         "ok": True,
         "message": "LDAP settings saved.",
+    }
+
+
+@app.get("/api/audit")
+async def audit_log_list(
+    request: Request,
+    limit: int = Query(
+        default=100,
+        ge=1,
+        le=500,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
+    username: list[str] | None = Query(
+        default=None,
+    ),
+    role: list[str] | None = Query(
+        default=None,
+    ),
+    source: list[str] | None = Query(
+        default=None,
+    ),
+    action: list[str] | None = Query(
+        default=None,
+    ),
+    result: list[str] | None = Query(
+        default=None,
+    ),
+    severity: list[str] | None = Query(
+        default=None,
+    ),
+    node: list[str] | None = Query(
+        default=None,
+    ),
+    target_type: list[str] | None = Query(
+        default=None,
+    ),
+    search: str | None = Query(
+        default=None,
+        max_length=256,
+    ),
+    date_from: str | None = Query(
+        default=None,
+        max_length=64,
+    ),
+    date_to: str | None = Query(
+        default=None,
+        max_length=64,
+    ),
+):
+    require_operator_or_admin(request)
+
+    retention_days = get_int_setting(
+        "audit.retention_days",
+        90,
+    )
+
+    purge_expired_audit_events(
+        retention_days
+    )
+
+    events, total = list_audit_events(
+        limit=limit,
+        offset=offset,
+        usernames=username,
+        roles=role,
+        sources=source,
+        actions=action,
+        results=result,
+        severities=severity,
+        nodes=node,
+        target_types=target_type,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    return {
+        "events": events,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "retention_days": retention_days,
+        "filters": get_audit_filter_values(
+            usernames=username,
+            roles=role,
+            sources=source,
+            actions=action,
+            results=result,
+            severities=severity,
+            nodes=node,
+            target_types=target_type,
+            search=search,
+            date_from=date_from,
+            date_to=date_to,
+        ),
+        "summary": get_audit_summary(),
+    }
+
+
+@app.get("/api/audit/export/csv")
+async def audit_export_csv(
+    request: Request,
+    username: list[str] | None = Query(
+        default=None,
+    ),
+    role: list[str] | None = Query(
+        default=None,
+    ),
+    source: list[str] | None = Query(
+        default=None,
+    ),
+    action: list[str] | None = Query(
+        default=None,
+    ),
+    result: list[str] | None = Query(
+        default=None,
+    ),
+    severity: list[str] | None = Query(
+        default=None,
+    ),
+    node: list[str] | None = Query(
+        default=None,
+    ),
+    target_type: list[str] | None = Query(
+        default=None,
+    ),
+    search: str | None = Query(
+        default=None,
+        max_length=256,
+    ),
+    date_from: str | None = Query(
+        default=None,
+        max_length=64,
+    ),
+    date_to: str | None = Query(
+        default=None,
+        max_length=64,
+    ),
+):
+    require_operator_or_admin(request)
+
+    events, _ = list_audit_events(
+        limit=100000,
+        offset=0,
+        usernames=username,
+        roles=role,
+        sources=source,
+        actions=action,
+        results=result,
+        severities=severity,
+        nodes=node,
+        target_types=target_type,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    writer.writerow([
+        "id",
+        "created_at",
+        "username",
+        "role",
+        "source",
+        "ip_address",
+        "action",
+        "target_type",
+        "target",
+        "node",
+        "result",
+        "severity",
+        "duration_ms",
+        "details",
+    ])
+
+    for event in events:
+        details = event.get("details")
+
+        if isinstance(details, (dict, list)):
+            details = json.dumps(
+                details,
+                ensure_ascii=False,
+            )
+
+        writer.writerow([
+            event.get("id"),
+            event.get("created_at"),
+            event.get("username"),
+            event.get("role"),
+            event.get("source"),
+            event.get("ip_address"),
+            event.get("action"),
+            event.get("target_type"),
+            event.get("target"),
+            event.get("node"),
+            event.get("result"),
+            event.get("severity"),
+            event.get("duration_ms"),
+            details,
+        ])
+
+    filename = (
+        "proxpilot-audit-"
+        + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        + ".csv"
+    )
+
+    write_request_audit_event(
+        request,
+        action="audit.export.csv",
+        result="success",
+        severity="info",
+        target_type="audit",
+        target="export",
+        details={
+            "entries": len(events),
+        },
+    )
+
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@app.get("/api/audit/export/json")
+async def audit_export_json(
+    request: Request,
+    username: list[str] | None = Query(
+        default=None,
+    ),
+    role: list[str] | None = Query(
+        default=None,
+    ),
+    source: list[str] | None = Query(
+        default=None,
+    ),
+    action: list[str] | None = Query(
+        default=None,
+    ),
+    result: list[str] | None = Query(
+        default=None,
+    ),
+    severity: list[str] | None = Query(
+        default=None,
+    ),
+    node: list[str] | None = Query(
+        default=None,
+    ),
+    target_type: list[str] | None = Query(
+        default=None,
+    ),
+    search: str | None = Query(
+        default=None,
+        max_length=256,
+    ),
+    date_from: str | None = Query(
+        default=None,
+        max_length=64,
+    ),
+    date_to: str | None = Query(
+        default=None,
+        max_length=64,
+    ),
+):
+    require_operator_or_admin(request)
+
+    events, _ = list_audit_events(
+        limit=100000,
+        offset=0,
+        usernames=username,
+        roles=role,
+        sources=source,
+        actions=action,
+        results=result,
+        severities=severity,
+        nodes=node,
+        target_types=target_type,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    filename = (
+        "proxpilot-audit-"
+        + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        + ".json"
+    )
+
+    write_request_audit_event(
+        request,
+        action="audit.export.json",
+        result="success",
+        severity="info",
+        target_type="audit",
+        target="export",
+        details={
+            "entries": len(events),
+        },
+    )
+
+    payload = json.dumps(
+        events,
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    return StreamingResponse(
+        iter([payload]),
+        media_type="application/json; charset=utf-8",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@app.get("/api/audit/settings")
+async def audit_settings_get(
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    return {
+        "retention_days": get_int_setting(
+            "audit.retention_days",
+            90,
+        ),
+    }
+
+
+@app.put("/api/audit/settings")
+async def audit_settings_update(
+    request: Request,
+    retention_days: int = Query(
+        ge=1,
+        le=3650,
+    ),
+):
+    require_admin(request)
+
+    old_retention = get_int_setting(
+        "audit.retention_days",
+        90,
+    )
+
+    set_int_setting(
+        "audit.retention_days",
+        retention_days,
+    )
+
+    deleted = purge_expired_audit_events(
+        retention_days
+    )
+
+    write_request_audit_event(
+        request,
+        action="audit.retention.update",
+        result="success",
+        severity="warning",
+        target_type="audit",
+        target="retention",
+        details={
+            "old_retention_days":
+                old_retention,
+            "new_retention_days":
+                retention_days,
+            "expired_entries_deleted":
+                deleted,
+        },
+    )
+
+    return {
+        "ok": True,
+        "retention_days":
+            retention_days,
+        "deleted":
+            deleted,
+    }
+
+
+@app.delete("/api/audit")
+async def audit_log_clear(
+    request: Request,
+    confirmed: bool = Query(
+        default=False,
+    ),
+):
+    require_admin(request)
+
+    if not confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Das Löschen des Audit-Logs "
+                "muss ausdrücklich bestätigt werden."
+            ),
+        )
+
+    deleted = clear_audit_events()
+
+    # Der Löschvorgang selbst wird anschließend
+    # wieder als erster neuer Audit-Eintrag angelegt.
+    write_request_audit_event(
+        request,
+        action="audit.clear",
+        result="success",
+        severity="warning",
+        target_type="audit",
+        target="all",
+        details={
+            "deleted_entries":
+                deleted,
+        },
+    )
+
+    return {
+        "ok": True,
+        "deleted": deleted,
     }
 
 
@@ -1084,7 +1768,7 @@ async def ldap_settings_update(
 async def system_information(
     request: Request,
 ):
-    require_admin(request)
+    require_operator_or_admin(request)
 
     settings = get_settings()
     now = datetime.now(UTC)
@@ -1334,14 +2018,15 @@ async def run_backup(
     request: BackupRun,
     http_request: Request,
 ):
-    require_admin(http_request)
-    if not request.confirmed:
-        raise HTTPException(
-            status_code=400,
-            detail="Der manuelle Backup-Start muss bestätigt werden.",
-        )
+    require_operator_or_admin(http_request)
 
     try:
+        if not request.confirmed:
+            raise HTTPException(
+                status_code=400,
+                detail="Der manuelle Backup-Start muss bestätigt werden.",
+            )
+
         data = await client.dashboard()
 
         job = next(
@@ -1412,6 +2097,24 @@ async def run_backup(
 
             tasks.append(task.public())
 
+        write_request_audit_event(
+            http_request,
+            action="backup.run",
+            result="success",
+            severity="info",
+            target_type="backup_job",
+            target=request.job_id,
+            details={
+                "job_id": request.job_id,
+                "nodes": online_nodes,
+                "storage": parameters.get("storage"),
+                "mode": parameters.get("mode"),
+                "compress": parameters.get("compress"),
+                "tasks_started": len(tasks),
+                "status": "tasks_started",
+            },
+        )
+
         return {
             "ok": True,
             "job_id": request.job_id,
@@ -1419,10 +2122,41 @@ async def run_backup(
             "tasks": tasks,
         }
 
-    except HTTPException:
+    except HTTPException as exc:
+        write_request_audit_event(
+            http_request,
+            action="backup.run",
+            result="failed",
+            severity=(
+                "error"
+                if exc.status_code >= 500
+                else "warning"
+            ),
+            target_type="backup_job",
+            target=request.job_id,
+            details={
+                "job_id": request.job_id,
+                "http_status": exc.status_code,
+                "error": str(exc.detail),
+            },
+        )
+
         raise
 
     except ProxmoxError as exc:
+        write_request_audit_event(
+            http_request,
+            action="backup.run",
+            result="failed",
+            severity="error",
+            target_type="backup_job",
+            target=request.job_id,
+            details={
+                "job_id": request.job_id,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=502,
             detail=str(exc),
@@ -1434,14 +2168,20 @@ async def run_guest_backup(
     request: GuestBackupRun,
     http_request: Request,
 ):
-    require_admin(http_request)
-    if not request.confirmed:
-        raise HTTPException(
-            status_code=400,
-            detail="Der Einzelbackup-Start muss bestätigt werden.",
-        )
+    require_operator_or_admin(http_request)
+
+    audit_target = (
+        f"{request.guest_type.upper()} "
+        f"{request.vmid}"
+    )
 
     try:
+        if not request.confirmed:
+            raise HTTPException(
+                status_code=400,
+                detail="Der Einzelbackup-Start muss bestätigt werden.",
+            )
+
         data = await client.dashboard()
 
         job = next(
@@ -1577,6 +2317,25 @@ async def run_guest_backup(
                 ),
             )
 
+        write_request_audit_event(
+            http_request,
+            action="backup.guest",
+            result="success",
+            severity="info",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "guest_type": request.guest_type,
+                "job_id": request.job_id,
+                "storage": storage,
+                "mode": parameters.get("mode"),
+                "compress": parameters.get("compress"),
+                "status": "task_started",
+            },
+        )
+
         return {
             "ok": True,
             "job_id": request.job_id,
@@ -1589,10 +2348,47 @@ async def run_guest_backup(
             "task": public_task,
         }
 
-    except HTTPException:
+    except HTTPException as exc:
+        write_request_audit_event(
+            http_request,
+            action="backup.guest",
+            result="failed",
+            severity=(
+                "error"
+                if exc.status_code >= 500
+                else "warning"
+            ),
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "guest_type": request.guest_type,
+                "job_id": request.job_id,
+                "http_status": exc.status_code,
+                "error": str(exc.detail),
+            },
+        )
+
         raise
 
     except ProxmoxError as exc:
+        write_request_audit_event(
+            http_request,
+            action="backup.guest",
+            result="failed",
+            severity="error",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "guest_type": request.guest_type,
+                "job_id": request.job_id,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=502,
             detail=str(exc),
@@ -1675,8 +2471,29 @@ async def create_snapshot(
     request: SnapshotCreate,
     http_request: Request,
 ):
-    require_admin(http_request)
+    require_operator_or_admin(http_request)
+
+    audit_target = (
+        f"{request.guest_type.upper()} "
+        f"{request.vmid}"
+    )
+
     if request.guest_type == "lxc" and request.include_ram:
+        write_request_audit_event(
+            http_request,
+            action="snapshot.create",
+            result="failed",
+            severity="warning",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.name,
+                "reason": "ram_snapshot_not_supported_for_lxc",
+            },
+        )
+
         raise HTTPException(
             status_code=400,
             detail="RAM-Snapshots werden für LXC-Container nicht unterstützt.",
@@ -1692,6 +2509,24 @@ async def create_snapshot(
             request.include_ram,
         )
 
+        write_request_audit_event(
+            http_request,
+            action="snapshot.create",
+            result="success",
+            severity="info",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.name,
+                "include_ram": request.include_ram,
+                "description": request.description,
+                "upid": upid,
+                "status": "task_started",
+            },
+        )
+
         return {
             "ok": True,
             "action": "create",
@@ -1703,6 +2538,21 @@ async def create_snapshot(
         }
 
     except ProxmoxError as exc:
+        write_request_audit_event(
+            http_request,
+            action="snapshot.create",
+            result="failed",
+            severity="error",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.name,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=502,
             detail=str(exc),
@@ -1714,8 +2564,29 @@ async def delete_snapshot(
     request: SnapshotOperation,
     http_request: Request,
 ):
-    require_admin(http_request)
+    require_operator_or_admin(http_request)
+
+    audit_target = (
+        f"{request.guest_type.upper()} "
+        f"{request.vmid}"
+    )
+
     if not request.confirmed:
+        write_request_audit_event(
+            http_request,
+            action="snapshot.delete",
+            result="failed",
+            severity="warning",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.snapshot_name,
+                "reason": "not_confirmed",
+            },
+        )
+
         raise HTTPException(
             status_code=400,
             detail="Das Löschen des Snapshots muss bestätigt werden.",
@@ -1729,6 +2600,22 @@ async def delete_snapshot(
             request.snapshot_name,
         )
 
+        write_request_audit_event(
+            http_request,
+            action="snapshot.delete",
+            result="success",
+            severity="info",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.snapshot_name,
+                "upid": upid,
+                "status": "task_started",
+            },
+        )
+
         return {
             "ok": True,
             "action": "delete",
@@ -1740,6 +2627,21 @@ async def delete_snapshot(
         }
 
     except ProxmoxError as exc:
+        write_request_audit_event(
+            http_request,
+            action="snapshot.delete",
+            result="failed",
+            severity="error",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.snapshot_name,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=502,
             detail=str(exc),
@@ -1751,8 +2653,29 @@ async def rollback_snapshot(
     request: SnapshotOperation,
     http_request: Request,
 ):
-    require_admin(http_request)
+    require_operator_or_admin(http_request)
+
+    audit_target = (
+        f"{request.guest_type.upper()} "
+        f"{request.vmid}"
+    )
+
     if not request.confirmed:
+        write_request_audit_event(
+            http_request,
+            action="snapshot.rollback",
+            result="failed",
+            severity="warning",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.snapshot_name,
+                "reason": "not_confirmed",
+            },
+        )
+
         raise HTTPException(
             status_code=400,
             detail="Das Zurückrollen des Snapshots muss bestätigt werden.",
@@ -1766,6 +2689,22 @@ async def rollback_snapshot(
             request.snapshot_name,
         )
 
+        write_request_audit_event(
+            http_request,
+            action="snapshot.rollback",
+            result="success",
+            severity="warning",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.snapshot_name,
+                "upid": upid,
+                "status": "task_started",
+            },
+        )
+
         return {
             "ok": True,
             "action": "rollback",
@@ -1775,6 +2714,45 @@ async def rollback_snapshot(
             "snapshot_name": request.snapshot_name,
             "upid": upid,
         }
+
+    except ProxmoxError as exc:
+        write_request_audit_event(
+            http_request,
+            action="snapshot.rollback",
+            result="failed",
+            severity="error",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "snapshot_name": request.snapshot_name,
+                "error": str(exc),
+            },
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+
+@app.get("/api/guest/{node}/qemu/{vmid}/disk-usage")
+async def guest_disk_usage(
+    node: str,
+    vmid: int,
+):
+    if vmid <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Ungültige VM-ID.",
+        )
+
+    try:
+        return await client.guest_disk_usage(
+            node,
+            vmid,
+        )
 
     except ProxmoxError as exc:
         raise HTTPException(
@@ -1814,20 +2792,71 @@ async def migrate_guest(
     request: GuestMigration,
     http_request: Request,
 ):
-    require_admin(http_request)
+    require_operator_or_admin(http_request)
+
+    audit_target = (
+        f"{request.guest_type.upper()} "
+        f"{request.vmid}"
+    )
+
     if not request.confirmed:
+        write_request_audit_event(
+            http_request,
+            action="guest.migrate",
+            result="failed",
+            severity="warning",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "target_node": request.target,
+                "reason": "not_confirmed",
+            },
+        )
+
         raise HTTPException(
             status_code=400,
             detail="Die Migration muss ausdrücklich bestätigt werden.",
         )
 
     if request.node == request.target:
+        write_request_audit_event(
+            http_request,
+            action="guest.migrate",
+            result="failed",
+            severity="warning",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "target_node": request.target,
+                "reason": "source_equals_target",
+            },
+        )
+
         raise HTTPException(
             status_code=400,
             detail="Der Ziel-Node muss sich vom Quell-Node unterscheiden.",
         )
 
     if request.guest_type == "lxc" and request.online:
+        write_request_audit_event(
+            http_request,
+            action="guest.migrate",
+            result="failed",
+            severity="warning",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "target_node": request.target,
+                "reason": "lxc_live_migration_not_supported",
+            },
+        )
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -1848,6 +2877,27 @@ async def migrate_guest(
             target_storage=request.target_storage,
         )
 
+        write_request_audit_event(
+            http_request,
+            action="guest.migrate",
+            result="success",
+            severity="info",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "source_node": request.node,
+                "target_node": request.target,
+                "online": request.online,
+                "restart": request.restart,
+                "with_local_disks": request.with_local_disks,
+                "target_storage": request.target_storage,
+                "upid": upid,
+                "status": "task_started",
+            },
+        )
+
         return {
             "ok": True,
             "node": request.node,
@@ -1858,6 +2908,22 @@ async def migrate_guest(
         }
 
     except ProxmoxError as exc:
+        write_request_audit_event(
+            http_request,
+            action="guest.migrate",
+            result="failed",
+            severity="error",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "source_node": request.node,
+                "target_node": request.target,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=502,
             detail=str(exc),
@@ -1887,7 +2953,14 @@ async def guest_action(
     request: GuestAction,
     http_request: Request,
 ):
-    require_admin(http_request)
+    require_operator_or_admin(http_request)
+
+    audit_action = f"guest.{request.action}"
+    audit_target = (
+        f"{request.guest_type.upper()} "
+        f"{request.vmid}"
+    )
+
     try:
         upid = await client.guest_action(
             request.node,
@@ -1896,12 +2969,45 @@ async def guest_action(
             request.action,
         )
 
+        write_request_audit_event(
+            http_request,
+            action=audit_action,
+            result="success",
+            severity="info",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "guest_type": request.guest_type,
+                "requested_action": request.action,
+                "upid": upid,
+                "status": "task_started",
+            },
+        )
+
         return {
             "ok": True,
             "upid": upid,
         }
 
     except ProxmoxError as exc:
+        write_request_audit_event(
+            http_request,
+            action=audit_action,
+            result="failed",
+            severity="error",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            details={
+                "vmid": request.vmid,
+                "guest_type": request.guest_type,
+                "requested_action": request.action,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=502,
             detail=str(exc),
@@ -1913,11 +3019,26 @@ async def maintenance(
     request: Maintenance,
     http_request: Request,
 ):
-    require_admin(http_request)
+    require_operator_or_admin(http_request)
+
     try:
         message = await set_maintenance(
             request.node,
             request.action,
+        )
+
+        write_request_audit_event(
+            http_request,
+            action=f"node.maintenance.{request.action}",
+            result="success",
+            severity="info",
+            target_type="node",
+            target=request.node,
+            node=request.node,
+            details={
+                "maintenance_action": request.action,
+                "message": message,
+            },
         )
 
         return {
@@ -1926,6 +3047,20 @@ async def maintenance(
         }
 
     except MaintenanceError as exc:
+        write_request_audit_event(
+            http_request,
+            action=f"node.maintenance.{request.action}",
+            result="failed",
+            severity="error",
+            target_type="node",
+            target=request.node,
+            node=request.node,
+            details={
+                "maintenance_action": request.action,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=502,
             detail=str(exc),
@@ -1937,7 +3072,13 @@ async def node_action(
     request: NodeAction,
     http_request: Request,
 ):
-    require_admin(http_request)
+    require_operator_or_admin(http_request)
+
+    audit_action = (
+        "node."
+        + request.action.replace("-", ".")
+    )
+
     critical_actions = {
         "install-updates",
         "package-cleanup",
@@ -1945,52 +3086,70 @@ async def node_action(
         "shutdown",
     }
 
-    if request.action in critical_actions and not request.confirmed:
-        raise HTTPException(
-            status_code=400,
-            detail="Diese Aktion muss ausdrücklich bestätigt werden.",
-        )
-
-    if (
-        request.action == "shutdown"
-        and not request.acknowledge_no_maintenance
-    ):
-        try:
-            data = await client.dashboard()
-
-            maintenance_enabled = any(
-                (item.get("node") or item.get("name")) == request.node
-                and item.get("type") == "lrm"
-                and "maintenance" in str(item.get("status", "")).lower()
-                for item in data.get("ha", [])
-            )
-
-        except ProxmoxError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=str(exc),
-            ) from exc
-
-        if not maintenance_enabled:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Der Node befindet sich nicht im Wartungsmodus. "
-                    "Bestätige diese Warnung ausdrücklich."
-                ),
-            )
-
     try:
+        if (
+            request.action in critical_actions
+            and not request.confirmed
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Diese Aktion muss ausdrücklich bestätigt werden.",
+            )
+
+        if (
+            request.action == "shutdown"
+            and not request.acknowledge_no_maintenance
+        ):
+            try:
+                data = await client.dashboard()
+
+                maintenance_enabled = any(
+                    (
+                        item.get("node")
+                        or item.get("name")
+                    ) == request.node
+                    and item.get("type") == "lrm"
+                    and "maintenance"
+                    in str(
+                        item.get("status", "")
+                    ).lower()
+                    for item in data.get("ha", [])
+                )
+
+            except ProxmoxError as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail=str(exc),
+                ) from exc
+
+            if not maintenance_enabled:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Der Node befindet sich nicht im Wartungsmodus. "
+                        "Bestätige diese Warnung ausdrücklich."
+                    ),
+                )
+
         if request.action == "check-updates":
-            task = await start_update_check(request.node)
+            task = await start_update_check(
+                request.node
+            )
 
         elif request.action == "install-updates":
-            task = await start_update_install(request.node)
+            task = await start_update_install(
+                request.node
+            )
 
         elif request.action == "package-cleanup":
-            task = await start_package_cleanup(request.node)
+            task = await start_package_cleanup(
+                request.node
+            )
 
-        elif request.action in {"reboot", "shutdown"}:
+        elif request.action in {
+            "reboot",
+            "shutdown",
+        }:
             task = await start_power_action(
                 request.node,
                 request.action,
@@ -2002,12 +3161,77 @@ async def node_action(
                 detail="Unbekannte Node-Aktion.",
             )
 
+        public_task = task.public()
+
+        write_request_audit_event(
+            http_request,
+            action=audit_action,
+            result="success",
+            severity=(
+                "warning"
+                if request.action
+                in {
+                    "install-updates",
+                    "package-cleanup",
+                    "reboot",
+                    "shutdown",
+                }
+                else "info"
+            ),
+            target_type="node",
+            target=request.node,
+            node=request.node,
+            details={
+                "requested_action": request.action,
+                "confirmed": request.confirmed,
+                "acknowledge_no_maintenance":
+                    request.acknowledge_no_maintenance,
+                "status": "task_started",
+            },
+        )
+
         return {
             "ok": True,
-            "task": task.public(),
+            "task": public_task,
         }
 
+    except HTTPException as exc:
+        write_request_audit_event(
+            http_request,
+            action=audit_action,
+            result="failed",
+            severity=(
+                "error"
+                if exc.status_code >= 500
+                else "warning"
+            ),
+            target_type="node",
+            target=request.node,
+            node=request.node,
+            details={
+                "requested_action": request.action,
+                "http_status": exc.status_code,
+                "error": str(exc.detail),
+            },
+        )
+
+        raise
+
     except RuntimeError as exc:
+        write_request_audit_event(
+            http_request,
+            action=audit_action,
+            result="failed",
+            severity="error",
+            target_type="node",
+            target=request.node,
+            node=request.node,
+            details={
+                "requested_action": request.action,
+                "error": str(exc),
+            },
+        )
+
         raise HTTPException(
             status_code=409,
             detail=str(exc),
