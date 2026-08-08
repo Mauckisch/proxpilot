@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.6.1] - 2026-08-08
+
+### Fixed
+
+- Fixed Task Scheduler audit log targets to display the actual Proxmox node or guest target instead of the scheduled task name.
+
 ## [1.6.0] - 2026-08-08
 
 ### Added
