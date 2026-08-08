@@ -13,6 +13,7 @@ import {
 } from '@mantine/core';
 import {
   IconAlertCircle,
+  IconCalendarTime,
   IconCheck,
   IconClock,
   IconLoader2,
@@ -99,7 +100,9 @@ function getTaskDescription(
   }
 
   if (task.state === 'error') {
-    parts.push(task.error ?? 'Task failed');
+    parts.push(
+      task.error ?? 'Task failed',
+    );
   }
 
   return parts.join(' · ');
@@ -141,7 +144,9 @@ function getTaskAppearance(
 }
 
 type ActivityPanelProps = {
-  onOpenTask?: (taskId: string) => void;
+  onOpenTask?: (
+    taskId: string,
+  ) => void;
 };
 
 export function ActivityPanel({
@@ -175,9 +180,14 @@ export function ActivityPanel({
     <Stack h="100%">
       <Group justify="space-between">
         <div>
-          <Title order={4}>Activity</Title>
+          <Title order={4}>
+            Activity
+          </Title>
 
-          <Text size="xs" c="dimmed">
+          <Text
+            size="xs"
+            c="dimmed"
+          >
             Tasks and recent actions
           </Text>
         </div>
@@ -199,10 +209,16 @@ export function ActivityPanel({
       <ScrollArea flex={1}>
         {tasksQuery.isLoading ? (
           <Center mih={180}>
-            <Stack align="center" gap="xs">
+            <Stack
+              align="center"
+              gap="xs"
+            >
               <Loader size="sm" />
 
-              <Text size="xs" c="dimmed">
+              <Text
+                size="xs"
+                c="dimmed"
+              >
                 Loading activity...
               </Text>
             </Stack>
@@ -211,7 +227,9 @@ export function ActivityPanel({
           <Alert
             color="red"
             icon={
-              <IconAlertCircle size={16} />
+              <IconAlertCircle
+                size={16}
+              />
             }
             title="Unable to load activity"
           >
@@ -224,7 +242,10 @@ export function ActivityPanel({
           </Alert>
         ) : tasks.length === 0 ? (
           <Center mih={180}>
-            <Stack align="center" gap="xs">
+            <Stack
+              align="center"
+              gap="xs"
+            >
               <ThemeIcon
                 variant="light"
                 color="gray"
@@ -233,7 +254,10 @@ export function ActivityPanel({
                 <IconClock size={16} />
               </ThemeIcon>
 
-              <Text size="sm" fw={600}>
+              <Text
+                size="sm"
+                fw={600}
+              >
                 No activity yet
               </Text>
 
@@ -243,7 +267,8 @@ export function ActivityPanel({
                 ta="center"
               >
                 Actions started from the
-                dashboard will appear here.
+                dashboard or Task Scheduler
+                will appear here.
               </Text>
             </Stack>
           </Center>
@@ -259,13 +284,19 @@ export function ActivityPanel({
               const TaskTypeIcon =
                 taskType.icon;
 
+              const scheduled =
+                task.source ===
+                'scheduler';
+
               return (
                 <Group
                   key={task.id}
                   align="flex-start"
                   wrap="nowrap"
                   onClick={() =>
-                    onOpenTask?.(task.id)
+                    onOpenTask?.(
+                      task.id,
+                    )
                   }
                   role={
                     onOpenTask
@@ -273,24 +304,34 @@ export function ActivityPanel({
                       : undefined
                   }
                   tabIndex={
-                    onOpenTask ? 0 : undefined
+                    onOpenTask
+                      ? 0
+                      : undefined
                   }
-                  onKeyDown={(event) => {
+                  onKeyDown={(
+                    event,
+                  ) => {
                     if (
                       onOpenTask &&
                       (
-                        event.key === 'Enter' ||
-                        event.key === ' '
+                        event.key ===
+                          'Enter' ||
+                        event.key ===
+                          ' '
                       )
                     ) {
                       event.preventDefault();
-                      onOpenTask(task.id);
+
+                      onOpenTask(
+                        task.id,
+                      );
                     }
                   }}
                   style={{
-                    cursor: onOpenTask
-                      ? 'pointer'
-                      : 'default',
+                    cursor:
+                      onOpenTask
+                        ? 'pointer'
+                        : 'default',
                     borderRadius:
                       'var(--mantine-radius-md)',
                     padding: '8px',
@@ -299,35 +340,68 @@ export function ActivityPanel({
                 >
                   <ThemeIcon
                     variant="light"
-                    color={taskType.color}
+                    color={
+                      taskType.color
+                    }
                     radius="xl"
                   >
-                    <TaskTypeIcon size={16} />
+                    <TaskTypeIcon
+                      size={16}
+                    />
                   </ThemeIcon>
 
-                  <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                    }}
+                  >
                     <Group
                       gap="xs"
                       justify="space-between"
                       wrap="nowrap"
                     >
-                      <Text size="sm" fw={600}>
+                      <Text
+                        size="sm"
+                        fw={600}
+                        lineClamp={1}
+                      >
                         {task.title}
                       </Text>
 
                       <Badge
                         variant="light"
-                        color={taskType.color}
+                        color={
+                          taskType.color
+                        }
                         size="xs"
                       >
                         {taskType.label}
                       </Badge>
                     </Group>
 
+                    {scheduled && (
+                      <Badge
+                        mt={5}
+                        size="xs"
+                        variant="light"
+                        color="violet"
+                        leftSection={
+                          <IconCalendarTime
+                            size={11}
+                          />
+                        }
+                      >
+                        Scheduled
+                      </Badge>
+                    )}
+
                     <Text
+                      mt={scheduled ? 4 : 0}
                       size="xs"
                       c={
-                        task.state === 'error'
+                        task.state ===
+                        'error'
                           ? 'red'
                           : 'dimmed'
                       }
@@ -344,23 +418,31 @@ export function ActivityPanel({
                       justify="space-between"
                     >
                       <Group gap={5}>
-                        <IconClock size={12} />
+                        <IconClock
+                          size={12}
+                        />
 
                         <Text
                           size="xs"
                           c="dimmed"
                         >
-                          {formatTaskTime(task)}
+                          {formatTaskTime(
+                            task,
+                          )}
                         </Text>
                       </Group>
 
                       <ThemeIcon
                         variant="subtle"
-                        color={appearance.color}
+                        color={
+                          appearance.color
+                        }
                         size="sm"
                         radius="xl"
                       >
-                        {appearance.icon}
+                        {
+                          appearance.icon
+                        }
                       </ThemeIcon>
                     </Group>
                   </div>
@@ -376,7 +458,10 @@ export function ActivityPanel({
       <Group gap="xs">
         <IconServer size={15} />
 
-        <Text size="xs" c="dimmed">
+        <Text
+          size="xs"
+          c="dimmed"
+        >
           {tasksQuery.isFetching
             ? 'Updating activity...'
             : 'Connected to backend task service'}

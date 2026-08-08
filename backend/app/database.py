@@ -3,7 +3,7 @@ import sqlite3
 
 
 DATABASE_PATH = Path("/app/data/proxpilot.db")
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 def get_connection() -> sqlite3.Connection:
@@ -263,6 +263,199 @@ def _migrate_to_version_3(
     )
 
 
+
+def _migrate_to_version_4(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE scheduled_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT NOT NULL UNIQUE,
+
+            name TEXT NOT NULL,
+            description TEXT,
+
+            enabled INTEGER NOT NULL DEFAULT 1
+                CHECK (enabled IN (0, 1)),
+
+            action TEXT NOT NULL,
+
+            target_type TEXT NOT NULL,
+            node TEXT,
+
+            guest_type TEXT
+                CHECK (
+                    guest_type IS NULL
+                    OR guest_type IN (
+                        'qemu',
+                        'lxc'
+                    )
+                ),
+
+            vmid INTEGER,
+
+            payload TEXT NOT NULL DEFAULT '{}',
+
+            repeat_enabled INTEGER NOT NULL DEFAULT 0
+                CHECK (
+                    repeat_enabled IN (0, 1)
+                ),
+
+            interval_value INTEGER
+                CHECK (
+                    interval_value IS NULL
+                    OR interval_value > 0
+                ),
+
+            interval_unit TEXT
+                CHECK (
+                    interval_unit IS NULL
+                    OR interval_unit IN (
+                        'minutes',
+                        'hours',
+                        'days',
+                        'weeks',
+                        'months'
+                    )
+                ),
+
+            timezone TEXT NOT NULL,
+
+            start_at TEXT NOT NULL,
+            next_run TEXT,
+            last_run TEXT,
+
+            last_result TEXT
+                CHECK (
+                    last_result IS NULL
+                    OR last_result IN (
+                        'success',
+                        'failed'
+                    )
+                ),
+
+            last_error TEXT,
+
+            created_by_user_id INTEGER,
+            created_by_username TEXT NOT NULL,
+
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+
+            CHECK (
+                (
+                    repeat_enabled = 0
+                    AND interval_value IS NULL
+                    AND interval_unit IS NULL
+                )
+                OR
+                (
+                    repeat_enabled = 1
+                    AND interval_value IS NOT NULL
+                    AND interval_unit IS NOT NULL
+                )
+            ),
+
+            FOREIGN KEY (
+                created_by_user_id
+            )
+            REFERENCES users(id)
+            ON DELETE SET NULL
+        )
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_scheduled_tasks_next_run
+        ON scheduled_tasks(next_run)
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_scheduled_tasks_enabled
+        ON scheduled_tasks(enabled)
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_scheduled_tasks_action
+        ON scheduled_tasks(action)
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE TABLE scheduled_task_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            task_id INTEGER NOT NULL,
+
+            trigger TEXT NOT NULL
+                CHECK (
+                    trigger IN (
+                        'scheduled',
+                        'manual'
+                    )
+                ),
+
+            scheduled_for TEXT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+
+            result TEXT NOT NULL
+                CHECK (
+                    result IN (
+                        'running',
+                        'success',
+                        'failed'
+                    )
+                ),
+
+            error TEXT,
+            details TEXT,
+
+            executed_by_user_id INTEGER,
+            executed_by_username TEXT,
+
+            FOREIGN KEY (
+                task_id
+            )
+            REFERENCES scheduled_tasks(id)
+            ON DELETE CASCADE,
+
+            FOREIGN KEY (
+                executed_by_user_id
+            )
+            REFERENCES users(id)
+            ON DELETE SET NULL
+        )
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_scheduled_task_runs_task_id
+        ON scheduled_task_runs(task_id)
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_scheduled_task_runs_started_at
+        ON scheduled_task_runs(started_at)
+        """
+    )
+
+    _set_schema_version(
+        connection,
+        4,
+    )
+
 def initialize_database() -> None:
     with get_connection() as connection:
         _create_settings_table(connection)
@@ -288,5 +481,9 @@ def initialize_database() -> None:
         if schema_version < 3:
             _migrate_to_version_3(connection)
             schema_version = 3
+
+        if schema_version < 4:
+            _migrate_to_version_4(connection)
+            schema_version = 4
 
         connection.commit()

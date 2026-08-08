@@ -24,6 +24,7 @@ class ManagedTask:
     node: str
     kind: str
     title: str
+    source: str = "manual"
     state: TaskState = "queued"
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     started_at: str | None = None
@@ -53,8 +54,20 @@ class TaskManager:
         with self._lock:
             return self._tasks.get(task_id)
 
-    def create(self, node: str, kind: str, title: str) -> ManagedTask:
-        task = ManagedTask(id=str(uuid.uuid4()), node=node, kind=kind, title=title)
+    def create(
+        self,
+        node: str,
+        kind: str,
+        title: str,
+        source: str = "manual",
+    ) -> ManagedTask:
+        task = ManagedTask(
+            id=str(uuid.uuid4()),
+            node=node,
+            kind=kind,
+            title=title,
+            source=source,
+        )
         with self._lock:
             self._tasks[task.id] = task
             self._order.append(task.id)
@@ -392,37 +405,98 @@ def _execute_power(task: ManagedTask, action: str) -> None:
         manager.fail(task, str(exc))
 
 
-async def start_update_check(node: str) -> ManagedTask:
+async def start_update_check(
+    node: str,
+    source: str = "manual",
+) -> ManagedTask:
     if not manager.reserve_update(node):
         raise RuntimeError("Es läuft bereits eine Update-Aktion auf einem Node.")
-    task = manager.create(node, "update-check", f"Updates auf {node} prüfen")
-    asyncio.create_task(asyncio.to_thread(_execute_update_check, task))
+
+    task = manager.create(
+        node,
+        "update-check",
+        f"Updates auf {node} prüfen",
+        source=source,
+    )
+
+    asyncio.create_task(
+        asyncio.to_thread(
+            _execute_update_check,
+            task,
+        )
+    )
+
     return task
 
 
-async def start_update_install(node: str) -> ManagedTask:
+async def start_update_install(
+    node: str,
+    source: str = "manual",
+) -> ManagedTask:
     if not manager.reserve_update(node):
         raise RuntimeError("Es läuft bereits eine Update-Aktion auf einem Node.")
-    task = manager.create(node, "update-install", f"Updates auf {node} installieren")
-    asyncio.create_task(asyncio.to_thread(_execute_update_install, task))
+
+    task = manager.create(
+        node,
+        "update-install",
+        f"Updates auf {node} installieren",
+        source=source,
+    )
+
+    asyncio.create_task(
+        asyncio.to_thread(
+            _execute_update_install,
+            task,
+        )
+    )
+
     return task
 
 
-async def start_package_cleanup(node: str) -> ManagedTask:
+async def start_package_cleanup(
+    node: str,
+    source: str = "manual",
+) -> ManagedTask:
     if not manager.reserve_update(node):
         raise RuntimeError("Es läuft bereits eine Update-Aktion auf einem Node.")
+
     task = manager.create(
         node,
         "package-cleanup",
         f"Paketbereinigung auf {node}",
+        source=source,
     )
-    asyncio.create_task(asyncio.to_thread(_execute_package_cleanup, task))
+
+    asyncio.create_task(
+        asyncio.to_thread(
+            _execute_package_cleanup,
+            task,
+        )
+    )
+
     return task
 
 
-async def start_power_action(node: str, action: str) -> ManagedTask:
-    task = manager.create(node, action, f"{node} {('neu starten' if action == 'reboot' else 'herunterfahren')}")
-    asyncio.create_task(asyncio.to_thread(_execute_power, task, action))
+async def start_power_action(
+    node: str,
+    action: str,
+    source: str = "manual",
+) -> ManagedTask:
+    task = manager.create(
+        node,
+        action,
+        f"{node} {('neu starten' if action == 'reboot' else 'herunterfahren')}",
+        source=source,
+    )
+
+    asyncio.create_task(
+        asyncio.to_thread(
+            _execute_power,
+            task,
+            action,
+        )
+    )
+
     return task
 
 
@@ -492,11 +566,13 @@ async def start_backup_task(
     node: str,
     job_id: str,
     parameters: dict,
+    source: str = "manual",
 ) -> ManagedTask:
     task = manager.create(
         node,
         "backup",
         f"Backup auf {node} · {job_id}",
+        source=source,
     )
 
     try:

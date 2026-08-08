@@ -34,6 +34,8 @@ type SettingsPageProps = {
   onShowActivityPanelChange: (value: boolean) => void;
   navbarCollapsed: boolean;
   onNavbarCollapsedChange: (value: boolean) => void;
+  timeFormat: '12h' | '24h';
+  onTimeFormatChange: (value: '12h' | '24h') => void;
 };
 
 type BackendHealth = {
@@ -52,6 +54,8 @@ export function SettingsPage({
   onShowActivityPanelChange,
   navbarCollapsed,
   onNavbarCollapsedChange,
+  timeFormat,
+  onTimeFormatChange,
 }: SettingsPageProps) {
   const [health, setHealth] = useState<BackendHealth | null>(null);
   const [config, setConfig] = useState<BackendConfig | null>(null);
@@ -207,6 +211,49 @@ export function SettingsPage({
           </Stack>
         </Card>
       </SimpleGrid>
+
+      <Card withBorder radius="lg" p="lg">
+        <Stack gap="lg">
+          <Group>
+            <ThemeIcon variant="light" size="lg">
+              <IconAdjustments size={20} />
+            </ThemeIcon>
+
+            <div>
+              <Text fw={600}>Regional</Text>
+
+              <Text size="sm" c="dimmed">
+                Date and time display preferences
+              </Text>
+            </div>
+          </Group>
+
+          <SegmentedControl
+            fullWidth
+            value={timeFormat}
+            onChange={(value) =>
+              onTimeFormatChange(
+                value as '12h' | '24h',
+              )
+            }
+            data={[
+              {
+                label: '24-hour',
+                value: '24h',
+              },
+              {
+                label: '12-hour',
+                value: '12h',
+              },
+            ]}
+          />
+
+          <Text size="xs" c="dimmed">
+            Dates use the international YYYY-MM-DD format.
+            Calendar controls are displayed in English.
+          </Text>
+        </Stack>
+      </Card>
 
       <LdapSettingsCard />
 

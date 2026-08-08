@@ -34,6 +34,7 @@ import {
   IconStack2,
   IconSun,
   IconUsers,
+  IconCalendarTime,
 } from '@tabler/icons-react';
 
 import { api } from './api';
@@ -50,6 +51,7 @@ import { BackupsPage } from './pages/BackupsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { UsersPage } from './pages/UsersPage';
 import { AuditLogPage } from './pages/AuditLogPage';
+import { TaskSchedulerPage } from './pages/TaskSchedulerPage';
 import { NetworkPage } from './pages/NetworkPage';
 import { ActivityPanel } from './components/ActivityPanel';
 import { AboutDialog } from './components/AboutDialog';
@@ -70,6 +72,7 @@ const navigationItems: NavigationItem[] = [
   { label: 'Backups', icon: IconArchive },
   { label: 'Cluster', icon: IconStack2 },
   { label: 'Tasks', icon: IconActivity },
+  { label: 'Task Scheduler', icon: IconCalendarTime },
   { label: 'Audit Log', icon: IconClipboardList },
   { label: 'Users', icon: IconUsers },
   { label: 'Settings', icon: IconSettings },
@@ -92,12 +95,29 @@ export default function App() {
     return localStorage.getItem('proxpilot-activity-panel') !== 'false';
   });
 
+  const [timeFormat, setTimeFormat] =
+    useState<'12h' | '24h'>(() => {
+      return localStorage.getItem(
+        'proxpilot-time-format',
+      ) === '12h'
+        ? '12h'
+        : '24h';
+    });
+
   const [activeNavigation, setActiveNavigation] = useState('Dashboard');
 
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
   const [selectedTaskId, setSelectedTaskId] =
     useState<string | null>(null);
+
+  const [currentTime, setCurrentTime] =
+    useState(() => new Date());
+
+  const browserTimezone =
+    Intl.DateTimeFormat()
+      .resolvedOptions()
+      .timeZone;
 
   const {
     colorScheme,
@@ -156,6 +176,77 @@ export default function App() {
       String(showActivityPanel),
     );
   }, [showActivityPanel]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      'proxpilot-time-format',
+      timeFormat,
+    );
+  }, [timeFormat]);
+
+  useEffect(() => {
+    const updateClock = () => {
+      setCurrentTime(new Date());
+    };
+
+    updateClock();
+
+    const millisecondsUntilNextMinute =
+      60_000 -
+      (
+        Date.now()
+        % 60_000
+      );
+
+    let intervalId:
+      | number
+      | undefined;
+
+    const timeoutId =
+      window.setTimeout(
+        () => {
+          updateClock();
+
+          intervalId =
+            window.setInterval(
+              updateClock,
+              60_000,
+            );
+        },
+        millisecondsUntilNextMinute,
+      );
+
+    return () => {
+      window.clearTimeout(
+        timeoutId,
+      );
+
+      if (
+        intervalId !==
+        undefined
+      ) {
+        window.clearInterval(
+          intervalId,
+        );
+      }
+    };
+  }, []);
+
+  const formattedClock =
+    new Intl.DateTimeFormat(
+      'en-CA',
+      {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12:
+          timeFormat === '12h',
+      },
+    )
+      .format(currentTime)
+      .replace(',', '');
 
   async function logout() {
     try {
@@ -233,6 +324,38 @@ export default function App() {
               </div>
             </Group>
           </Group>
+
+          <Stack
+            gap={0}
+            align="center"
+            visibleFrom="md"
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              transform:
+                'translate(-50%, -50%)',
+              pointerEvents: 'none',
+            }}
+          >
+            <Text
+              size="sm"
+              fw={600}
+              style={{
+                fontVariantNumeric:
+                  'tabular-nums',
+              }}
+            >
+              {formattedClock}
+            </Text>
+
+            <Text
+              size="xs"
+              c="dimmed"
+            >
+              {browserTimezone}
+            </Text>
+          </Stack>
 
           <Group>
             <Tooltip label={nodeStatusText}>
@@ -443,6 +566,12 @@ export default function App() {
           />
         )}
 
+        {activeNavigation === 'Task Scheduler' && (
+          <TaskSchedulerPage
+            timeFormat={timeFormat}
+          />
+        )}
+
         {activeNavigation === 'Audit Log' && (
           <AuditLogPage />
         )}
@@ -463,6 +592,10 @@ export default function App() {
             onNavbarCollapsedChange={
               setNavbarCollapsed
             }
+            timeFormat={timeFormat}
+            onTimeFormatChange={
+              setTimeFormat
+            }
           />
         )}
 
@@ -475,6 +608,7 @@ export default function App() {
           'Backups',
           'Cluster',
           'Tasks',
+          'Task Scheduler',
           'Network',
           'Audit Log',
           'Users',

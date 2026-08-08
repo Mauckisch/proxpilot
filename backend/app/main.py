@@ -90,6 +90,81 @@ from .tasks import (
     start_update_check,
     start_update_install,
 )
+from .scheduler_worker import (
+    start_manual_scheduled_task,
+    start_scheduler_worker,
+    stop_scheduler_worker,
+)
+from .scheduler import (
+    SchedulerError,
+    create_scheduled_task,
+    delete_scheduled_task,
+    get_scheduled_task,
+    list_scheduled_tasks,
+    set_scheduled_task_enabled,
+    update_scheduled_task,
+)
+
+
+
+class ScheduledTaskPayload(BaseModel):
+    name: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=512,
+    )
+    action: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    target_type: str = Field(
+        min_length=1,
+        max_length=64,
+    )
+    node: str | None = Field(
+        default=None,
+        max_length=128,
+    )
+    guest_type: Literal[
+        "qemu",
+        "lxc",
+    ] | None = None
+    vmid: int | None = Field(
+        default=None,
+        gt=0,
+    )
+    payload: dict = Field(
+        default_factory=dict,
+    )
+    repeat_enabled: bool = False
+    interval_value: int | None = Field(
+        default=None,
+        gt=0,
+    )
+    interval_unit: Literal[
+        "minutes",
+        "hours",
+        "days",
+        "weeks",
+        "months",
+    ] | None = None
+    timezone: str = Field(
+        default="UTC",
+        min_length=1,
+        max_length=128,
+    )
+    start_at: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    enabled: bool = True
+
+
+class ScheduledTaskEnabledPayload(BaseModel):
+    enabled: bool
 
 
 def load_app_version() -> str:
@@ -211,6 +286,20 @@ def _database_size_bytes() -> int | None:
         return None
 
 
+def require_authenticated(request: Request) -> None:
+    session = getattr(
+        request.state,
+        "session",
+        None,
+    )
+
+    if session is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+        )
+
+
 def require_admin(request: Request) -> None:
     session = getattr(
         request.state,
@@ -270,6 +359,13 @@ async def initialize_application() -> None:
             username=settings.proxpilot_auth_username,
             password=settings.proxpilot_auth_password,
         )
+
+    await start_scheduler_worker()
+
+
+@app.on_event("shutdown")
+async def shutdown_application() -> None:
+    await stop_scheduler_worker()
 
 
 class AuthLogin(BaseModel):
@@ -3234,5 +3330,279 @@ async def node_action(
 
         raise HTTPException(
             status_code=409,
+            detail=str(exc),
+        ) from exc
+
+
+@app.get("/api/scheduler/tasks")
+async def scheduler_list_tasks(
+    request: Request,
+):
+    require_authenticated(request)
+
+    return {
+        "tasks": list_scheduled_tasks(),
+    }
+
+
+@app.get("/api/scheduler/tasks/{task_id}")
+async def scheduler_get_task(
+    task_id: int,
+    request: Request,
+):
+    require_authenticated(request)
+
+    task = get_scheduled_task(task_id)
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scheduled task not found.",
+        )
+
+    return task
+
+
+@app.post("/api/scheduler/tasks")
+async def scheduler_create_task(
+    payload: ScheduledTaskPayload,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    session = request.state.session
+
+    try:
+        task = create_scheduled_task(
+            name=payload.name,
+            description=payload.description,
+            action=payload.action,
+            target_type=payload.target_type,
+            node=payload.node,
+            guest_type=payload.guest_type,
+            vmid=payload.vmid,
+            payload=payload.payload,
+            repeat_enabled=payload.repeat_enabled,
+            interval_value=payload.interval_value,
+            interval_unit=payload.interval_unit,
+            timezone_name=payload.timezone,
+            start_at=payload.start_at,
+            created_by_user_id=int(session.user_id),
+            created_by_username=session.username,
+            enabled=payload.enabled,
+        )
+
+        write_request_audit_event(
+            request,
+            action="schedule.create",
+            result="success",
+            severity="info",
+            target_type="scheduled_task",
+            target=task["name"],
+            node=task.get("node"),
+            details={
+                "task_id": task["id"],
+                "task_uuid": task["uuid"],
+                "action": task["action"],
+                "target_type": task["target_type"],
+                "guest_type": task.get("guest_type"),
+                "vmid": task.get("vmid"),
+                "start_at": task["start_at"],
+                "repeat_enabled": task["repeat_enabled"],
+                "interval_value": task.get("interval_value"),
+                "interval_unit": task.get("interval_unit"),
+            },
+        )
+
+        return task
+
+    except SchedulerError as exc:
+        write_request_audit_event(
+            request,
+            action="schedule.create",
+            result="failed",
+            severity="warning",
+            target_type="scheduled_task",
+            target=payload.name,
+            node=payload.node,
+            details={
+                "error": str(exc),
+            },
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+@app.put("/api/scheduler/tasks/{task_id}")
+async def scheduler_update_task(
+    task_id: int,
+    payload: ScheduledTaskPayload,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    try:
+        task = update_scheduled_task(
+            task_id,
+            name=payload.name,
+            description=payload.description,
+            action=payload.action,
+            target_type=payload.target_type,
+            node=payload.node,
+            guest_type=payload.guest_type,
+            vmid=payload.vmid,
+            payload=payload.payload,
+            repeat_enabled=payload.repeat_enabled,
+            interval_value=payload.interval_value,
+            interval_unit=payload.interval_unit,
+            timezone_name=payload.timezone,
+            start_at=payload.start_at,
+            enabled=payload.enabled,
+        )
+
+        write_request_audit_event(
+            request,
+            action="schedule.update",
+            result="success",
+            severity="info",
+            target_type="scheduled_task",
+            target=task["name"],
+            node=task.get("node"),
+            details={
+                "task_id": task["id"],
+                "task_uuid": task["uuid"],
+                "action": task["action"],
+                "start_at": task["start_at"],
+                "repeat_enabled": task["repeat_enabled"],
+                "interval_value": task.get("interval_value"),
+                "interval_unit": task.get("interval_unit"),
+                "enabled": task["enabled"],
+            },
+        )
+
+        return task
+
+    except SchedulerError as exc:
+        raise HTTPException(
+            status_code=404
+            if "not found" in str(exc).lower()
+            else 400,
+            detail=str(exc),
+        ) from exc
+
+
+@app.patch("/api/scheduler/tasks/{task_id}/enabled")
+async def scheduler_set_enabled(
+    task_id: int,
+    payload: ScheduledTaskEnabledPayload,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    try:
+        task = set_scheduled_task_enabled(
+            task_id,
+            payload.enabled,
+        )
+
+        write_request_audit_event(
+            request,
+            action=(
+                "schedule.enable"
+                if payload.enabled
+                else "schedule.disable"
+            ),
+            result="success",
+            severity="info",
+            target_type="scheduled_task",
+            target=task["name"],
+            node=task.get("node"),
+            details={
+                "task_id": task["id"],
+                "task_uuid": task["uuid"],
+                "enabled": task["enabled"],
+            },
+        )
+
+        return task
+
+    except SchedulerError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/api/scheduler/tasks/{task_id}/run")
+async def scheduler_run_task_now(
+    task_id: int,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    session = request.state.session
+
+    try:
+        result = await start_manual_scheduled_task(
+            task_id,
+            user_id=int(session.user_id),
+            username=session.username,
+            role=session.role,
+            source=session.source,
+        )
+
+        return result
+
+    except SchedulerError as exc:
+        message = str(exc)
+
+        raise HTTPException(
+            status_code=(
+                404
+                if "not found" in message.lower()
+                else 409
+            ),
+            detail=message,
+        ) from exc
+
+
+@app.delete("/api/scheduler/tasks/{task_id}")
+async def scheduler_delete_task(
+    task_id: int,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    try:
+        task = delete_scheduled_task(
+            task_id
+        )
+
+        write_request_audit_event(
+            request,
+            action="schedule.delete",
+            result="success",
+            severity="warning",
+            target_type="scheduled_task",
+            target=task["name"],
+            node=task.get("node"),
+            details={
+                "task_id": task["id"],
+                "task_uuid": task["uuid"],
+                "action": task["action"],
+            },
+        )
+
+        return {
+            "ok": True,
+            "deleted_task_id": task_id,
+        }
+
+    except SchedulerError as exc:
+        raise HTTPException(
+            status_code=404,
             detail=str(exc),
         ) from exc

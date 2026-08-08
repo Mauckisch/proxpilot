@@ -8,11 +8,16 @@ export type TaskState =
   | 'success'
   | 'error';
 
+export type TaskSource =
+  | 'manual'
+  | 'scheduler';
+
 export type ManagedTask = {
   id: string;
   node?: string;
   action?: string;
   title: string;
+  source?: TaskSource;
   state: TaskState;
   created_at?: string;
   started_at?: string | null;

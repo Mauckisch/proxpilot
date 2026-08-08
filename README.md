@@ -47,6 +47,7 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 - S.M.A.R.T. monitoring
 - Improved task monitoring
 - UPS monitoring through Network UPS Tools (NUT)
+- Task Scheduler
 
 ---
 
@@ -235,6 +236,8 @@ ProxPilot focuses on operational tasks:
 | Audit CSV export | ✅ |
 | Audit JSON export | ✅ |
 | UPS monitoring (NUT) | ✅ |
+| Task Scheduler | ✅ |
+
 
 ---
 
@@ -252,6 +255,32 @@ Highlights include:
 - Running guests
 - Storage usage
 - Recent activity
+- Task Scheduler
+
+### Task Scheduler
+
+ProxPilot includes an integrated Task Scheduler for automated Proxmox operations.
+
+Tasks can be configured for one-time execution or as recurring schedules using minute, hour, day, week or month intervals.
+
+Supported scheduled operations include:
+
+- Guest start, shutdown, stop, reboot, suspend and resume
+- Guest migration
+- Guest backup
+- Snapshot creation and deletion
+- Node update checks and update installation
+- Node package cleanup
+- Node reboot and shutdown
+- Node maintenance mode enable and disable
+
+Scheduled tasks run independently of interactive user sessions. Automated executions are identified as scheduler/system operations in the audit log and Activity panel.
+
+Operators and administrators can create, modify, enable, disable, delete and manually execute scheduled tasks. Viewer accounts have read-only access.
+
+The **Run now** action allows an existing schedule to be executed immediately without changing its configured next execution time.
+
+The scheduler uses the timezone selected by the user's browser when tasks are created, with UTC as a neutral fallback.
 
 ## Nodes
 

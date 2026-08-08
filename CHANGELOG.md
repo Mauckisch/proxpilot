@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.6.0] - 2026-08-08
+
+### Added
+
+- Added a new Task Scheduler for automated Proxmox operations.
+- Added support for one-time and recurring scheduled tasks with intervals in minutes, hours, days, weeks and months.
+- Added scheduled guest power actions, migrations, backups and snapshot operations.
+- Added scheduled node update checks, update installation, package cleanup, reboot, shutdown and maintenance mode operations.
+- Added manual "Run now" execution for scheduled tasks without modifying their configured schedule.
+- Added execution tracking for scheduled and manually triggered scheduler runs.
+- Added Task Scheduler integration with the Activity panel.
+- Added dedicated audit logging for scheduler configuration changes and executions.
+- Added role-based Task Scheduler permissions: viewers have read-only access while operators and administrators can manage and execute tasks.
+- Added Task Scheduler action allowlisting to prevent scheduling of user, authentication and LDAP management operations.
+- Added a centered clock to the application header using the browser timezone.
+- Added configurable 12-hour and 24-hour time display in Settings.
+- Added English calendar controls and international date formatting.
+
+### Changed
+
+- Docker timezone configuration now uses a neutral default instead of assuming a specific geographic timezone.
+- Scheduled background executions are explicitly identified as system/scheduler actions in audit and activity information.
+- One-time scheduled tasks are automatically completed and disabled after execution, including failed executions.
+
 ## [1.5.2] - 2026-08-08
 
 ### Added
