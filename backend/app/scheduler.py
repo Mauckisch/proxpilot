@@ -23,6 +23,48 @@ class SchedulerError(RuntimeError):
     pass
 
 
+def get_scheduled_task_target(
+    task: dict[str, Any],
+) -> str:
+    target_type = str(
+        task.get("target_type") or ""
+    ).strip()
+
+    node = str(
+        task.get("node") or ""
+    ).strip()
+
+    if target_type == "guest":
+        guest_type = str(
+            task.get("guest_type") or ""
+        ).strip().upper()
+
+        vmid = task.get("vmid")
+
+        guest_label = "Guest"
+
+        if guest_type and vmid is not None:
+            guest_label = (
+                f"{guest_type} {vmid}"
+            )
+        elif vmid is not None:
+            guest_label = (
+                f"Guest {vmid}"
+            )
+
+        if node:
+            return (
+                f"{guest_label} · {node}"
+            )
+
+        return guest_label
+
+    if target_type == "node":
+        return node or "Unknown node"
+
+    return node or target_type or "Unknown"
+
+
 ALLOWED_SCHEDULED_ACTIONS = {
     "guest.start",
     "guest.shutdown",

@@ -100,6 +100,7 @@ from .scheduler import (
     create_scheduled_task,
     delete_scheduled_task,
     get_scheduled_task,
+    get_scheduled_task_target,
     list_scheduled_tasks,
     set_scheduled_task_enabled,
     update_scheduled_task,
@@ -3398,7 +3399,7 @@ async def scheduler_create_task(
             result="success",
             severity="info",
             target_type="scheduled_task",
-            target=task["name"],
+            target=get_scheduled_task_target(task),
             node=task.get("node"),
             details={
                 "task_id": task["id"],
@@ -3469,7 +3470,7 @@ async def scheduler_update_task(
             result="success",
             severity="info",
             target_type="scheduled_task",
-            target=task["name"],
+            target=get_scheduled_task_target(task),
             node=task.get("node"),
             details={
                 "task_id": task["id"],
@@ -3518,7 +3519,7 @@ async def scheduler_set_enabled(
             result="success",
             severity="info",
             target_type="scheduled_task",
-            target=task["name"],
+            target=get_scheduled_task_target(task),
             node=task.get("node"),
             details={
                 "task_id": task["id"],
@@ -3587,7 +3588,7 @@ async def scheduler_delete_task(
             result="success",
             severity="warning",
             target_type="scheduled_task",
-            target=task["name"],
+            target=get_scheduled_task_target(task),
             node=task.get("node"),
             details={
                 "task_id": task["id"],

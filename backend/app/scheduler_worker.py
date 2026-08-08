@@ -14,6 +14,7 @@ from .scheduler import (
     SchedulerError,
     calculate_next_run,
     get_scheduled_task,
+    get_scheduled_task_target,
 )
 from .tasks import (
     manager,
@@ -1042,7 +1043,7 @@ async def execute_scheduled_task(
             target_type=task.get(
                 "target_type"
             ),
-            target=task["name"],
+            target=get_scheduled_task_target(task),
             node=task.get("node"),
             details={
                 **audit_details,
@@ -1075,7 +1076,7 @@ async def execute_scheduled_task(
             target_type=task.get(
                 "target_type"
             ),
-            target=task["name"],
+            target=get_scheduled_task_target(task),
             node=task.get("node"),
             details={
                 **audit_details,
@@ -1167,7 +1168,7 @@ async def _execute_manual_scheduled_task(
             role=role,
             source=source,
             target_type="scheduled_task",
-            target=task["name"],
+            target=get_scheduled_task_target(task),
             node=task.get("node"),
             details={
                 **audit_details,
@@ -1213,7 +1214,7 @@ async def _execute_manual_scheduled_task(
             role=role,
             source=source,
             target_type="scheduled_task",
-            target=task["name"],
+            target=get_scheduled_task_target(task),
             node=task.get("node"),
             details={
                 **audit_details,
