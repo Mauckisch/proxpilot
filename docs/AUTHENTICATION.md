@@ -2,7 +2,7 @@
 
 This document explains authentication, user management, role-based access control,
 LDAP / Active Directory integration, session handling, and authentication-related
-audit logging in ProxPilot 1.5.0.
+audit logging in ProxPilot 1.5.1.
 
 ---
 
@@ -203,7 +203,7 @@ Logout events are recorded in the audit log.
 
 # User Roles
 
-ProxPilot 1.5.0 has three roles:
+ProxPilot 1.5.1 has three roles:
 
 ```text
 Administrator

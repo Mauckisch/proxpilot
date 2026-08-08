@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.5.1] - 2026-08-08
+
+### Added
+
+- Integrated browser console support for LXC containers
+- Unified console support for both QEMU virtual machines and LXC containers
+
+### Changed
+
+- Guest details now allow opening the integrated browser console for supported LXC containers
+- Console handling has been generalized to support multiple guest types through a shared implementation
+
+### Fixed
+
+- Enabled the integrated browser console button for running LXC containers
+- Preserved existing role-based console permissions for Administrator and Operator users
+- No changes to the required Proxmox API permissions (`VM.Console` continues to be sufficient)
+
 ## [1.5.0] - 2026-08-07
 
 ### Added

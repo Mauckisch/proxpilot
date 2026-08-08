@@ -33,7 +33,7 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 - FastAPI backend
 - Docker deployment
 - Local and LDAP authentication
-- Integrated noVNC browser console
+- Integrated browser console for QEMU and LXC
 - VM and LXC management
 - Snapshot and backup management
 - Node maintenance
@@ -177,7 +177,7 @@ ProxPilot focuses on operational tasks:
 - Manage guests
 - Perform maintenance
 - Execute backups
-- Open browser consoles
+- Open browser consoles for QEMU virtual machines and LXC containers
 - View hardware information
 - Review tasks
 - Manage users and roles
@@ -206,7 +206,7 @@ ProxPilot focuses on operational tasks:
 | Live migration | ✅ |
 | Snapshots | ✅ |
 | Backups | ✅ |
-| Browser console (noVNC) | ✅ |
+| Browser console (QEMU & LXC) | ✅ |
 | Storage overview | ✅ |
 | Network overview | ✅ |
 | Replication overview | ✅ |
@@ -298,7 +298,7 @@ Supported operations:
 - Configuration viewer
 - Guest Agent information
 - Guest filesystem and disk usage information
-- Integrated browser console
+- Integrated browser console for QEMU and LXC
 - Guest Agent information
 - Guest operating system
 - Guest IP addresses
@@ -413,9 +413,20 @@ Exported audit data respects the currently active filters.
 
 ## Browser Console
 
-The integrated noVNC console allows direct browser access to guests without opening the Proxmox interface.
+The integrated browser console provides direct browser access to both QEMU virtual machines and LXC containers without opening the Proxmox VE interface.
 
-HTTPS is recommended to ensure secure WebSocket communication and Secure cookie support.
+Features include:
+
+- Integrated noVNC-based console
+- Support for QEMU virtual machines
+- Support for LXC containers
+- Full-screen mode
+- Automatic reconnect
+- Remote resize
+- Scale-to-fit
+- Ctrl+Alt+Del (QEMU)
+
+HTTPS is required to ensure secure WebSocket communication and Secure cookie support.
 
 ---
 
