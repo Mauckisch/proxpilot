@@ -703,14 +703,23 @@ export function GuestDetailsDrawer({
   const openConsole = () => {
     if (
       !guest ||
-      guest.type !== 'qemu' ||
       !guest.node
     ) {
       return;
     }
 
+    const guestType =
+      guest.type === 'qemu' || guest.type === 'lxc'
+        ? guest.type
+        : null;
+
+    if (!guestType) {
+      return;
+    }
+
     const parameters = new URLSearchParams({
       node: guest.node,
+      guest_type: guestType,
       vmid: String(guest.vmid),
       name: title,
     });
@@ -775,7 +784,10 @@ export function GuestDetailsDrawer({
                   <IconDeviceDesktop size={15} />
                 }
                 disabled={
-                  guest.type !== 'qemu' ||
+                  !(
+                    guest.type === 'qemu' ||
+                    guest.type === 'lxc'
+                  ) ||
                   !running
                 }
                 onClick={openConsole}

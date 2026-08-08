@@ -30,6 +30,7 @@ import { api } from '../api';
 type ConsoleTicketResponse = {
   ok: boolean;
   node: string;
+  guest_type: 'qemu' | 'lxc';
   vmid: number;
   console_id: string;
   websocket_path: string;
@@ -91,6 +92,7 @@ export function ConsolePage() {
   );
 
   const node = parameters.get('node')?.trim() ?? '';
+  const guestType = parameters.get('guest_type');
   const vmid = Number(parameters.get('vmid'));
   const guestName =
     parameters.get('name')?.trim() ||
@@ -128,6 +130,7 @@ export function ConsolePage() {
   const connectConsole = useCallback(async () => {
     if (
       !node ||
+      !['qemu', 'lxc'].includes(guestType ?? '') ||
       !Number.isInteger(vmid) ||
       vmid <= 0
     ) {
@@ -160,6 +163,7 @@ export function ConsolePage() {
           '/guest/console',
           {
             node,
+            guest_type: guestType,
             vmid,
           },
         );
@@ -241,6 +245,7 @@ export function ConsolePage() {
     }
   }, [
     disconnect,
+    guestType,
     node,
     resizeSession,
     scaleViewport,
@@ -311,7 +316,7 @@ export function ConsolePage() {
           </Title>
 
           <Text size="xs" c="dimmed">
-            {node} · VMID {vmid}
+            {node} · {guestType === 'lxc' ? 'LXC' : 'VM'} {vmid}
           </Text>
         </div>
 
@@ -441,7 +446,9 @@ export function ConsolePage() {
               <Text c="white">
                 {status === 'preparing'
                   ? 'Preparing console...'
-                  : 'Connecting to VM...'}
+                  : `Connecting to ${
+                      guestType === 'lxc' ? 'LXC' : 'VM'
+                    }...`}
               </Text>
             </Stack>
           </Center>

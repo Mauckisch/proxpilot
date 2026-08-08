@@ -1027,9 +1027,10 @@ class ProxmoxClient:
 
         return upid
 
-    async def create_qemu_console_ticket(
+    async def create_console_ticket(
         self,
         node: str,
+        guest_type: str,
         vmid: int,
     ) -> dict:
         if not node.strip():
@@ -1037,17 +1038,26 @@ class ProxmoxClient:
                 "A Proxmox node must be specified."
             )
 
+        if guest_type not in {"qemu", "lxc"}:
+            raise ProxmoxError(
+                "Unsupported guest type."
+            )
+
         if vmid <= 0:
             raise ProxmoxError(
                 "Invalid VM ID."
             )
 
-        # vncproxy must be created through the same
-        # Proxmox node that will handle vncwebsocket.
+        # The VNC proxy must be created through the
+        # same Proxmox node that will later handle
+        # the vncwebsocket connection.
         result = await self.request_node(
             node,
             "POST",
-            f"/nodes/{node}/qemu/{vmid}/vncproxy",
+            (
+                f"/nodes/{node}/{guest_type}/{vmid}"
+                "/vncproxy"
+            ),
             data={
                 "websocket": 1,
             },
@@ -1055,7 +1065,8 @@ class ProxmoxClient:
 
         if not isinstance(result, dict):
             raise ProxmoxError(
-                "Proxmox returned an invalid VNC proxy response."
+                "Proxmox returned an invalid VNC "
+                "proxy response."
             )
 
         ticket = result.get("ticket")

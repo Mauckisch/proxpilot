@@ -7,6 +7,7 @@ import secrets
 import ssl
 import time
 from urllib.parse import urlencode, urlparse
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -49,6 +50,7 @@ CONSOLE_SESSION_TTL = 60
 class ConsoleSession:
     user_id: int
     node: str
+    guest_type: Literal["qemu", "lxc"]
     vmid: int
     ticket: str
     port: int
@@ -64,6 +66,7 @@ class ConsoleTicketRequest(BaseModel):
         max_length=64,
         pattern=r"^[A-Za-z0-9._-]+$",
     )
+    guest_type: Literal["qemu", "lxc"]
     vmid: int = Field(gt=0)
 
 
@@ -108,6 +111,7 @@ def cleanup_console_sessions() -> None:
 
 def build_proxmox_websocket_url(
     node: str,
+    guest_type: Literal["qemu", "lxc"],
     vmid: int,
     port: int,
     ticket: str,
@@ -163,7 +167,7 @@ def build_proxmox_websocket_url(
 
     websocket_url = (
         f"{websocket_scheme}://{hostname}:{api_port}"
-        f"/api2/json/nodes/{node}/qemu/{vmid}"
+        f"/api2/json/nodes/{node}/{guest_type}/{vmid}"
         f"/vncwebsocket?{query}"
     )
 
@@ -212,8 +216,9 @@ async def create_console_ticket(
     cleanup_console_sessions()
 
     try:
-        ticket_data = await client.create_qemu_console_ticket(
+        ticket_data = await client.create_console_ticket(
             node=console_request.node,
+            guest_type=console_request.guest_type,
             vmid=console_request.vmid,
         )
     except ProxmoxError as exc:
@@ -227,6 +232,7 @@ async def create_console_ticket(
     console_sessions[console_id] = ConsoleSession(
         user_id=int(request.state.session.user_id),
         node=console_request.node,
+        guest_type=console_request.guest_type,
         vmid=console_request.vmid,
         ticket=ticket_data["ticket"],
         port=int(ticket_data["port"]),
@@ -243,8 +249,11 @@ async def create_console_ticket(
         action="console.open",
         result="success",
         severity="info",
-        target_type="qemu",
-        target=f"QEMU {console_request.vmid}",
+        target_type=console_request.guest_type,
+        target=(
+            f"{console_request.guest_type.upper()} "
+            f"{console_request.vmid}"
+        ),
         node=console_request.node,
         details={
             "vmid": console_request.vmid,
@@ -255,6 +264,7 @@ async def create_console_ticket(
     return {
         "ok": True,
         "node": console_request.node,
+        "guest_type": console_request.guest_type,
         "vmid": console_request.vmid,
         "console_id": console_id,
         "websocket_path": (
@@ -306,6 +316,7 @@ async def console_websocket(
         upstream_url, ssl_context = (
             build_proxmox_websocket_url(
                 node=console_session.node,
+                guest_type=console_session.guest_type,
                 vmid=console_session.vmid,
                 port=console_session.port,
                 ticket=console_session.ticket,
