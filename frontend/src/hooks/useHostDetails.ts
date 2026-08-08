@@ -216,6 +216,16 @@ export interface HostZfsData {
   datasets: HostZfsDataset[];
 }
 
+export interface HostUpsEntry {
+  target: string;
+  values: Record<string, string>;
+}
+
+export interface HostUpsData {
+  available: boolean;
+  ups: HostUpsEntry[];
+}
+
 export interface HostDetails {
   node: string;
   overview: HostOverview;
@@ -230,6 +240,7 @@ export interface HostDetails {
     count: number;
   };
   temperatures: HostTemperatureData;
+  ups: HostUpsData;
   zfs: HostZfsData;
   software: {
     pve_packages_raw: string[];

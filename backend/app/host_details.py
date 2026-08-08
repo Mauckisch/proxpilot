@@ -954,6 +954,163 @@ def _get_dmi_data(
     }
 
 
+
+def _parse_nut_mode(output: str) -> str | None:
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+
+        if not line or line.startswith("#"):
+            continue
+
+        if not line.startswith("MODE="):
+            continue
+
+        return (
+            line.split("=", 1)[1]
+            .strip()
+            .strip('"')
+            .strip("'")
+            .lower()
+        )
+
+    return None
+
+
+def _parse_nut_monitor_targets(
+    output: str,
+) -> list[str]:
+    targets: list[str] = []
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+
+        if not line or line.startswith("#"):
+            continue
+
+        parts = line.split()
+
+        if len(parts) < 2:
+            continue
+
+        if parts[0].upper() != "MONITOR":
+            continue
+
+        target = parts[1].strip()
+
+        if (
+            not target
+            or "@" not in target
+            or target in targets
+        ):
+            continue
+
+        targets.append(target)
+
+    return targets
+
+
+def _parse_upsc_output(
+    output: str,
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+
+        if not line or ":" not in line:
+            continue
+
+        key, value = line.split(":", 1)
+
+        key = key.strip()
+        value = value.strip()
+
+        if key:
+            values[key] = value
+
+    return values
+
+
+def _collect_nut_data(
+    client: paramiko.SSHClient,
+) -> dict[str, Any]:
+    nut_conf = _read_text_file(
+        client,
+        "/etc/nut/nut.conf",
+    )
+
+    if not nut_conf:
+        return {
+            "available": False,
+            "ups": [],
+        }
+
+    if _parse_nut_mode(nut_conf) != "netclient":
+        return {
+            "available": False,
+            "ups": [],
+        }
+
+    monitor_active = _run_command(
+        client,
+        "systemctl is-active nut-monitor 2>/dev/null",
+        required=False,
+    )
+
+    if monitor_active.strip() != "active":
+        return {
+            "available": False,
+            "ups": [],
+        }
+
+    upsmon_conf = _read_text_file(
+        client,
+        "/etc/nut/upsmon.conf",
+    )
+
+    if not upsmon_conf:
+        return {
+            "available": False,
+            "ups": [],
+        }
+
+    targets = _parse_nut_monitor_targets(
+        upsmon_conf
+    )
+
+    if not targets:
+        return {
+            "available": False,
+            "ups": [],
+        }
+
+    ups_entries: list[dict[str, Any]] = []
+
+    for target in targets:
+        output = _run_command(
+            client,
+            f"upsc {shlex.quote(target)} 2>/dev/null",
+            required=False,
+            timeout=15,
+        )
+
+        values = _parse_upsc_output(output)
+
+        if not values:
+            continue
+
+        ups_entries.append(
+            {
+                "target": target,
+                "values": values,
+            }
+        )
+
+    return {
+        "available": bool(ups_entries),
+        "ups": ups_entries,
+    }
+
 def collect_host_details(node: str) -> dict[str, Any]:
     client = _ssh_client(node)
 
@@ -1138,6 +1295,10 @@ def collect_host_details(node: str) -> dict[str, Any]:
             required=False,
         )
 
+        nut_data = _collect_nut_data(
+            client,
+        )
+
         zpool_list_output = _run_command(
             client,
             (
@@ -1263,6 +1424,7 @@ def collect_host_details(node: str) -> dict[str, Any]:
                 "available": bool(sensors_data),
                 "sensors": _parse_sensors(sensors_data),
             },
+            "ups": nut_data,
             "zfs": {
                 "available": bool(
                     zfs_pools

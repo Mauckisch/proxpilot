@@ -56,7 +56,7 @@ docker compose exec frontend npm run build
 Version:
 
 ``` bash
-docker compose exec frontend npm version 1.5.1 --no-git-tag-version
+docker compose exec frontend npm version 1.5.2 --no-git-tag-version
 ```
 
 The frontend package version is displayed inside the web interface and
@@ -128,9 +128,9 @@ Recommended workflow:
 Example:
 
 ``` bash
-git tag v1.5.1
+git tag v1.5.2
 git push
-git push origin v1.5.1
+git push origin v1.5.2
 ```
 
 ------------------------------------------------------------------------

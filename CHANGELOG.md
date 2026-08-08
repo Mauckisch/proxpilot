@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.5.2] - 2026-08-08
+
+### Added
+
+- Added UPS monitoring for Proxmox nodes using Network UPS Tools (NUT)
+- Added a dedicated UPS tab to the node details page
+- Automatically detects NUT netclient configuration on each node
+- Reads the configured NUT monitor targets directly from the existing host configuration
+- Displays the complete values returned by `upsc`
+- Supports multiple monitored UPS devices per node
+- Added color-coded UPS status information
+
+### Changed
+
+- UPS information is collected through the existing SSH host-details connection
+- UPS monitoring requires no additional ProxPilot configuration
+- The UPS tab is only displayed when a working NUT netclient is detected on the node
+
 ## [1.5.1] - 2026-08-08
 
 ### Added

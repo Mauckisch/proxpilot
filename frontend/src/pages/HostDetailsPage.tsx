@@ -22,6 +22,7 @@ import {
   IconAlertCircle,
   IconArrowLeft,
   IconBrandDebian,
+  IconBattery,
   IconCpu,
   IconDatabase,
   IconDeviceDesktop,
@@ -273,6 +274,75 @@ function smartColor(
   }
 }
 
+function getUpsStatusColor(status?: string): string {
+  const states = new Set(
+    (status ?? '')
+      .split(/\s+/)
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean),
+  );
+
+  if (
+    states.has('LB') ||
+    states.has('RB') ||
+    states.has('FSD')
+  ) {
+    return 'red';
+  }
+
+  if (
+    states.has('OB') ||
+    states.has('BYPASS') ||
+    states.has('OFF')
+  ) {
+    return 'yellow';
+  }
+
+  if (states.has('CAL')) {
+    return 'blue';
+  }
+
+  if (states.has('OL')) {
+    return 'green';
+  }
+
+  return 'gray';
+}
+
+
+function getUpsStatusLabel(status?: string): string {
+  const states = (status ?? '')
+    .split(/\s+/)
+    .map((value) => value.trim().toUpperCase())
+    .filter(Boolean);
+
+  if (states.length === 0) {
+    return 'Unknown';
+  }
+
+  const labels: Record<string, string> = {
+    OL: 'Online',
+    OB: 'On Battery',
+    LB: 'Low Battery',
+    RB: 'Replace Battery',
+    FSD: 'Forced Shutdown',
+    CAL: 'Calibration',
+    BYPASS: 'Bypass',
+    OFF: 'Offline',
+    CHRG: 'Charging',
+    DISCHRG: 'Discharging',
+  };
+
+  return states
+    .map((state) =>
+      labels[state]
+        ? `${labels[state]} (${state})`
+        : state,
+    )
+    .join(' · ');
+}
+
+
 function smartLabel(
   health?: HostSmartDevice['health'],
 ): string {
@@ -500,6 +570,15 @@ export function HostDetailsPage({
           >
             Temperatures
           </Tabs.Tab>
+
+          {data.ups.available && (
+            <Tabs.Tab
+              value="ups"
+              leftSection={<IconBattery size={16} />}
+            >
+              USV
+            </Tabs.Tab>
+          )}
 
           <Tabs.Tab
             value="zfs"
@@ -1236,6 +1315,140 @@ export function HostDetailsPage({
             </SimpleGrid>
           )}
         </Tabs.Panel>
+
+        {data.ups.available && (
+          <Tabs.Panel value="ups" pt="lg">
+            <Stack gap="lg">
+              {data.ups.ups.map((ups) => {
+                const values = ups.values;
+
+                const runtimeSeconds = Number(
+                  values['battery.runtime'],
+                );
+
+                const runtime =
+                  Number.isFinite(runtimeSeconds) &&
+                  runtimeSeconds >= 0
+                    ? `${Math.floor(
+                        runtimeSeconds / 60,
+                      )} min ${Math.floor(
+                        runtimeSeconds % 60,
+                      )} sec`
+                    : values['battery.runtime'];
+
+                return (
+                  <Paper
+                    key={ups.target}
+                    withBorder
+                    radius="md"
+                    p="lg"
+                  >
+                    <Stack gap="lg">
+                      <Group justify="space-between">
+                        <div>
+                          <Title order={4}>
+                            {values['device.mfr'] ??
+                              values['ups.mfr'] ??
+                              'UPS'}{' '}
+                            {values['device.model'] ??
+                              values['ups.model'] ??
+                              ''}
+                          </Title>
+
+                          <Text size="sm" c="dimmed">
+                            {ups.target}
+                          </Text>
+                        </div>
+
+                        <Badge
+                          color={getUpsStatusColor(
+                            values['ups.status'],
+                          )}
+                          variant="light"
+                          size="lg"
+                        >
+                          {getUpsStatusLabel(
+                            values['ups.status'],
+                          )}
+                        </Badge>
+                      </Group>
+
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                        <InfoCard
+                          label="Battery charge"
+                          value={
+                            values['battery.charge']
+                              ? `${values['battery.charge']}%`
+                              : 'Unknown'
+                          }
+                          icon={<IconBattery size={18} />}
+                        />
+
+                        <InfoCard
+                          label="Runtime"
+                          value={runtime ?? 'Unknown'}
+                          icon={<IconGauge size={18} />}
+                        />
+
+                        <InfoCard
+                          label="Load"
+                          value={
+                            values['ups.load']
+                              ? `${values['ups.load']}%`
+                              : 'Unknown'
+                          }
+                          icon={<IconGauge size={18} />}
+                        />
+
+                        <InfoCard
+                          label="Output voltage"
+                          value={
+                            values['output.voltage']
+                              ? `${values['output.voltage']} V`
+                              : 'Unknown'
+                          }
+                          icon={<IconGauge size={18} />}
+                        />
+                      </SimpleGrid>
+
+                      <Paper withBorder radius="md" p="md">
+                        <Stack>
+                          <Title order={5}>NUT values</Title>
+
+                          <Table
+                            striped
+                            highlightOnHover
+                            withTableBorder
+                          >
+                            <Table.Tbody>
+                              {Object.entries(values).map(
+                                ([key, value]) => (
+                                  <Table.Tr key={key}>
+                                    <Table.Td w="40%">
+                                      <Text fw={600} size="sm">
+                                        {key}
+                                      </Text>
+                                    </Table.Td>
+
+                                    <Table.Td>
+                                      <Text size="sm">
+                                        {value}
+                                      </Text>
+                                    </Table.Td>
+                                  </Table.Tr>
+                                ),
+                              )}
+                            </Table.Tbody>
+                          </Table>
+                        </Stack>
+                      </Paper>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          </Tabs.Panel>
+        )}
 
         <Tabs.Panel value="zfs" pt="lg">
           {!data.zfs.available ? (

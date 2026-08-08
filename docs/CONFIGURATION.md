@@ -1,6 +1,6 @@
 # ProxPilot Configuration Guide
 
-This document describes all configuration options for ProxPilot 1.5.1.
+This document describes all configuration options for ProxPilot 1.5.2.
 
 # Environment
 

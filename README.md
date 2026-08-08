@@ -46,6 +46,7 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 - ZFS health monitoring
 - S.M.A.R.T. monitoring
 - Improved task monitoring
+- UPS monitoring through Network UPS Tools (NUT)
 
 ---
 
@@ -233,7 +234,7 @@ ProxPilot focuses on operational tasks:
 | Audit log | ✅ |
 | Audit CSV export | ✅ |
 | Audit JSON export | ✅ |
-
+| UPS monitoring (NUT) | ✅ |
 
 ---
 
@@ -273,6 +274,34 @@ Each node provides:
 - ZFS health
 - ZFS scrub information (if available)
 - Temperatures
+- UPS information through Network UPS Tools (NUT)
+
+## UPS Monitoring
+
+ProxPilot can display UPS information from Network UPS Tools (NUT) on individual Proxmox nodes.
+
+The integration uses the existing NUT netclient configuration on the host and does not require additional ProxPilot configuration.
+
+ProxPilot automatically detects:
+
+- `MODE=netclient`
+- an active `nut-monitor` service
+- configured `MONITOR` targets in `/etc/nut/upsmon.conf`
+
+The UPS tab is only displayed when a working NUT netclient configuration is detected.
+
+UPS information is read using the configured `upsc` target and includes all values returned by NUT, such as:
+
+- UPS status
+- Battery charge
+- Battery runtime
+- Load
+- Output voltage
+- Manufacturer and model
+- Outlet information
+- Driver information
+
+UPS status values are displayed with color-coded status indicators.
 
 Administrative actions include:
 
