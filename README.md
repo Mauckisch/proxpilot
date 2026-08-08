@@ -276,6 +276,14 @@ Each node provides:
 - Temperatures
 - UPS information through Network UPS Tools (NUT)
 
+Administrative actions include:
+
+- Install updates
+- Package cleanup
+- Maintenance mode
+- Reboot
+- Shutdown
+
 ## UPS Monitoring
 
 ProxPilot can display UPS information from Network UPS Tools (NUT) on individual Proxmox nodes.
@@ -302,14 +310,6 @@ UPS information is read using the configured `upsc` target and includes all valu
 - Driver information
 
 UPS status values are displayed with color-coded status indicators.
-
-Administrative actions include:
-
-- Install updates
-- Package cleanup
-- Maintenance mode
-- Reboot
-- Shutdown
 
 ## Guests
 
