@@ -115,6 +115,21 @@ Configure `.env` before starting.
 - Docker Compose
 - API token
 - SSH access
+- Installed "lm-sensors" package on each node for temperature monitoring
+
+### Temperature Monitoring
+
+Hardware temperature monitoring requires the `lm-sensors` package to be installed on every Proxmox node.
+
+Install it with:
+
+```bash
+apt update
+apt install -y lm-sensors
+sensors-detect --auto
+systemctl restart kmod
+```
+Once sensors are available, ProxPilot will automatically display CPU, motherboard and other hardware temperatures supported by the system.
 
 ---
 
@@ -477,7 +492,7 @@ No. It complements the official interface by focusing on everyday administration
 
 Strongly recommended.
 
-The integrated browser console works best with HTTPS and Secure cookies.
+The integrated browser console works only with HTTPS and Secure cookies.
 
 ### Is LDAP required?
 
@@ -499,13 +514,9 @@ Local users are stored inside:
 
 Planned improvements include:
 
-- Historical metrics
-- Notifications
 - Better charts
-- Guest agent information
 - Multi-cluster support
 - Additional storage information
-- Extended RBAC
 
 ---
 
