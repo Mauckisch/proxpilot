@@ -150,6 +150,8 @@ export function useNodeActions(
       const response = await api.post(
         '/node/maintenance',
         {
+          infrastructure_id:
+            node.infrastructure_id,
           node: node.node,
           action,
         },
@@ -192,9 +194,14 @@ export function useNodeActions(
       const response = await api.post(
         '/node/action',
         {
+          infrastructure_id:
+            node.infrastructure_id,
           node: node.node,
           action,
-          confirmed: action === 'check-updates' ? false : true,
+          confirmed:
+            action === 'check-updates'
+              ? false
+              : true,
           acknowledge_no_maintenance:
             action === 'shutdown' &&
             !node.maintenance,

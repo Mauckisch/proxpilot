@@ -1,4 +1,7 @@
-import { useMemo } from 'react';
+import {
+  useMemo,
+  useState,
+} from 'react';
 
 import {
   Alert,
@@ -8,6 +11,7 @@ import {
   Center,
   Group,
   Loader,
+  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -55,11 +59,136 @@ function statusIncludes(
 export function ClusterPage() {
   const dashboard = useDashboard();
 
-  const nodes = sortNodes(
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-cluster-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
+
+  const allNodes = sortNodes(
     dashboard.data?.nodes ?? [],
   );
-  const guests = dashboard.data?.guests ?? [];
-  const ha = dashboard.data?.ha ?? [];
+
+  const allGuests =
+    dashboard.data?.guests ?? [];
+
+  const allHa =
+    dashboard.data?.ha ?? [];
+
+  const infrastructures = Array.from(
+    allNodes.reduce(
+      (
+        result,
+        node,
+      ) => {
+        if (
+          node.infrastructure_type !==
+          'cluster'
+        ) {
+          return result;
+        }
+
+        if (
+          !result.has(
+            node.infrastructure_id,
+          )
+        ) {
+          result.set(
+            node.infrastructure_id,
+            {
+              id:
+                node.infrastructure_id,
+              name:
+                node.infrastructure_name,
+              type:
+                node.infrastructure_type,
+            },
+          );
+        }
+
+        return result;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type: 'cluster';
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructures.some(
+      (item) =>
+        item.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructures[0]?.id ??
+        null;
+
+  const selectedInfrastructure =
+    infrastructures.find(
+      (item) =>
+        item.id ===
+        effectiveInfrastructureId,
+    ) ?? null;
+
+  const nodes =
+    effectiveInfrastructureId === null
+      ? []
+      : allNodes.filter(
+          (node) =>
+            node.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const guests =
+    effectiveInfrastructureId === null
+      ? []
+      : allGuests.filter(
+          (guest) =>
+            guest.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const ha =
+    effectiveInfrastructureId === null
+      ? []
+      : allHa.filter(
+          (item) =>
+            item.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const infrastructureOptions =
+    infrastructures.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          `${infrastructure.name} · Cluster`,
+      }),
+    );
 
   const quorum = ha.find(
     (item) => item.type === 'quorum',
@@ -148,6 +277,32 @@ export function ClusterPage() {
     );
   }
 
+  if (infrastructures.length === 0) {
+    return (
+      <Stack gap="lg">
+        <div>
+          <Title order={2}>Cluster</Title>
+
+          <Text c="dimmed" mt={4}>
+            Proxmox cluster, quorum and
+            high-availability status
+          </Text>
+        </div>
+
+        <Alert
+          color="blue"
+          icon={
+            <IconAlertCircle size={20} />
+          }
+          title="No cluster infrastructure"
+        >
+          No enabled Proxmox cluster is
+          currently available.
+        </Alert>
+      </Stack>
+    );
+  }
+
   const quorate = quorum?.quorate === 1;
 
   const fencingArmed =
@@ -163,18 +318,71 @@ export function ClusterPage() {
           <Title order={2}>Cluster</Title>
 
           <Text c="dimmed" mt={4}>
-            Proxmox cluster, quorum and high-availability status
+            Proxmox cluster, quorum and
+            high-availability status
+            {selectedInfrastructure
+              ? ` · ${selectedInfrastructure.name}`
+              : ''}
           </Text>
         </div>
 
-        <Button
-          variant="light"
-          leftSection={<IconRefresh size={16} />}
-          loading={dashboard.isFetching}
-          onClick={() => dashboard.refetch()}
-        >
-          Refresh
-        </Button>
+        <Group align="flex-end">
+          <Select
+            label="Infrastructure"
+            data={infrastructureOptions}
+            value={
+              effectiveInfrastructureId ===
+              null
+                ? null
+                : String(
+                    effectiveInfrastructureId,
+                  )
+            }
+            onChange={(value) => {
+              if (!value) {
+                return;
+              }
+
+              const infrastructureId =
+                Number(value);
+
+              if (
+                !Number.isInteger(
+                  infrastructureId,
+                ) ||
+                infrastructureId <= 0
+              ) {
+                return;
+              }
+
+              setSelectedInfrastructureId(
+                infrastructureId,
+              );
+
+              localStorage.setItem(
+                'proxpilot-cluster-infrastructure',
+                String(
+                  infrastructureId,
+                ),
+              );
+            }}
+            allowDeselect={false}
+            w={280}
+          />
+
+          <Button
+            variant="light"
+            leftSection={
+              <IconRefresh size={16} />
+            }
+            loading={dashboard.isFetching}
+            onClick={() =>
+              dashboard.refetch()
+            }
+          >
+            Refresh
+          </Button>
+        </Group>
       </Group>
 
       <SimpleGrid

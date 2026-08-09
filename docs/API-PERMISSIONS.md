@@ -107,12 +107,29 @@ dashboard@pve!dashboard
 
 The token secret is displayed only once.
 
-Store it securely and later place it in the ProxPilot `.env` file:
+Store it securely.
 
-```dotenv
-PVE_TOKEN_ID=dashboard@pve!dashboard
-PVE_TOKEN_SECRET=replace-with-the-generated-secret
+Starting with ProxPilot 1.7.0, the Proxmox API token is no longer configured through global `PVE_*` variables in `.env`.
+
+The token ID and token secret are entered when adding an Infrastructure in the ProxPilot web interface:
+
+```text
+Settings
+→ Infrastructure
+→ Add Infrastructure
 ```
+
+Enter:
+
+- **API endpoint** — one reachable Proxmox VE API endpoint
+- **Token ID** — for example `dashboard@pve!dashboard`
+- **Token secret** — the secret generated above
+
+Use **Test & Discover** to verify the credentials and detect whether the target is a Proxmox cluster or a standalone host.
+
+For clustered environments, ProxPilot discovers the available nodes and allows a reachable hostname or IP address to be configured for each node.
+
+API credentials are stored as part of the persistent Infrastructure configuration.
 
 Verify the token:
 
@@ -148,7 +165,6 @@ VM.Audit
 VM.Console
 VM.Migrate
 VM.PowerMgmt
-VM.GuestAgent.Audit
 ```
 
 ### Privilege explanation
@@ -161,20 +177,19 @@ VM.GuestAgent.Audit
 | `VM.Console` | Opening the integrated QEMU noVNC console |
 | `VM.Migrate` | Live and offline guest migration |
 | `VM.PowerMgmt` | Start, shutdown, stop, reboot, suspend and resume |
-| `VM.GuestAgent.Audit` | Reading disk utilization and IP addresses of VMs |
 
 ### Create the role
 
 ```bash
 pveum role add DashboardManager \
-  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt VM.GuestAgent.Audit"
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
 ```
 
 ### Update an existing role
 
 ```bash
 pveum role modify DashboardManager \
-  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt VM.GuestAgent.Audit"
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
 ```
 
 ### Verify the role
@@ -192,7 +207,6 @@ VM.Audit
 VM.Console
 VM.Migrate
 VM.PowerMgmt
-VM.GuestAgent.Audit
 ```
 
 ---
@@ -440,7 +454,6 @@ Sys.Audit
 VM.Audit
 VM.Backup
 VM.Console
-VM.GuestAgent.Audit
 VM.Migrate
 VM.PowerMgmt
 VM.Snapshot
@@ -501,7 +514,7 @@ If it is missing, update the role:
 
 ```bash
 pveum role modify DashboardManager \
-  --privs "Datastore.Audit Sys.Audit VM.Audit VM.GuestAgent.Audit VM.Console VM.Migrate VM.PowerMgmt"
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
 ```
 
 Then verify:
@@ -809,7 +822,7 @@ Before starting ProxPilot, confirm:
 - [ ] Backup storage ACL is assigned to user and token
 - [ ] Propagation is enabled
 - [ ] Effective permissions were verified
-- [ ] The token ID and secret were entered in `.env`
+- [ ] The token ID and secret were entered in the ProxPilot Infrastructure configuration
 
 ---
 

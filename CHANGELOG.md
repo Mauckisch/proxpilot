@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.7.0] - 2026-08-09
+
+### Added
+
+- Added support for managing multiple Proxmox infrastructures in a single ProxPilot installation.
+- Added support for both Proxmox clusters and standalone Proxmox nodes.
+- Added infrastructure management in Settings for configuring API access, nodes and infrastructure-specific connection settings.
+- Added infrastructure-aware handling throughout dashboards, nodes, guests, storage, backups, snapshots, replication, networking, console access, tasks, updates, audit logging and the Task Scheduler.
+- Added infrastructure IDs to runtime tasks and update status tracking to keep nodes with identical names isolated between infrastructures.
+
+### Changed
+
+- Proxmox API credentials, API endpoints, SSL verification and node connection settings are now stored per infrastructure instead of being configured globally through environment variables.
+- Proxmox API clients now require an explicit infrastructure and obtain their connection configuration from the infrastructure database.
+- Node and guest operations now explicitly carry their infrastructure context from the frontend through the API to the Proxmox client.
+- Task Scheduler executions now retain the infrastructure context of their configured target.
+- Update tracking and node update locks are now scoped by infrastructure and node.
+- Simplified `.env` configuration by removing the legacy `PVE_*` Proxmox settings.
+- Added `TZ` to the example application environment configuration.
+
+### Fixed
+
+- Fixed network interface IP addresses not being displayed after the infrastructure refactoring by aligning the frontend network address model with the backend API response.
+- Fixed infrastructure context propagation for Proxmox operations that could otherwise become ambiguous when multiple infrastructures contain similarly named nodes.
+
 ## [1.6.1] - 2026-08-08
 
 ### Fixed

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LdapSettingsCard } from '../components/LdapSettingsCard';
 import { SystemInformationCard } from '../components/SystemInformationCard';
+import { InfrastructureSettingsCard } from '../components/InfrastructureSettingsCard';
 import {
   Alert,
   Badge,
@@ -254,6 +255,8 @@ export function SettingsPage({
           </Text>
         </Stack>
       </Card>
+
+      <InfrastructureSettingsCard />
 
       <LdapSettingsCard />
 

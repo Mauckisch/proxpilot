@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SECONDS = 5
 
-client = ProxmoxClient()
 
 _scheduler_task: asyncio.Task | None = None
 _scheduler_stop_event: asyncio.Event | None = None
@@ -413,6 +412,20 @@ async def _execute_node_action(
 ) -> dict[str, Any]:
     node = task.get("node")
     action = task["action"]
+    infrastructure_id = task.get(
+        "infrastructure_id"
+    )
+
+    if (
+        not isinstance(
+            infrastructure_id,
+            int,
+        )
+        or infrastructure_id <= 0
+    ):
+        raise RuntimeError(
+            "Scheduled task has no valid infrastructure."
+        )
 
     if not node:
         raise RuntimeError(
@@ -422,6 +435,8 @@ async def _execute_node_action(
     if action == "node.check_updates":
         managed = await start_update_check(
             node,
+            infrastructure_id=
+                infrastructure_id,
             source="scheduler",
         )
 
@@ -438,6 +453,8 @@ async def _execute_node_action(
     if action == "node.install_updates":
         managed = await start_update_install(
             node,
+            infrastructure_id=
+                infrastructure_id,
             source="scheduler",
         )
 
@@ -454,6 +471,8 @@ async def _execute_node_action(
     if action == "node.package_cleanup":
         managed = await start_package_cleanup(
             node,
+            infrastructure_id=
+                infrastructure_id,
             source="scheduler",
         )
 
@@ -479,6 +498,8 @@ async def _execute_node_action(
                 else "shutdown"
             ),
             source="scheduler",
+            infrastructure_id=
+                infrastructure_id,
         )
 
         manager.append(
@@ -509,6 +530,8 @@ async def _execute_node_action(
                 f"{maintenance_action} on {node}"
             ),
             source="scheduler",
+            infrastructure_id=
+                infrastructure_id,
         )
 
         manager.start(activity)
@@ -517,6 +540,7 @@ async def _execute_node_action(
             message = await set_maintenance(
                 node,
                 maintenance_action,
+                infrastructure_id,
             )
 
             manager.append(
@@ -563,6 +587,25 @@ async def _execute_guest_action(
     vmid = task.get("vmid")
     action = task["action"]
     payload = task["payload"]
+    infrastructure_id = task.get(
+        "infrastructure_id"
+    )
+
+    if (
+        not isinstance(
+            infrastructure_id,
+            int,
+        )
+        or infrastructure_id <= 0
+    ):
+        raise RuntimeError(
+            "Scheduled task has no valid infrastructure."
+        )
+
+    task_client = ProxmoxClient(
+        infrastructure_id=
+            infrastructure_id
+    )
 
     if (
         not node
@@ -590,6 +633,8 @@ async def _execute_guest_action(
                 f"{guest_type.upper()} {vmid}"
             ),
             source="scheduler",
+            infrastructure_id=
+                infrastructure_id,
         )
 
         manager.start(activity)
@@ -600,7 +645,7 @@ async def _execute_guest_action(
                 _execution_message(trigger),
             )
 
-            upid = await client.guest_action(
+            upid = await task_client.guest_action(
                 node,
                 guest_type,
                 vmid,
@@ -644,6 +689,8 @@ async def _execute_guest_action(
                 f"{guest_type.upper()} {vmid}"
             ),
             source="scheduler",
+            infrastructure_id=
+                infrastructure_id,
         )
 
         manager.start(activity)
@@ -654,7 +701,7 @@ async def _execute_guest_action(
                 _execution_message(trigger),
             )
 
-            upid = await client.create_snapshot(
+            upid = await task_client.create_snapshot(
                 node,
                 guest_type,
                 vmid,
@@ -707,7 +754,7 @@ async def _execute_guest_action(
             )
         ).strip()
 
-        snapshots = await client.list_snapshots(
+        snapshots = await task_client.list_snapshots(
             node,
             guest_type,
             vmid,
@@ -741,6 +788,8 @@ async def _execute_guest_action(
                 f"{guest_type.upper()} {vmid}"
             ),
             source="scheduler",
+            infrastructure_id=
+                infrastructure_id,
         )
 
         manager.start(activity)
@@ -751,7 +800,7 @@ async def _execute_guest_action(
                 _execution_message(trigger),
             )
 
-            upid = await client.delete_snapshot(
+            upid = await task_client.delete_snapshot(
                 node,
                 guest_type,
                 vmid,
@@ -799,6 +848,8 @@ async def _execute_guest_action(
                 f"to {target_node}"
             ),
             source="scheduler",
+            infrastructure_id=
+                infrastructure_id,
         )
 
         manager.start(activity)
@@ -809,7 +860,7 @@ async def _execute_guest_action(
                 _execution_message(trigger),
             )
 
-            upid = await client.migrate_guest(
+            upid = await task_client.migrate_guest(
                 node=node,
                 guest_type=guest_type,
                 vmid=vmid,
@@ -875,7 +926,7 @@ async def _execute_guest_action(
             )
         ).strip()
 
-        dashboard = await client.dashboard()
+        dashboard = await task_client.dashboard()
 
         job = next(
             (
@@ -964,7 +1015,7 @@ async def _execute_guest_action(
                 )
 
         managed = await start_backup_task(
-            client,
+            task_client,
             node,
             (
                 f"{job_id} · VMID {vmid} "
@@ -972,6 +1023,8 @@ async def _execute_guest_action(
             ),
             parameters,
             source="scheduler",
+            infrastructure_id=
+                infrastructure_id,
         )
 
         manager.append(
@@ -998,6 +1051,8 @@ async def execute_scheduled_task(
         "execution": "scheduled",
         "schedule_id": task["id"],
         "schedule_uuid": task["uuid"],
+        "infrastructure_id":
+            task.get("infrastructure_id"),
         "schedule_name": task["name"],
         "created_by": task[
             "created_by_username"
@@ -1045,6 +1100,9 @@ async def execute_scheduled_task(
             ),
             target=get_scheduled_task_target(task),
             node=task.get("node"),
+            infrastructure_id=task.get(
+                "infrastructure_id"
+            ),
             details={
                 **audit_details,
                 "result": result,
@@ -1078,6 +1136,9 @@ async def execute_scheduled_task(
             ),
             target=get_scheduled_task_target(task),
             node=task.get("node"),
+            infrastructure_id=task.get(
+                "infrastructure_id"
+            ),
             details={
                 **audit_details,
                 "error": error,
@@ -1092,6 +1153,7 @@ async def _execute_manual_scheduled_task(
     username: str,
     role: str,
     source: str,
+    ip_address: str | None,
 ) -> None:
     action = task["action"]
 
@@ -1100,6 +1162,8 @@ async def _execute_manual_scheduled_task(
         "trigger": "manual",
         "schedule_id": task["id"],
         "schedule_uuid": task["uuid"],
+        "infrastructure_id":
+            task.get("infrastructure_id"),
         "schedule_name": task["name"],
         "created_by": task[
             "created_by_username"
@@ -1167,9 +1231,13 @@ async def _execute_manual_scheduled_task(
             username=username,
             role=role,
             source=source,
+            ip_address=ip_address,
             target_type="scheduled_task",
             target=get_scheduled_task_target(task),
             node=task.get("node"),
+            infrastructure_id=task.get(
+                "infrastructure_id"
+            ),
             details={
                 **audit_details,
                 "result": result,
@@ -1213,9 +1281,13 @@ async def _execute_manual_scheduled_task(
             username=username,
             role=role,
             source=source,
+            ip_address=ip_address,
             target_type="scheduled_task",
             target=get_scheduled_task_target(task),
             node=task.get("node"),
+            infrastructure_id=task.get(
+                "infrastructure_id"
+            ),
             details={
                 **audit_details,
                 "error": error,
@@ -1230,6 +1302,7 @@ async def start_manual_scheduled_task(
     username: str,
     role: str,
     source: str,
+    ip_address: str | None,
 ) -> dict[str, Any]:
     task = get_scheduled_task(
         task_id
@@ -1309,6 +1382,7 @@ async def start_manual_scheduled_task(
             username=username,
             role=role,
             source=source,
+            ip_address=ip_address,
         )
     )
 

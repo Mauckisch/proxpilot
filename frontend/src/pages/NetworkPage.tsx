@@ -36,21 +36,8 @@ import {
   useNetwork,
 } from '../hooks/useNetwork';
 import { NetworkGraph } from '../network/NetworkGraph';
+import { useDashboard } from '../hooks/useDashboard';
 
-const nodeOptions = [
-  {
-    value: 'pve',
-    label: 'pve · 192.168.123.254',
-  },
-  {
-    value: 'pve2',
-    label: 'pve2 · 192.168.123.253',
-  },
-  {
-    value: 'pve3',
-    label: 'pve3 · 192.168.123.252',
-  },
-];
 
 function formatBytes(value?: number): string {
   if (value === undefined || value === null) {
@@ -96,15 +83,15 @@ function formatSpeed(speed?: number | null): string {
 function formatAddress(
   address: NetworkAddress,
 ): string {
-  if (!address.local) {
+  if (!address.address) {
     return '—';
   }
 
-  if (address.prefixlen === undefined) {
-    return address.local;
+  if (address.prefix_length === undefined) {
+    return address.address;
   }
 
-  return `${address.local}/${address.prefixlen}`;
+  return `${address.address}/${address.prefix_length}`;
 }
 
 function getTypeColor(type: string): string {
@@ -162,11 +149,141 @@ function getStateColor(state: string): string {
 }
 
 export function NetworkPage() {
+  const dashboard = useDashboard();
+
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-network-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
+
   const [selectedNode, setSelectedNode] =
-    useState<string | null>('pve');
+    useState<string | null>(null);
+
+  const allNodes =
+    dashboard.data?.nodes ?? [];
+
+  const infrastructures = Array.from(
+    allNodes.reduce(
+      (
+        result,
+        node,
+      ) => {
+        if (
+          !result.has(
+            node.infrastructure_id,
+          )
+        ) {
+          result.set(
+            node.infrastructure_id,
+            {
+              id:
+                node.infrastructure_id,
+              name:
+                node.infrastructure_name,
+              type:
+                node.infrastructure_type,
+            },
+          );
+        }
+
+        return result;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type:
+            | 'cluster'
+            | 'standalone';
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructures.some(
+      (infrastructure) =>
+        infrastructure.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructures[0]?.id ??
+        null;
+
+  const infrastructureNodes =
+    effectiveInfrastructureId === null
+      ? []
+      : allNodes
+          .filter(
+            (node) =>
+              node.infrastructure_id ===
+              effectiveInfrastructureId,
+          )
+          .sort((a, b) =>
+            a.node.localeCompare(
+              b.node,
+              undefined,
+              {
+                numeric: true,
+              },
+            ),
+          );
+
+  const effectiveNode =
+    infrastructureNodes.some(
+      (node) =>
+        node.node === selectedNode,
+    )
+      ? selectedNode
+      : infrastructureNodes[0]?.node ??
+        null;
+
+  const infrastructureOptions =
+    infrastructures.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          infrastructure.type ===
+          'cluster'
+            ? `${infrastructure.name} · Cluster`
+            : `${infrastructure.name} · Standalone`,
+      }),
+    );
+
+  const nodeOptions =
+    infrastructureNodes.map(
+      (node) => ({
+        value: node.node,
+        label:
+          node.status
+            ? `${node.node} · ${node.status}`
+            : node.node,
+      }),
+    );
 
   const network = useNetwork(
-    selectedNode ?? 'pve',
+    effectiveInfrastructureId ?? 0,
+    effectiveNode ?? '',
   );
 
   const interfaces = useMemo(() => {
@@ -202,6 +319,35 @@ export function NetworkPage() {
     );
   }, [network.data?.interfaces]);
 
+  if (dashboard.isLoading) {
+    return (
+      <Center mih={400}>
+        <Stack align="center">
+          <Loader size="lg" />
+
+          <Text c="dimmed">
+            Loading Proxmox nodes...
+          </Text>
+        </Stack>
+      </Center>
+    );
+  }
+
+  if (
+    !dashboard.isLoading &&
+    nodeOptions.length === 0
+  ) {
+    return (
+      <Alert
+        color="yellow"
+        icon={<IconAlertCircle size={20} />}
+        title="No nodes found"
+      >
+        No Proxmox nodes are available.
+      </Alert>
+    );
+  }
+
   if (network.isLoading) {
     return (
       <Center mih={400}>
@@ -233,13 +379,56 @@ export function NetworkPage() {
             </Text>
           </div>
 
-          <Select
-            data={nodeOptions}
-            value={selectedNode}
-            onChange={setSelectedNode}
-            allowDeselect={false}
-            w={260}
-          />
+          <Group align="flex-end">
+            <Select
+              label="Infrastructure"
+              data={infrastructureOptions}
+              value={
+                effectiveInfrastructureId !==
+                null
+                  ? String(
+                      effectiveInfrastructureId,
+                    )
+                  : null
+              }
+              onChange={(value) => {
+                if (!value) {
+                  return;
+                }
+
+                const id = Number(value);
+
+                if (
+                  !Number.isInteger(id) ||
+                  id <= 0
+                ) {
+                  return;
+                }
+
+                setSelectedInfrastructureId(
+                  id,
+                );
+
+                setSelectedNode(null);
+
+                localStorage.setItem(
+                  'proxpilot-network-infrastructure',
+                  String(id),
+                );
+              }}
+              allowDeselect={false}
+              w={300}
+            />
+
+            <Select
+              label="Node"
+              data={nodeOptions}
+              value={effectiveNode}
+              onChange={setSelectedNode}
+              allowDeselect={false}
+              w={220}
+            />
+          </Group>
         </Group>
 
         <Alert
@@ -278,12 +467,52 @@ export function NetworkPage() {
 
         <Group align="flex-end">
           <Select
+            label="Infrastructure"
+            data={infrastructureOptions}
+            value={
+              effectiveInfrastructureId !==
+              null
+                ? String(
+                    effectiveInfrastructureId,
+                  )
+                : null
+            }
+            onChange={(value) => {
+              if (!value) {
+                return;
+              }
+
+              const id = Number(value);
+
+              if (
+                !Number.isInteger(id) ||
+                id <= 0
+              ) {
+                return;
+              }
+
+              setSelectedInfrastructureId(
+                id,
+              );
+
+              setSelectedNode(null);
+
+              localStorage.setItem(
+                'proxpilot-network-infrastructure',
+                String(id),
+              );
+            }}
+            allowDeselect={false}
+            w={300}
+          />
+
+          <Select
             label="Node"
             data={nodeOptions}
-            value={selectedNode}
+            value={effectiveNode}
             onChange={setSelectedNode}
             allowDeselect={false}
-            w={260}
+            w={220}
           />
 
           <Button
@@ -603,7 +832,7 @@ export function NetworkPage() {
                           {addresses.map(
                             (address, index) => (
                               <Text
-                                key={`${networkInterface.name}-${address.family}-${address.local}-${index}`}
+                                key={`${networkInterface.name}-${address.family}-${address.address}-${index}`}
                                 size="sm"
                                 ff="monospace"
                               >

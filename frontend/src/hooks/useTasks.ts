@@ -14,6 +14,7 @@ export type TaskSource =
 
 export type ManagedTask = {
   id: string;
+  infrastructure_id?: number | null;
   node?: string;
   action?: string;
   title: string;

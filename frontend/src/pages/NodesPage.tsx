@@ -8,6 +8,7 @@ import {
   Group,
   Loader,
   Modal,
+  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -134,6 +135,26 @@ export function NodesPage({
   const dashboard = useDashboard();
   const updates = useUpdates();
 
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-nodes-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
+
   const [selectedUpdateNode, setSelectedUpdateNode] =
     useState<ClusterNode | null>(null);
 
@@ -153,6 +174,8 @@ export function NodesPage({
       const response = await api.post(
         '/node/maintenance',
         {
+          infrastructure_id:
+            node.infrastructure_id,
           node: node.node,
           action,
         },
@@ -195,6 +218,8 @@ export function NodesPage({
       const response = await api.post(
         '/node/action',
         {
+          infrastructure_id:
+            node.infrastructure_id,
           node: node.node,
           action,
           confirmed: action !== 'check-updates',
@@ -284,14 +309,152 @@ export function NodesPage({
     dashboard.data?.nodes ?? [],
   );
 
-  const onlineNodes = nodes.filter(
-    (node) =>
-      node.status?.toLowerCase() === 'online',
-  ).length;
+  const infrastructureGroups = Array.from(
+    nodes.reduce(
+      (
+        groups,
+        node,
+      ) => {
+        const existing = groups.get(
+          node.infrastructure_id,
+        );
 
-  const maintenanceNodes = nodes.filter(
-    (node) => node.maintenance,
-  ).length;
+        if (existing) {
+          existing.nodes.push(node);
+          return groups;
+        }
+
+        groups.set(
+          node.infrastructure_id,
+          {
+            id: node.infrastructure_id,
+            name:
+              node.infrastructure_name,
+            type:
+              node.infrastructure_type,
+            nodes: [node],
+          },
+        );
+
+        return groups;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type:
+            | 'cluster'
+            | 'standalone';
+          nodes: ClusterNode[];
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructureGroups.some(
+      (item) =>
+        item.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructureGroups[0]?.id ??
+        null;
+
+  const selectedInfrastructure =
+    infrastructureGroups.find(
+      (item) =>
+        item.id ===
+        effectiveInfrastructureId,
+    ) ?? null;
+
+  const selectedNodes =
+    selectedInfrastructure?.nodes ?? [];
+
+  const onlineNodes =
+    selectedNodes.filter(
+      (node) =>
+        node.status?.toLowerCase() ===
+        'online',
+    ).length;
+
+  const maintenanceNodes =
+    selectedNodes.filter(
+      (node) => node.maintenance,
+    ).length;
+
+  const infrastructureOptions =
+    infrastructureGroups.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          infrastructure.type ===
+          'cluster'
+            ? `${infrastructure.name} · Cluster`
+            : `${infrastructure.name} · Standalone`,
+      }),
+    );
+
+  const selectedDashboard =
+    dashboard.data &&
+    effectiveInfrastructureId !== null
+      ? {
+          ...dashboard.data,
+          nodes:
+            dashboard.data.nodes.filter(
+              (item) =>
+                item.infrastructure_id ===
+                effectiveInfrastructureId,
+            ),
+          guests:
+            dashboard.data.guests.filter(
+              (item) =>
+                item.infrastructure_id ===
+                effectiveInfrastructureId,
+            ),
+          storages:
+            dashboard.data.storages.filter(
+              (item) =>
+                item.infrastructure_id ===
+                effectiveInfrastructureId,
+            ),
+          replications:
+            dashboard.data.replications.filter(
+              (item) =>
+                item.infrastructure_id ===
+                effectiveInfrastructureId,
+            ),
+          backup_jobs:
+            dashboard.data.backup_jobs.filter(
+              (item) =>
+                item.infrastructure_id ===
+                effectiveInfrastructureId,
+            ),
+          backup_tasks:
+            dashboard.data.backup_tasks.filter(
+              (item) =>
+                item.infrastructure_id ===
+                effectiveInfrastructureId,
+            ),
+          ha:
+            dashboard.data.ha.filter(
+              (item) =>
+                item.infrastructure_id ===
+                effectiveInfrastructureId,
+            ),
+          infrastructure_errors:
+            dashboard.data.infrastructure_errors.filter(
+              (item) =>
+                item.infrastructure_id ===
+                effectiveInfrastructureId,
+            ),
+        }
+      : null;
 
   const modalTitle =
     confirmState?.kind === 'maintenance'
@@ -336,17 +499,58 @@ export function NodesPage({
             </Text>
           </div>
 
-          <Group gap="xs">
+          <Group gap="xs" align="flex-end">
+            <Select
+              label="Infrastructure"
+              data={infrastructureOptions}
+              value={
+                effectiveInfrastructureId !==
+                null
+                  ? String(
+                      effectiveInfrastructureId,
+                    )
+                  : null
+              }
+              onChange={(value) => {
+                if (!value) {
+                  return;
+                }
+
+                const id = Number(value);
+
+                if (
+                  !Number.isInteger(id) ||
+                  id <= 0
+                ) {
+                  return;
+                }
+
+                setSelectedInfrastructureId(
+                  id,
+                );
+
+                localStorage.setItem(
+                  'proxpilot-nodes-infrastructure',
+                  String(id),
+                );
+              }}
+              allowDeselect={false}
+              w={300}
+            />
+
             <Badge
               color={
-                onlineNodes === nodes.length
+                selectedNodes.length > 0 &&
+                onlineNodes ===
+                  selectedNodes.length
                   ? 'green'
                   : 'red'
               }
               variant="light"
               size="lg"
             >
-              {onlineNodes} of {nodes.length} online
+              {onlineNodes} of{' '}
+              {selectedNodes.length} online
             </Badge>
 
             {maintenanceNodes > 0 && (
@@ -372,10 +576,16 @@ export function NodesPage({
           </Group>
         </Group>
 
-        {dashboard.data && (
+        {selectedDashboard && (
           <ClusterSummary
-            data={dashboard.data}
-            updates={updates.data}
+            data={selectedDashboard}
+            updates={
+              updates.data?.filter(
+                (status) =>
+                  status.infrastructure_id ===
+                  effectiveInfrastructureId,
+              )
+            }
           />
         )}
 
@@ -385,59 +595,129 @@ export function NodesPage({
             icon={<IconAlertCircle size={20} />}
             title="No nodes found"
           >
-            The Proxmox API returned no cluster nodes.
+            No Proxmox nodes were returned by the
+            configured infrastructures.
           </Alert>
-        ) : (
-          <SimpleGrid
-            cols={{
-              base: 1,
-              md: 2,
-              xl: 3,
-            }}
-          >
-            {nodes.map((node) => (
-              <NodeCard
-                key={node.node}
-                node={node}
-                updateStatus={updates.data?.find(
-                  (status) => status.node === node.node,
-                )}
-                actionRunning={actionRunning}
-                onOpenDetails={onOpenNode}
-                onOpenUpdates={(selectedNode) =>
-                  setSelectedUpdateNode(selectedNode)
-                }
-                onMaintenanceAction={(
-                  selectedNode,
-                  action,
-                ) =>
-                  setConfirmState({
-                    kind: 'maintenance',
-                    node: selectedNode,
-                    action,
-                  })
-                }
-                onNodeAction={(
-                  selectedNode,
-                  action,
-                ) =>
-                  setConfirmState({
-                    kind: 'node',
-                    node: selectedNode,
-                    action,
-                  })
-                }
-              />
-            ))}
-          </SimpleGrid>
-        )}
+        ) : selectedInfrastructure ? (
+          <Stack gap="md">
+            <Group
+              justify="space-between"
+              align="center"
+            >
+              <div>
+                <Group gap="sm">
+                  <Title order={4}>
+                    {selectedInfrastructure.name}
+                  </Title>
+
+                  <Badge
+                    variant="light"
+                    color={
+                      selectedInfrastructure.type ===
+                      'cluster'
+                        ? 'blue'
+                        : 'grape'
+                    }
+                  >
+                    {selectedInfrastructure.type ===
+                    'cluster'
+                      ? 'Cluster'
+                      : 'Standalone'}
+                  </Badge>
+                </Group>
+
+                <Text
+                  size="sm"
+                  c="dimmed"
+                  mt={3}
+                >
+                  {selectedNodes.length}{' '}
+                  {selectedNodes.length === 1
+                    ? 'node'
+                    : 'nodes'}
+                  {' · '}
+                  {onlineNodes} online
+                </Text>
+              </div>
+            </Group>
+
+            <SimpleGrid
+              cols={{
+                base: 1,
+                md: 2,
+                xl: 3,
+              }}
+            >
+              {selectedNodes.map(
+                (node) => (
+                  <NodeCard
+                    key={
+                      `${node.infrastructure_id}:` +
+                      node.node
+                    }
+                    node={node}
+                    updateStatus={
+                      updates.data?.find(
+                        (status) =>
+                          status.node ===
+                            node.node &&
+                          status.infrastructure_id ===
+                            node.infrastructure_id,
+                      )
+                    }
+                    actionRunning={
+                      actionRunning
+                    }
+                    onOpenDetails={
+                      onOpenNode
+                    }
+                    onOpenUpdates={(
+                      selectedNode,
+                    ) =>
+                      setSelectedUpdateNode(
+                        selectedNode,
+                      )
+                    }
+                    onMaintenanceAction={(
+                      selectedNode,
+                      action,
+                    ) =>
+                      setConfirmState({
+                        kind:
+                          'maintenance',
+                        node:
+                          selectedNode,
+                        action,
+                      })
+                    }
+                    onNodeAction={(
+                      selectedNode,
+                      action,
+                    ) =>
+                      setConfirmState({
+                        kind: 'node',
+                        node:
+                          selectedNode,
+                        action,
+                      })
+                    }
+                  />
+                ),
+              )}
+            </SimpleGrid>
+          </Stack>
+        ) : null}
       </Stack>
 
       <NodeUpdatesModal
         node={selectedUpdateNode}
         status={updates.data?.find(
           (status) =>
-            status.node === selectedUpdateNode?.node,
+            status.node ===
+              selectedUpdateNode?.node &&
+            status.infrastructure_id ===
+              selectedUpdateNode
+                ?.infrastructure_id,
         )}
         opened={selectedUpdateNode !== null}
         actionRunning={actionRunning}

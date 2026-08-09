@@ -197,6 +197,34 @@ export function NodeCard({
           </Text>
 
           <Group
+            justify="center"
+            gap="xs"
+          >
+            <Text
+              size="xs"
+              c="dimmed"
+            >
+              {node.infrastructure_name}
+            </Text>
+
+            <Badge
+              size="xs"
+              variant="outline"
+              color={
+                node.infrastructure_type ===
+                'cluster'
+                  ? 'blue'
+                  : 'grape'
+              }
+            >
+              {node.infrastructure_type ===
+              'cluster'
+                ? 'Cluster'
+                : 'Standalone'}
+            </Badge>
+          </Group>
+
+          <Group
             justify="space-between"
             align="flex-start"
             wrap="nowrap"
@@ -383,47 +411,62 @@ export function NodeCard({
             onClick={(event) => event.stopPropagation()}
           >
             <Stack gap="xs">
-              <Text size="xs" c="dimmed">
-                Maintenance
-              </Text>
+              {node.infrastructure_type ===
+                'cluster' && (
+                <>
+                  <Text size="xs" c="dimmed">
+                    Maintenance
+                  </Text>
+
+                  <Group grow>
+                    <OperatorButton
+                      variant="light"
+                      color="yellow"
+                      leftSection={
+                        <IconTool size={16} />
+                      }
+                      disabled={
+                        actionRunning ||
+                        node.maintenance ||
+                        !online
+                      }
+                      permissionTooltip="Operator or administrator permissions required to enable maintenance mode."
+                      onClick={() =>
+                        onMaintenanceAction(
+                          node,
+                          'enable',
+                        )
+                      }
+                    >
+                      Enable
+                    </OperatorButton>
+
+                    <OperatorButton
+                      variant="light"
+                      color="green"
+                      leftSection={
+                        <IconTool size={16} />
+                      }
+                      disabled={
+                        actionRunning ||
+                        !node.maintenance ||
+                        !online
+                      }
+                      permissionTooltip="Operator or administrator permissions required to disable maintenance mode."
+                      onClick={() =>
+                        onMaintenanceAction(
+                          node,
+                          'disable',
+                        )
+                      }
+                    >
+                      Disable
+                    </OperatorButton>
+                  </Group>
+                </>
+              )}
 
               <Stack gap="xs">
-                <Group grow>
-                  <OperatorButton
-                    variant="light"
-                    color="yellow"
-                    leftSection={<IconTool size={16} />}
-                    disabled={
-                      actionRunning ||
-                      node.maintenance ||
-                      !online
-                    }
-                    permissionTooltip="Operator or administrator permissions required to enable maintenance mode."
-                    onClick={() =>
-                      onMaintenanceAction(node, 'enable')
-                    }
-                  >
-                    Enable
-                  </OperatorButton>
-
-                  <OperatorButton
-                    variant="light"
-                    color="green"
-                    leftSection={<IconTool size={16} />}
-                    disabled={
-                      actionRunning ||
-                      !node.maintenance ||
-                      !online
-                    }
-                    permissionTooltip="Operator or administrator permissions required to disable maintenance mode."
-                    onClick={() =>
-                      onMaintenanceAction(node, 'disable')
-                    }
-                  >
-                    Disable
-                  </OperatorButton>
-                </Group>
-
                 <OperatorButton
                   variant="light"
                   color="grape"

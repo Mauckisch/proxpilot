@@ -5,7 +5,7 @@
 <h1 align="center">ProxPilot</h1>
 
 <p align="center">
-A modern, lightweight web interface for monitoring and managing Proxmox VE clusters and homelabs.
+A modern, lightweight web interface for monitoring and managing multiple Proxmox VE clusters, standalone hosts and homelabs.
 </p>
 
 <p align="center">
@@ -23,7 +23,9 @@ A modern, lightweight web interface for monitoring and managing Proxmox VE clust
 
 ProxPilot is an open-source management interface for **Proxmox VE**.
 
-It complements the native Proxmox interface by providing a clean dashboard, simplified daily administration, integrated monitoring and commonly used management actions.
+The current 1.7.0 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
+
+It complements the native Proxmox interface by providing a clean dashboard, simplified daily administration, integrated monitoring and commonly used management actions across multiple independent Proxmox infrastructures.
 
 ---
 
@@ -38,7 +40,9 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 - Snapshot and backup management
 - Node maintenance
 - Update management
-- Storage and cluster overview
+- Storage, network and cluster overview
+- Multiple independent Proxmox infrastructures
+- Automatic cluster and standalone-host discovery
 - Integrated audit log
 - Administrator, Operator and Viewer roles
 - Guest Agent information
@@ -59,7 +63,7 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
   <img src="docs/images/Dashboard.png" alt="Dashboard" width="1000">
 </p>
 
-The dashboard provides a complete overview of your Proxmox cluster, including node status, guests, storage, resource utilization and recent activity.
+The dashboard provides an overview of the configured Proxmox infrastructures, including node status, guests, storage, resource utilization and recent activity.
 
 ---
 
@@ -76,6 +80,10 @@ Frontend (React)
    │
    ▼
 Backend (FastAPI)
+   ├── Infrastructure configuration
+   │   ├── Proxmox Cluster A
+   │   ├── Proxmox Cluster B
+   │   └── Standalone Host
    ├── Proxmox API
    ├── SSH
    └── SQLite
@@ -89,10 +97,11 @@ Backend (FastAPI)
 git clone https://github.com/Mauckisch/proxpilot.git
 cd proxpilot
 cp .env.example .env
+nano .env
 docker compose up -d --build
 ```
 
-Configure `.env` before starting.
+Configure the global application settings in `.env` before starting. After the first login, add Proxmox environments under **Settings → Infrastructure**. Proxmox endpoints, API tokens, node addresses and SSH settings are configured there rather than through `PVE_*` environment variables.
 
 ---
 
@@ -115,9 +124,10 @@ Configure `.env` before starting.
 - Proxmox VE
 - Docker Engine
 - Docker Compose
-- API token
-- SSH access
-- Installed "lm-sensors" package on each node for temperature monitoring
+- A Proxmox API token for each configured infrastructure
+- SSH access to the Proxmox nodes for host-level functions
+- Network access from the ProxPilot backend to the Proxmox API and SSH services
+- Installed `lm-sensors` package on nodes where temperature monitoring is required
 
 ### Temperature Monitoring
 
@@ -139,7 +149,6 @@ Once sensors are available, ProxPilot will automatically display CPU, motherboar
 
 - Historical statistics
 - Notifications
-- Multi-cluster support
 - Additional charts
 - RBAC improvements
 
@@ -159,7 +168,7 @@ ProxPilot focuses on these everyday operations and presents them in a clean, mod
 - Clean, responsive interface
 - Safe administration
 - Easy deployment with Docker
-- Works with single-node and clustered environments
+- Works with multiple independent clusters and standalone Proxmox hosts
 - Modern authentication
 - Open source
 
@@ -184,14 +193,8 @@ ProxPilot focuses on operational tasks:
 - Review tasks
 - Manage users and roles
 - Review the audit log
-- Inspect guest agent and disk usage information
-- S.M.A.R.T.Monitor ZFS and S.M.A.R.T. health
-- Review the audit log
-- Manage users and roles
-- View Guest Agent information
-- View guest filesystem and disk usage
-- Monitor ZFS health
-- Monitor S.M.A.R.T. health
+- Inspect Guest Agent and guest disk usage information
+- Monitor ZFS and S.M.A.R.T. health
 
 ---
 
@@ -218,25 +221,19 @@ ProxPilot focuses on operational tasks:
 | Hardware information | ✅ |
 | Guest Agent information | ✅ |
 | Guest disk usage | ✅ |
-| ZFS information | ✅ |
-| ZFS health monitoring | ✅ |
-| S.M.A.R.T. warnings | ✅ |
+| ZFS information and health monitoring | ✅ |
+| S.M.A.R.T. monitoring and warnings | ✅ |
 | Temperature monitoring | ✅ |
+| UPS monitoring (NUT) | ✅ |
 | Local users | ✅ |
 | LDAP authentication | ✅ |
 | Administrator / Operator / Viewer roles | ✅ |
 | Audit log | ✅ |
 | Audit CSV / JSON export | ✅ |
-| Guest Agent information | ✅ |
-| Guest disk usage | ✅ |
-| ZFS health monitoring | ✅ |
-| S.M.A.R.T. monitoring | ✅ |
-| Administrator / Operator / Viewer roles | ✅ |
-| Audit log | ✅ |
-| Audit CSV export | ✅ |
-| Audit JSON export | ✅ |
-| UPS monitoring (NUT) | ✅ |
 | Task Scheduler | ✅ |
+| Multiple infrastructures | ✅ |
+| Multiple independent Proxmox clusters | ✅ |
+| Standalone Proxmox hosts | ✅ |
 
 
 ---
@@ -245,7 +242,7 @@ ProxPilot focuses on operational tasks:
 
 ## Dashboard
 
-The dashboard combines the most important cluster information on a single page.
+The dashboard combines the most important information from the configured Proxmox infrastructures on a single page.
 
 Highlights include:
 
@@ -256,6 +253,21 @@ Highlights include:
 - Storage usage
 - Recent activity
 - Task Scheduler
+
+## Multiple Infrastructures
+
+ProxPilot can manage multiple independent Proxmox environments from one installation.
+
+An infrastructure can be:
+
+- a Proxmox VE cluster
+- a standalone Proxmox VE host
+
+New environments are added under **Settings → Infrastructure**. Enter one reachable API endpoint and the API token, then use **Test & Discover**. ProxPilot detects whether the endpoint belongs to a cluster or a standalone host and discovers the available nodes.
+
+For every discovered node, the **Reachable host / IP** can be confirmed or adjusted independently. API credentials, TLS verification and SSH settings are stored per infrastructure.
+
+This allows environments such as a production cluster, lab cluster and standalone hosts to coexist in the same ProxPilot instance. Identical node names in different infrastructures remain distinguishable through their infrastructure context.
 
 ### Task Scheduler
 
@@ -292,17 +304,10 @@ Each node provides:
 - Update status
 - Hardware details
 - Physical disks
-- ZFS pools and health status
-- S.M.A.R.T. health information and warnings
+- ZFS pools, health and scrub information
+- S.M.A.R.T. information and health warnings
 - Temperatures
 - Network interfaces
-- Physical disks
-- S.M.A.R.T. information
-- S.M.A.R.T. health warnings
-- ZFS pool status
-- ZFS health
-- ZFS scrub information (if available)
-- Temperatures
 - UPS information through Network UPS Tools (NUT)
 
 Administrative actions include:
@@ -355,14 +360,10 @@ Supported operations:
 - Manual backups
 - Configuration viewer
 - Guest Agent information
-- Guest filesystem and disk usage information
-- Integrated browser console for QEMU and LXC
-- Guest Agent information
 - Guest operating system
 - Guest IP addresses
-- Guest filesystem information
-- Guest disk usage
-- Integrated browser console
+- Guest filesystem and disk usage information
+- Integrated browser console for QEMU and LXC
 
 ## Storage
 
@@ -382,6 +383,9 @@ Provides:
 - Bridges
 - Physical interfaces
 - VLAN interfaces
+- IPv4 and IPv6 addresses
+- Interface state and link speed
+- Bridge and VLAN relationships
 - Guest network assignments
 - Relationship visualisation
 
@@ -412,13 +416,6 @@ Task monitoring includes:
 - Completed tasks
 - Failed tasks
 - Improved task categorization
-- Exit status
-- Task log output
-- Integration with the activity panel
-- Running tasks
-- Completed tasks
-- Failed tasks
-- Improved task categorization
 - Task duration
 - Exit status
 - Task log output
@@ -433,13 +430,6 @@ Supports:
 - Secure session cookies
 - Administrator, Operator and Viewer roles
 - LDAP group-to-role mapping
-- Local users
-- LDAP / Active Directory
-- Administrator
-- Operator
-- Viewer
-- LDAP group-to-role mapping
-- Secure session cookies
 
 ## Audit Log
 
@@ -542,7 +532,7 @@ proxpilot/
 | Document | Description |
 |----------|-------------|
 | INSTALLATION.md | Complete installation guide |
-| CONFIGURATION.md | Environment variables |
+| CONFIGURATION.md | Global settings and infrastructure configuration |
 | API-PERMISSIONS.md | Required Proxmox permissions |
 | AUTHENTICATION.md | Local users and LDAP |
 | HTTPS_AND_REVERSE_PROXY.md | Reverse proxy configuration |
@@ -569,6 +559,14 @@ No.
 
 Local authentication works without LDAP.
 
+### Does ProxPilot support multiple Proxmox clusters?
+
+Yes. ProxPilot 1.7.0 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
+
+### Where are Proxmox connections configured?
+
+Open **Settings → Infrastructure**. Proxmox API endpoints, API tokens, TLS verification, reachable node addresses and SSH settings are configured per infrastructure. The old `PVE_*` environment-variable model is no longer the normal configuration method.
+
 ### Where are users stored?
 
 Local users are stored inside:
@@ -584,8 +582,10 @@ Local users are stored inside:
 Planned improvements include:
 
 - Better charts
-- Multi-cluster support
+- Historical statistics
+- Notifications
 - Additional storage information
+- RBAC improvements
 
 ---
 

@@ -48,6 +48,8 @@ def write_audit_event(
     target_type: str | None = None,
     target: str | None = None,
     node: str | None = None,
+    infrastructure_id: int | None = None,
+    ip_address: str | None = None,
     duration_ms: int | None = None,
     details: dict[str, Any] | str | None = None,
 ) -> int:
@@ -91,6 +93,7 @@ def write_audit_event(
                 target_type,
                 target,
                 node,
+                infrastructure_id,
                 result,
                 severity,
                 duration_ms,
@@ -98,7 +101,7 @@ def write_audit_event(
             )
             VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -107,11 +110,16 @@ def write_audit_event(
                 username,
                 role,
                 source,
-                get_client_ip(request),
+                (
+                    ip_address
+                    if ip_address is not None
+                    else get_client_ip(request)
+                ),
                 action,
                 target_type,
                 target,
                 node,
+                infrastructure_id,
                 result,
                 severity,
                 duration_ms,
@@ -133,6 +141,7 @@ def write_request_audit_event(
     target_type: str | None = None,
     target: str | None = None,
     node: str | None = None,
+    infrastructure_id: int | None = None,
     duration_ms: int | None = None,
     details: dict[str, Any] | str | None = None,
 ) -> int:
@@ -170,6 +179,7 @@ def write_request_audit_event(
         target_type=target_type,
         target=target,
         node=node,
+        infrastructure_id=infrastructure_id,
         duration_ms=duration_ms,
         details=details,
     )
@@ -186,6 +196,7 @@ def list_audit_events(
     results: list[str] | None = None,
     severities: list[str] | None = None,
     nodes: list[str] | None = None,
+    infrastructure_ids: list[int] | None = None,
     target_types: list[str] | None = None,
     search: str | None = None,
     date_from: str | None = None,
@@ -255,6 +266,25 @@ def list_audit_events(
         "node",
         nodes,
     )
+
+    if infrastructure_ids:
+        normalized_ids = [
+            int(value)
+            for value in infrastructure_ids
+            if int(value) > 0
+        ]
+
+        if normalized_ids:
+            placeholders = ",".join(
+                "?"
+                for _ in normalized_ids
+            )
+
+            conditions.append(
+                f"infrastructure_id IN ({placeholders})"
+            )
+
+            parameters.extend(normalized_ids)
 
     add_multi_filter(
         "target_type",
@@ -333,6 +363,7 @@ def list_audit_events(
                 target_type,
                 target,
                 node,
+                infrastructure_id,
                 result,
                 severity,
                 duration_ms,
@@ -392,6 +423,7 @@ def get_audit_filter_values(
     results: list[str] | None = None,
     severities: list[str] | None = None,
     nodes: list[str] | None = None,
+    infrastructure_ids: list[int] | None = None,
     target_types: list[str] | None = None,
     search: str | None = None,
     date_from: str | None = None,
@@ -450,6 +482,35 @@ def get_audit_filter_values(
 
         parameters.extend(normalized)
 
+    def add_infrastructure_filter(
+        conditions: list[str],
+        parameters: list[Any],
+    ) -> None:
+        if not infrastructure_ids:
+            return
+
+        normalized_ids = [
+            int(value)
+            for value in infrastructure_ids
+            if int(value) > 0
+        ]
+
+        if not normalized_ids:
+            return
+
+        placeholders = ",".join(
+            "?"
+            for _ in normalized_ids
+        )
+
+        conditions.append(
+            f"infrastructure_id IN ({placeholders})"
+        )
+
+        parameters.extend(
+            normalized_ids
+        )
+
     with get_connection() as connection:
         for facet_name, facet_column in facets.items():
             conditions: list[str] = []
@@ -469,6 +530,11 @@ def get_audit_filter_values(
                     facets[filter_name],
                     values,
                 )
+
+            add_infrastructure_filter(
+                conditions,
+                parameters,
+            )
 
             if search:
                 conditions.append(

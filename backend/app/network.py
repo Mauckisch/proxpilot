@@ -6,23 +6,63 @@ from typing import Any
 
 import paramiko
 
-from .config import get_settings
+from .infrastructures import get_infrastructure
 
 
 class NetworkError(RuntimeError):
     pass
 
 
-def _ssh_client(node: str) -> paramiko.SSHClient:
-    settings = get_settings()
-    host = settings.node_hosts.get(node)
+def _ssh_client(
+    node: str,
+    infrastructure_id: int,
+) -> paramiko.SSHClient:
+    if infrastructure_id <= 0:
+        raise NetworkError(
+            "A valid infrastructure ID is required."
+        )
+
+    infrastructure = get_infrastructure(
+        infrastructure_id
+    )
+
+    if infrastructure is None:
+        raise NetworkError(
+            f"Infrastructure {infrastructure_id} not found."
+        )
+
+    if not infrastructure["enabled"]:
+        raise NetworkError(
+            f"Infrastructure {infrastructure_id} is disabled."
+        )
+
+    node_entry = next(
+        (
+            item
+            for item in infrastructure["nodes"]
+            if item.get("node_name") == node
+            and item.get("enabled")
+        ),
+        None,
+    )
+
+    if node_entry is None:
+        raise NetworkError(
+            f"Node '{node}' is not configured in "
+            f"infrastructure {infrastructure_id}."
+        )
+
+    host = node_entry.get("host")
+    ssh_user = infrastructure["ssh_user"]
+    ssh_key = infrastructure["ssh_key"]
+    ssh_port = infrastructure["ssh_port"]
 
     if not host:
         raise NetworkError(
             f"Keine SSH-Adresse für Node '{node}' konfiguriert."
         )
 
-    key = Path(settings.pve_ssh_key)
+    key = Path(ssh_key)
 
     if not key.is_file():
         raise NetworkError(
@@ -37,8 +77,8 @@ def _ssh_client(node: str) -> paramiko.SSHClient:
     try:
         client.connect(
             hostname=host,
-            port=settings.pve_ssh_port,
-            username=settings.pve_ssh_user,
+            port=ssh_port,
+            username=ssh_user,
             key_filename=str(key),
             look_for_keys=False,
             allow_agent=False,
@@ -259,8 +299,12 @@ def _read_speed(
 
 def collect_node_network(
     node: str,
+    infrastructure_id: int,
 ) -> dict[str, Any]:
-    client = _ssh_client(node)
+    client = _ssh_client(
+        node,
+        infrastructure_id,
+    )
 
     try:
         links = _run_json(
@@ -524,35 +568,3 @@ def collect_node_network(
 
     finally:
         client.close()
-
-
-def collect_cluster_network() -> dict[str, Any]:
-    settings = get_settings()
-
-    nodes = []
-    errors = []
-
-    for node in settings.node_hosts:
-        try:
-            nodes.append(
-                collect_node_network(node)
-            )
-        except Exception as exc:
-            errors.append(
-                {
-                    "node": node,
-                    "error": str(exc),
-                }
-            )
-
-    return {
-        "nodes": nodes,
-        "errors": errors,
-        "summary": {
-            "configured_nodes": len(
-                settings.node_hosts
-            ),
-            "successful_nodes": len(nodes),
-            "failed_nodes": len(errors),
-        },
-    }

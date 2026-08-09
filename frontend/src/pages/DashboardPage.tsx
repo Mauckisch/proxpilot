@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import {
   Alert,
   Button,
@@ -5,6 +7,7 @@ import {
   Center,
   Group,
   Loader,
+  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -35,6 +38,26 @@ export function DashboardPage({
   onOpenNode,
 }: DashboardPageProps) {
   const dashboard = useDashboard();
+
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-dashboard-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
 
   const nodeActions = useNodeActions(async () => {
     await dashboard.refetch();
@@ -71,11 +94,102 @@ export function DashboardPage({
     );
   }
 
-  const nodes = sortNodes(
+  const allNodes = sortNodes(
     dashboard.data?.nodes ?? [],
   );
 
-  const guests = dashboard.data?.guests ?? [];
+  const allGuests =
+    dashboard.data?.guests ?? [];
+
+  const infrastructures = Array.from(
+    allNodes.reduce(
+      (
+        result,
+        node,
+      ) => {
+        if (
+          !result.has(
+            node.infrastructure_id,
+          )
+        ) {
+          result.set(
+            node.infrastructure_id,
+            {
+              id:
+                node.infrastructure_id,
+              name:
+                node.infrastructure_name,
+              type:
+                node.infrastructure_type,
+            },
+          );
+        }
+
+        return result;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type:
+            | 'cluster'
+            | 'standalone';
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructures.some(
+      (item) =>
+        item.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructures[0]?.id ??
+        null;
+
+  const selectedInfrastructure =
+    infrastructures.find(
+      (item) =>
+        item.id ===
+        effectiveInfrastructureId,
+    ) ?? null;
+
+  const nodes =
+    effectiveInfrastructureId === null
+      ? []
+      : allNodes.filter(
+          (node) =>
+            node.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const guests =
+    effectiveInfrastructureId === null
+      ? []
+      : allGuests.filter(
+          (guest) =>
+            guest.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const infrastructureOptions =
+    infrastructures.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          infrastructure.type ===
+          'cluster'
+            ? `${infrastructure.name} · Cluster`
+            : `${infrastructure.name} · Standalone`,
+      }),
+    );
 
   const onlineNodes = nodes.filter(
     (node) =>
@@ -100,23 +214,67 @@ export function DashboardPage({
         >
           <div>
             <Title order={2}>
-              Cluster overview
+              {selectedInfrastructure?.type ===
+              'standalone'
+                ? 'Standalone overview'
+                : 'Cluster overview'}
             </Title>
 
             <Text c="dimmed" mt={4}>
-              Live status and node controls for your
-              Proxmox cluster
+              {selectedInfrastructure
+                ? `Live status for ${selectedInfrastructure.name}`
+                : 'Live status of your Proxmox infrastructure'}
             </Text>
           </div>
 
-          <Button
-            variant="light"
-            leftSection={<IconRefresh size={16} />}
+          <Group gap="xs" align="flex-end">
+            <Select
+              label="Infrastructure"
+              data={infrastructureOptions}
+              value={
+                effectiveInfrastructureId !==
+                null
+                  ? String(
+                      effectiveInfrastructureId,
+                    )
+                  : null
+              }
+              onChange={(value) => {
+                if (!value) {
+                  return;
+                }
+
+                const id = Number(value);
+
+                if (
+                  !Number.isInteger(id) ||
+                  id <= 0
+                ) {
+                  return;
+                }
+
+                setSelectedInfrastructureId(
+                  id,
+                );
+
+                localStorage.setItem(
+                  'proxpilot-dashboard-infrastructure',
+                  String(id),
+                );
+              }}
+              allowDeselect={false}
+              w={300}
+            />
+
+            <Button
+              variant="light"
+              leftSection={<IconRefresh size={16} />}
             loading={dashboard.isFetching}
             onClick={() => dashboard.refetch()}
           >
             Refresh
           </Button>
+          </Group>
         </Group>
 
         <SimpleGrid
@@ -193,7 +351,10 @@ export function DashboardPage({
 
         <div>
           <Title order={3} mb="md">
-            Cluster nodes
+            {selectedInfrastructure?.type ===
+            'standalone'
+              ? 'Standalone host'
+              : 'Cluster nodes'}
           </Title>
 
           {nodes.length === 0 ? (
@@ -215,7 +376,10 @@ export function DashboardPage({
               {nodes.map((node) => (
                 <NodeCard
                   readonly
-                  key={node.node}
+                  key={
+                    `${node.infrastructure_id}:` +
+                    node.node
+                  }
                   node={node}
                   actionRunning={
                     nodeActions.actionRunning

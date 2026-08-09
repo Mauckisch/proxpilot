@@ -91,6 +91,10 @@ export function ConsolePage() {
     window.location.search,
   );
 
+  const infrastructureId = Number(
+    parameters.get('infrastructure_id'),
+  );
+
   const node = parameters.get('node')?.trim() ?? '';
   const guestType = parameters.get('guest_type');
   const vmid = Number(parameters.get('vmid'));
@@ -129,6 +133,8 @@ export function ConsolePage() {
 
   const connectConsole = useCallback(async () => {
     if (
+      !Number.isInteger(infrastructureId) ||
+      infrastructureId <= 0 ||
       !node ||
       !['qemu', 'lxc'].includes(guestType ?? '') ||
       !Number.isInteger(vmid) ||
@@ -162,6 +168,7 @@ export function ConsolePage() {
         await api.post<ConsoleTicketResponse>(
           '/guest/console',
           {
+            infrastructure_id: infrastructureId,
             node,
             guest_type: guestType,
             vmid,

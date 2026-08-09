@@ -11,7 +11,7 @@ from typing import Literal
 
 import paramiko
 
-from .config import get_settings
+from .infrastructures import get_infrastructure
 from .update_cache import NodeUpdateStatus, update_cache
 from .update_parser import parse_packages
 
@@ -24,6 +24,7 @@ class ManagedTask:
     node: str
     kind: str
     title: str
+    infrastructure_id: int
     source: str = "manual"
     state: TaskState = "queued"
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -44,7 +45,7 @@ class TaskManager:
         self._tasks: dict[str, ManagedTask] = {}
         self._order: deque[str] = deque(maxlen=100)
         self._lock = threading.Lock()
-        self._node_update_locks: set[str] = set()
+        self._node_update_locks: set[tuple[int, str]] = set()
 
     def list(self) -> list[dict]:
         with self._lock:
@@ -59,6 +60,7 @@ class TaskManager:
         node: str,
         kind: str,
         title: str,
+        infrastructure_id: int,
         source: str = "manual",
     ) -> ManagedTask:
         task = ManagedTask(
@@ -67,6 +69,7 @@ class TaskManager:
             kind=kind,
             title=title,
             source=source,
+            infrastructure_id=infrastructure_id,
         )
         with self._lock:
             self._tasks[task.id] = task
@@ -92,46 +95,114 @@ class TaskManager:
             task.state = "success"
             task.finished_at = datetime.now(timezone.utc).isoformat()
             task.result = result or {}
-            self._node_update_locks.discard(task.node)
+            self._node_update_locks.discard(
+                (task.infrastructure_id, task.node)
+            )
 
     def fail(self, task: ManagedTask, error: str) -> None:
         with self._lock:
             task.state = "error"
             task.finished_at = datetime.now(timezone.utc).isoformat()
             task.error = error
-            self._node_update_locks.discard(task.node)
+            self._node_update_locks.discard(
+                (task.infrastructure_id, task.node)
+            )
 
-    def reserve_update(self, node: str) -> bool:
+    def reserve_update(
+        self,
+        node: str,
+        infrastructure_id: int,
+    ) -> bool:
+        key = (
+            infrastructure_id,
+            node,
+        )
+
         with self._lock:
-            if self._node_update_locks:
+            if key in self._node_update_locks:
                 return False
-            self._node_update_locks.add(node)
+
+            self._node_update_locks.add(
+                key
+            )
+
             return True
 
 
 manager = TaskManager()
 
 
-def _ssh_client(node: str) -> paramiko.SSHClient:
-    settings = get_settings()
-    host = settings.node_hosts.get(node)
+def _ssh_client(
+    node: str,
+    infrastructure_id: int,
+) -> paramiko.SSHClient:
+    if infrastructure_id <= 0:
+        raise RuntimeError(
+            "A valid infrastructure ID is required."
+        )
+
+    infrastructure = get_infrastructure(
+        infrastructure_id
+    )
+
+    if infrastructure is None:
+        raise RuntimeError(
+            f"Infrastructure {infrastructure_id} not found."
+        )
+
+    if not infrastructure["enabled"]:
+        raise RuntimeError(
+            f"Infrastructure {infrastructure_id} is disabled."
+        )
+
+    node_entry = next(
+        (
+            item
+            for item in infrastructure["nodes"]
+            if item.get("node_name") == node
+            and item.get("enabled")
+        ),
+        None,
+    )
+
+    if node_entry is None:
+        raise RuntimeError(
+            f"Node '{node}' is not configured in "
+            f"infrastructure {infrastructure_id}."
+        )
+
+    host = node_entry.get("host")
+    ssh_user = infrastructure["ssh_user"]
+    ssh_key = infrastructure["ssh_key"]
+    ssh_port = infrastructure["ssh_port"]
+
     if not host:
-        raise RuntimeError(f"Keine SSH-Adresse für Node '{node}' konfiguriert.")
-    key = Path(settings.pve_ssh_key)
+        raise RuntimeError(
+            f"Keine SSH-Adresse für Node '{node}' konfiguriert."
+        )
+
+    key = Path(ssh_key)
+
     if not key.is_file():
-        raise RuntimeError(f"SSH-Key nicht gefunden: {key}")
+        raise RuntimeError(
+            f"SSH-Key nicht gefunden: {key}"
+        )
 
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(
+        paramiko.AutoAddPolicy()
+    )
+
     client.connect(
         hostname=host,
-        port=settings.pve_ssh_port,
-        username=settings.pve_ssh_user,
+        port=ssh_port,
+        username=ssh_user,
         key_filename=str(key),
         look_for_keys=False,
         allow_agent=False,
         timeout=10,
     )
+
     return client
 
 
@@ -141,7 +212,10 @@ def _run_streaming(
     timeout: int = 3600,
     use_pty: bool = False,
 ) -> tuple[int, str]:
-    client = _ssh_client(task.node)
+    client = _ssh_client(
+        task.node,
+        task.infrastructure_id,
+    )
     collected: list[str] = []
     try:
         _, stdout, stderr = client.exec_command(
@@ -309,6 +383,7 @@ def _execute_update_check(
 
         status = NodeUpdateStatus(
             node=task.node,
+            infrastructure_id=task.infrastructure_id,
             updates=len(packages),
             reboot_required=reboot_required,
             kernel_update=kernel_update,
@@ -407,9 +482,13 @@ def _execute_power(task: ManagedTask, action: str) -> None:
 
 async def start_update_check(
     node: str,
+    infrastructure_id: int,
     source: str = "manual",
 ) -> ManagedTask:
-    if not manager.reserve_update(node):
+    if not manager.reserve_update(
+        node,
+        infrastructure_id,
+    ):
         raise RuntimeError("Es läuft bereits eine Update-Aktion auf einem Node.")
 
     task = manager.create(
@@ -417,6 +496,7 @@ async def start_update_check(
         "update-check",
         f"Updates auf {node} prüfen",
         source=source,
+        infrastructure_id=infrastructure_id,
     )
 
     asyncio.create_task(
@@ -431,9 +511,13 @@ async def start_update_check(
 
 async def start_update_install(
     node: str,
+    infrastructure_id: int,
     source: str = "manual",
 ) -> ManagedTask:
-    if not manager.reserve_update(node):
+    if not manager.reserve_update(
+        node,
+        infrastructure_id,
+    ):
         raise RuntimeError("Es läuft bereits eine Update-Aktion auf einem Node.")
 
     task = manager.create(
@@ -441,6 +525,7 @@ async def start_update_install(
         "update-install",
         f"Updates auf {node} installieren",
         source=source,
+        infrastructure_id=infrastructure_id,
     )
 
     asyncio.create_task(
@@ -455,9 +540,13 @@ async def start_update_install(
 
 async def start_package_cleanup(
     node: str,
+    infrastructure_id: int,
     source: str = "manual",
 ) -> ManagedTask:
-    if not manager.reserve_update(node):
+    if not manager.reserve_update(
+        node,
+        infrastructure_id,
+    ):
         raise RuntimeError("Es läuft bereits eine Update-Aktion auf einem Node.")
 
     task = manager.create(
@@ -465,6 +554,7 @@ async def start_package_cleanup(
         "package-cleanup",
         f"Paketbereinigung auf {node}",
         source=source,
+        infrastructure_id=infrastructure_id,
     )
 
     asyncio.create_task(
@@ -480,6 +570,7 @@ async def start_package_cleanup(
 async def start_power_action(
     node: str,
     action: str,
+    infrastructure_id: int,
     source: str = "manual",
 ) -> ManagedTask:
     task = manager.create(
@@ -487,6 +578,7 @@ async def start_power_action(
         action,
         f"{node} {('neu starten' if action == 'reboot' else 'herunterfahren')}",
         source=source,
+        infrastructure_id=infrastructure_id,
     )
 
     asyncio.create_task(
@@ -561,11 +653,155 @@ async def _monitor_proxmox_backup(
         manager.fail(task, str(exc))
 
 
+async def _monitor_proxmox_snapshot(
+    task: ManagedTask,
+    client,
+    upid: str,
+    snapshot_name: str,
+) -> None:
+    manager.start(task)
+
+    last_log_line = 0
+
+    try:
+        while True:
+            details = await client.task_details(
+                task.node,
+                upid,
+            )
+
+            status = (
+                details.get("status", {})
+                or {}
+            )
+
+            log_entries = (
+                details.get("log", [])
+                or []
+            )
+
+            for entry in log_entries:
+                line_number = int(
+                    entry.get("n", 0)
+                    or 0
+                )
+
+                if (
+                    line_number
+                    <= last_log_line
+                ):
+                    continue
+
+                message = str(
+                    entry.get("t", "")
+                ).strip()
+
+                if message:
+                    manager.append(
+                        task,
+                        message,
+                    )
+
+                last_log_line = max(
+                    last_log_line,
+                    line_number,
+                )
+
+            if (
+                status.get("status")
+                == "stopped"
+            ):
+                exit_status = str(
+                    status.get(
+                        "exitstatus",
+                        "unknown",
+                    )
+                )
+
+                if (
+                    exit_status.upper()
+                    == "OK"
+                ):
+                    manager.finish(
+                        task,
+                        {
+                            "upid": upid,
+                            "snapshot_name":
+                                snapshot_name,
+                            "exitstatus":
+                                exit_status,
+                        },
+                    )
+                else:
+                    raise RuntimeError(
+                        (
+                            "Snapshot "
+                            "fehlgeschlagen: "
+                            f"{exit_status}"
+                        )
+                    )
+
+                return
+
+            await asyncio.sleep(2)
+
+    except Exception as exc:
+        manager.fail(
+            task,
+            str(exc),
+        )
+
+
+async def track_snapshot_task(
+    client,
+    node: str,
+    guest_type: str,
+    vmid: int,
+    snapshot_name: str,
+    upid: str,
+    infrastructure_id: int,
+    source: str = "manual",
+) -> ManagedTask:
+    task = manager.create(
+        node,
+        "snapshot",
+        (
+            f"Snapshot {snapshot_name} "
+            f"auf {guest_type.upper()} "
+            f"{vmid}"
+        ),
+        infrastructure_id=
+            infrastructure_id,
+        source=source,
+    )
+
+    task.result = {
+        "upid": upid,
+        "snapshot_name":
+            snapshot_name,
+        "guest_type":
+            guest_type,
+        "vmid": vmid,
+    }
+
+    asyncio.create_task(
+        _monitor_proxmox_snapshot(
+            task,
+            client,
+            upid,
+            snapshot_name,
+        )
+    )
+
+    return task
+
+
 async def start_backup_task(
     client,
     node: str,
     job_id: str,
     parameters: dict,
+    infrastructure_id: int,
     source: str = "manual",
 ) -> ManagedTask:
     task = manager.create(
@@ -573,6 +809,7 @@ async def start_backup_task(
         "backup",
         f"Backup auf {node} · {job_id}",
         source=source,
+        infrastructure_id=infrastructure_id,
     )
 
     try:

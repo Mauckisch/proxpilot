@@ -376,8 +376,35 @@ def _row_to_task(
     return data
 
 
+def _validate_infrastructure_id(
+    infrastructure_id: int,
+) -> None:
+    if infrastructure_id <= 0:
+        raise SchedulerError(
+            "Invalid infrastructure ID."
+        )
+
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id
+            FROM infrastructures
+            WHERE id = ?
+              AND enabled = 1
+            """,
+            (infrastructure_id,),
+        ).fetchone()
+
+    if row is None:
+        raise SchedulerError(
+            "Infrastructure not found or disabled."
+        )
+
+
+
 def create_scheduled_task(
     *,
+    infrastructure_id: int,
     name: str,
     description: str | None,
     action: str,
@@ -395,6 +422,10 @@ def create_scheduled_task(
     created_by_username: str,
     enabled: bool = True,
 ) -> dict[str, Any]:
+    _validate_infrastructure_id(
+        infrastructure_id
+    )
+
     clean_name = name.strip()
 
     if not clean_name:
@@ -471,6 +502,7 @@ def create_scheduled_task(
             """
             INSERT INTO scheduled_tasks (
                 uuid,
+                infrastructure_id,
                 name,
                 description,
                 enabled,
@@ -493,11 +525,13 @@ def create_scheduled_task(
             )
             VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?
             )
             """,
             (
                 task_uuid,
+                infrastructure_id,
                 clean_name,
                 (
                     description.strip()
@@ -589,6 +623,7 @@ def list_scheduled_tasks() -> list[dict[str, Any]]:
 def update_scheduled_task(
     task_id: int,
     *,
+    infrastructure_id: int,
     name: str,
     description: str | None,
     action: str,
@@ -612,6 +647,10 @@ def update_scheduled_task(
         raise SchedulerError(
             "Scheduled task not found."
         )
+
+    _validate_infrastructure_id(
+        infrastructure_id
+    )
 
     clean_name = name.strip()
 
@@ -680,6 +719,7 @@ def update_scheduled_task(
             """
             UPDATE scheduled_tasks
             SET
+                infrastructure_id = ?,
                 name = ?,
                 description = ?,
                 enabled = ?,
@@ -700,6 +740,7 @@ def update_scheduled_task(
             WHERE id = ?
             """,
             (
+                infrastructure_id,
                 clean_name,
                 (
                     description.strip()

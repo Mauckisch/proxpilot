@@ -52,15 +52,15 @@ function getPrimaryAddress(
         address.scope !== 'host',
     );
 
-  if (!ipv4?.local) {
+  if (!ipv4?.address) {
     return undefined;
   }
 
-  if (ipv4.prefixlen === undefined) {
-    return ipv4.local;
+  if (ipv4.prefix_length === undefined) {
+    return ipv4.address;
   }
 
-  return `${ipv4.local}/${ipv4.prefixlen}`;
+  return `${ipv4.address}/${ipv4.prefix_length}`;
 }
 
 function getInterfaceState(

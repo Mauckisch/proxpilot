@@ -1,8 +1,8 @@
 # ProxPilot Authentication Guide
 
 This document explains authentication, user management, role-based access control,
-LDAP / Active Directory integration, session handling, and authentication-related
-audit logging in ProxPilot 1.5.2.
+LDAP / Active Directory integration, session handling, infrastructure permissions,
+Task Scheduler permissions, and authentication-related audit logging in ProxPilot 1.7.0.
 
 ---
 
@@ -21,9 +21,17 @@ ProxPilot supports:
 - Local administrator fallback
 - Persistent user storage in SQLite
 - Audit logging for authentication and user-management actions
+- Role-based infrastructure management
+- Role-based Task Scheduler management
+- Role-based browser console access for QEMU virtual machines and LXC containers
 
 Authentication is enabled globally through the environment configuration.
+
 LDAP-specific settings are managed through the ProxPilot web interface.
+
+Proxmox infrastructure configuration is also managed through the web interface.
+Proxmox API credentials and node connection information are no longer configured
+through global `PVE_*` environment variables.
 
 ---
 
@@ -62,6 +70,9 @@ The local user database is stored in:
 ```text
 ./data/proxpilot.db
 ```
+
+The same persistent database also stores application configuration such as
+configured Proxmox infrastructures.
 
 Do not commit this database to Git.
 
@@ -184,10 +195,10 @@ ProxPilot checks authentication in this order:
 7. A signed session cookie is created.
 8. The login event is recorded in the audit log.
 
-This means LDAP is an additional authentication method and does not replace local
+LDAP is therefore an additional authentication method and does not replace local
 authentication.
 
-Existing local accounts therefore continue to work when LDAP is enabled.
+Existing local accounts continue to work when LDAP is enabled.
 
 ---
 
@@ -203,7 +214,7 @@ Logout events are recorded in the audit log.
 
 # User Roles
 
-ProxPilot 1.5.2 has three roles:
+ProxPilot 1.7.0 has three interactive user roles:
 
 ```text
 Administrator
@@ -216,6 +227,9 @@ The roles are intentionally separated into:
 - Security administration
 - Operational administration
 - Read-only access
+
+Automated Task Scheduler executions are internally identified as scheduler/system
+operations rather than interactive user sessions.
 
 ---
 
@@ -246,6 +260,7 @@ Administrators can:
 - Delete snapshots
 - Migrate guests
 - Open QEMU browser consoles
+- Open LXC browser consoles
 - Manage node maintenance mode
 - Check node updates
 - Install node updates
@@ -254,6 +269,18 @@ Administrators can:
 - Shut down nodes
 - View system information
 - View operational status and health information
+- View configured Proxmox infrastructures
+- Discover Proxmox infrastructures
+- Add Proxmox infrastructures
+- Modify Proxmox infrastructures
+- Remove Proxmox infrastructures
+- Remove configured infrastructure nodes
+- View scheduled tasks
+- Create scheduled tasks
+- Modify scheduled tasks
+- Enable and disable scheduled tasks
+- Manually execute scheduled tasks
+- Delete scheduled tasks
 
 ---
 
@@ -273,6 +300,7 @@ Operators can:
 - Delete snapshots
 - Migrate guests
 - Open QEMU browser consoles
+- Open LXC browser consoles
 - Enable and disable node maintenance mode
 - Check node updates
 - Install node updates
@@ -282,6 +310,18 @@ Operators can:
 - View system information
 - View the audit log
 - Export audit events
+- View configured Proxmox infrastructures
+- Discover Proxmox infrastructures
+- Add Proxmox infrastructures
+- Modify Proxmox infrastructures
+- Remove Proxmox infrastructures
+- Remove configured infrastructure nodes
+- View scheduled tasks
+- Create scheduled tasks
+- Modify scheduled tasks
+- Enable and disable scheduled tasks
+- Manually execute scheduled tasks
+- Delete scheduled tasks
 
 Operators cannot:
 
@@ -313,6 +353,8 @@ Viewers can inspect available information such as:
 - Replication
 - Backups
 - Tasks
+- Configured Proxmox infrastructures
+- Scheduled tasks
 - Guest Agent information
 - Guest disk usage information
 - ZFS health information
@@ -320,6 +362,44 @@ Viewers can inspect available information such as:
 - Hardware and runtime information
 
 Viewers cannot execute privileged guest or node operations.
+
+Viewers cannot:
+
+- Add, modify or remove Proxmox infrastructures
+- Run infrastructure discovery
+- Create scheduled tasks
+- Modify scheduled tasks
+- Enable or disable scheduled tasks
+- Manually execute scheduled tasks
+- Delete scheduled tasks
+- Open privileged browser consoles
+- Perform guest power operations
+- Perform node administration
+
+---
+
+# Role Permission Summary
+
+| Function | Administrator | Operator | Viewer |
+|----------|:-------------:|:--------:|:------:|
+| View infrastructure data | Yes | Yes | Yes |
+| Add infrastructure | Yes | Yes | No |
+| Discover infrastructure | Yes | Yes | No |
+| Modify infrastructure | Yes | Yes | No |
+| Delete infrastructure | Yes | Yes | No |
+| View scheduled tasks | Yes | Yes | Yes |
+| Create scheduled tasks | Yes | Yes | No |
+| Modify scheduled tasks | Yes | Yes | No |
+| Enable / disable scheduled tasks | Yes | Yes | No |
+| Run scheduled tasks manually | Yes | Yes | No |
+| Delete scheduled tasks | Yes | Yes | No |
+| Guest operational actions | Yes | Yes | No |
+| Node operational actions | Yes | Yes | No |
+| QEMU / LXC browser console | Yes | Yes | No |
+| View audit log | Yes | Yes | Limited / unavailable |
+| Manage users | Yes | No | No |
+| Configure LDAP | Yes | No | No |
+| Change audit retention | Yes | No | No |
 
 ---
 
@@ -631,6 +711,7 @@ operator
 ```
 
 An active session does not automatically change role in the middle of the session.
+
 The user should log out and authenticate again.
 
 ---
@@ -672,9 +753,83 @@ This provides emergency access when:
 
 ---
 
+# Infrastructure Authorization
+
+ProxPilot 1.7.0 manages Proxmox environments as persistent infrastructures.
+
+An infrastructure can represent:
+
+- A Proxmox VE cluster
+- A standalone Proxmox VE host
+
+Infrastructure information can be viewed by authenticated users.
+
+Infrastructure-changing operations require either:
+
+```text
+Administrator
+Operator
+```
+
+These operations include:
+
+- Testing and discovering an infrastructure
+- Adding an infrastructure
+- Updating an infrastructure
+- Renaming an infrastructure
+- Updating node connection information
+- Removing a node from an infrastructure
+- Deleting an infrastructure
+
+Viewer accounts have read-only access to infrastructure information.
+
+Infrastructure authorization is enforced by the backend and does not rely only
+on frontend controls.
+
+---
+
+# Task Scheduler Authorization
+
+ProxPilot includes a persistent Task Scheduler for automated Proxmox operations.
+
+Scheduled tasks can be viewed by authenticated users.
+
+Creating or changing scheduler configuration requires either:
+
+```text
+Administrator
+Operator
+```
+
+Administrators and Operators can:
+
+- Create scheduled tasks
+- Modify scheduled tasks
+- Enable scheduled tasks
+- Disable scheduled tasks
+- Manually execute tasks using `Run now`
+- Delete scheduled tasks
+
+Viewer accounts have read-only access to scheduled task information.
+
+The `Run now` operation executes an existing scheduled task immediately without
+changing its configured schedule.
+
+Background scheduler executions are not interactive user sessions.
+
+They are internally identified as scheduler/system operations so automated
+activity can be distinguished from actions performed directly by logged-in users.
+
+---
+
 # Browser Console Authorization
 
-The integrated QEMU noVNC console is available to:
+The integrated browser console is available for:
+
+- QEMU virtual machines
+- LXC containers
+
+Console access is available to:
 
 ```text
 Administrator
@@ -699,6 +854,8 @@ Opening a console creates an audit event.
 Authentication and security-related operations are written to the persistent
 audit log.
 
+Operational actions are also recorded where supported.
+
 Examples include:
 
 - Successful login
@@ -712,6 +869,9 @@ Examples include:
 - LDAP configuration changes
 - Console opening
 - Audit retention changes
+- Infrastructure configuration changes
+- Scheduled task configuration changes
+- Scheduled task executions
 
 Audit events may contain:
 
@@ -730,7 +890,11 @@ Audit events may contain:
 - Duration
 - Structured details
 
-Passwords and LDAP bind passwords must never be stored in audit details.
+Passwords, API token secrets, LDAP bind passwords and other credentials must never
+be stored in audit details.
+
+Scheduled background executions are identified as scheduler/system operations
+rather than being attributed to an unrelated interactive user session.
 
 ---
 
@@ -743,9 +907,10 @@ Administrator
 Operator
 ```
 
-Viewers do not have operational access to privileged audit-management features.
-
 Administrators can additionally change the retention configuration.
+
+Viewer accounts do not have operational access to privileged audit-management
+features.
 
 ---
 
@@ -795,10 +960,13 @@ For production use:
 - Enable LDAP certificate verification
 - Use a dedicated LDAP bind account
 - Give the bind account only the directory permissions it requires
-- Restrict ProxPilot to trusted networks
+- Use dedicated Proxmox API tokens
+- Grant only the required Proxmox API permissions
+- Protect Proxmox API token secrets
+- Protect SSH private keys
+- Restrict ProxPilot to trusted networks where possible
 - Protect the SQLite database
 - Protect `.env`
-- Protect SSH keys
 - Review audit events regularly
 - Avoid exposing ProxPilot directly to the public Internet without appropriate access controls
 
@@ -911,6 +1079,60 @@ PROXPILOT_COOKIE_SECURE=false
 
 ---
 
+# Troubleshooting Infrastructure Permissions
+
+## Viewer cannot add or modify an infrastructure
+
+This is expected behavior.
+
+Infrastructure-changing operations require:
+
+```text
+Administrator
+Operator
+```
+
+Viewer accounts have read-only access.
+
+---
+
+## Operator can manage infrastructures
+
+This is expected behavior in ProxPilot 1.7.0.
+
+Infrastructure discovery, creation, modification and deletion are operational
+administration functions and are available to both Administrators and Operators.
+
+---
+
+# Troubleshooting Task Scheduler Permissions
+
+## Viewer can see tasks but cannot modify them
+
+This is expected behavior.
+
+Viewer accounts have read-only access to Task Scheduler information.
+
+Creating, modifying, enabling, disabling, manually executing or deleting tasks
+requires:
+
+```text
+Administrator
+Operator
+```
+
+---
+
+## Scheduled execution is shown as scheduler/system activity
+
+This is expected behavior.
+
+Background executions are performed independently of an interactive browser
+session and are identified as scheduler/system operations in activity and audit
+information.
+
+---
+
 # Related Documentation
 
 - `README.md`
@@ -919,3 +1141,7 @@ PROXPILOT_COOKIE_SECURE=false
 - `INSTALLATION.md`
 - `HTTPS_AND_REVERSE_PROXY.md`
 - `TROUBLESHOOTING.md`
+
+---
+
+End of document.

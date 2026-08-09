@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from .audit import (
     clear_audit_events,
     get_audit_filter_values,
+    get_client_ip,
     get_audit_summary,
     list_audit_events,
     purge_expired_audit_events,
@@ -77,14 +78,24 @@ from .maintenance import MaintenanceError, set_maintenance
 from .routes.console import router as console_router
 from .network import (
     NetworkError,
-    collect_cluster_network,
     collect_node_network,
 )
 from .proxmox import ProxmoxClient, ProxmoxError
+from .infrastructures import (
+    InfrastructureError,
+    create_infrastructure,
+    delete_infrastructure,
+    delete_infrastructure_node,
+    discover_infrastructure,
+    get_infrastructure,
+    list_infrastructures,
+    update_infrastructure,
+)
 from .update_cache import update_cache
 from .tasks import (
     manager,
     start_backup_task,
+    track_snapshot_task,
     start_package_cleanup,
     start_power_action,
     start_update_check,
@@ -108,7 +119,109 @@ from .scheduler import (
 
 
 
+class InfrastructureDiscoverPayload(BaseModel):
+    endpoint: str = Field(
+        min_length=1,
+        max_length=1024,
+    )
+    token_id: str = Field(
+        min_length=1,
+        max_length=512,
+    )
+    token_secret: str = Field(
+        min_length=1,
+        max_length=4096,
+    )
+    verify_ssl: bool = False
+
+
+class InfrastructureNodePayload(BaseModel):
+    node_name: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    host: str = Field(
+        min_length=1,
+        max_length=512,
+    )
+
+
+class InfrastructureCreatePayload(BaseModel):
+    name: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    type: Literal[
+        "cluster",
+        "standalone",
+    ]
+    description: str | None = Field(
+        default=None,
+        max_length=512,
+    )
+    enabled: bool = True
+    api_endpoints: list[str]
+    api_token_id: str = Field(
+        min_length=1,
+        max_length=512,
+    )
+    api_token_secret: str = Field(
+        min_length=1,
+        max_length=4096,
+    )
+    verify_ssl: bool = False
+    ssh_user: str = Field(
+        default="root",
+        min_length=1,
+        max_length=128,
+    )
+    ssh_key: str = Field(
+        default="/app/ssh/id_ed25519",
+        min_length=1,
+        max_length=1024,
+    )
+    ssh_port: int = Field(
+        default=22,
+        ge=1,
+        le=65535,
+    )
+    proxmox_cluster_name: str | None = Field(
+        default=None,
+        max_length=128,
+    )
+    nodes: list[InfrastructureNodePayload]
+
+
+class InfrastructureUpdatePayload(BaseModel):
+    name: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=512,
+    )
+    enabled: bool = True
+    verify_ssl: bool = False
+    ssh_user: str = Field(
+        default="root",
+        min_length=1,
+        max_length=128,
+    )
+    ssh_key: str = Field(
+        default="/app/ssh/id_ed25519",
+        min_length=1,
+        max_length=1024,
+    )
+    ssh_port: int = Field(
+        default=22,
+        ge=1,
+        le=65535,
+    )
+
+
 class ScheduledTaskPayload(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     name: str = Field(
         min_length=1,
         max_length=128,
@@ -197,9 +310,6 @@ app = FastAPI(
 )
 
 app.include_router(console_router)
-
-client = ProxmoxClient()
-
 
 def _database_schema_version() -> int | None:
     try:
@@ -471,6 +581,7 @@ class LdapSettingsUpdate(BaseModel):
 
 
 class GuestAction(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     node: str
     guest_type: Literal["qemu", "lxc"]
     vmid: int = Field(gt=0)
@@ -486,6 +597,7 @@ class GuestAction(BaseModel):
 
 
 class GuestMigration(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     node: str = Field(
         min_length=1,
         max_length=64,
@@ -509,6 +621,7 @@ class GuestMigration(BaseModel):
 
 
 class SnapshotCreate(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     node: str = Field(
         min_length=1,
         max_length=64,
@@ -519,7 +632,7 @@ class SnapshotCreate(BaseModel):
     name: str = Field(
         min_length=1,
         max_length=64,
-        pattern=r"^[A-Za-z0-9._-]+$",
+        pattern=r"^[A-Za-z0-9_]+$",
     )
     description: str = Field(
         default="",
@@ -529,6 +642,7 @@ class SnapshotCreate(BaseModel):
 
 
 class SnapshotOperation(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     node: str = Field(
         min_length=1,
         max_length=64,
@@ -545,6 +659,7 @@ class SnapshotOperation(BaseModel):
 
 
 class BackupRun(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     job_id: str = Field(
         min_length=1,
         max_length=128,
@@ -554,6 +669,7 @@ class BackupRun(BaseModel):
 
 
 class GuestBackupRun(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     job_id: str = Field(
         min_length=1,
         max_length=128,
@@ -570,11 +686,13 @@ class GuestBackupRun(BaseModel):
 
 
 class Maintenance(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     node: str
     action: Literal["enable", "disable"]
 
 
 class NodeAction(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     node: str
     action: Literal[
         "check-updates",
@@ -1466,6 +1584,9 @@ async def audit_log_list(
     node: list[str] | None = Query(
         default=None,
     ),
+    infrastructure_id: list[int] | None = Query(
+        default=None,
+    ),
     target_type: list[str] | None = Query(
         default=None,
     ),
@@ -1503,11 +1624,34 @@ async def audit_log_list(
         results=result,
         severities=severity,
         nodes=node,
+        infrastructure_ids=infrastructure_id,
         target_types=target_type,
         search=search,
         date_from=date_from,
         date_to=date_to,
     )
+
+    infrastructures = {
+        int(item["id"]): item
+        for item in list_infrastructures()
+    }
+
+    for event in events:
+        infrastructure = infrastructures.get(
+            event.get("infrastructure_id")
+        )
+
+        event["infrastructure_name"] = (
+            infrastructure.get("name")
+            if infrastructure
+            else None
+        )
+
+        event["infrastructure_type"] = (
+            infrastructure.get("type")
+            if infrastructure
+            else None
+        )
 
     return {
         "events": events,
@@ -1515,6 +1659,14 @@ async def audit_log_list(
         "limit": limit,
         "offset": offset,
         "retention_days": retention_days,
+        "infrastructures": [
+            {
+                "id": int(item["id"]),
+                "name": str(item["name"]),
+                "type": str(item["type"]),
+            }
+            for item in infrastructures.values()
+        ],
         "filters": get_audit_filter_values(
             usernames=username,
             roles=role,
@@ -1523,6 +1675,7 @@ async def audit_log_list(
             results=result,
             severities=severity,
             nodes=node,
+            infrastructure_ids=infrastructure_id,
             target_types=target_type,
             search=search,
             date_from=date_from,
@@ -1556,6 +1709,9 @@ async def audit_export_csv(
     node: list[str] | None = Query(
         default=None,
     ),
+    infrastructure_id: list[int] | None = Query(
+        default=None,
+    ),
     target_type: list[str] | None = Query(
         default=None,
     ),
@@ -1584,11 +1740,17 @@ async def audit_export_csv(
         results=result,
         severities=severity,
         nodes=node,
+        infrastructure_ids=infrastructure_id,
         target_types=target_type,
         search=search,
         date_from=date_from,
         date_to=date_to,
     )
+
+    infrastructures = {
+        int(item["id"]): item
+        for item in list_infrastructures()
+    }
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -1604,6 +1766,8 @@ async def audit_export_csv(
         "target_type",
         "target",
         "node",
+        "infrastructure_id",
+        "infrastructure_name",
         "result",
         "severity",
         "duration_ms",
@@ -1630,6 +1794,12 @@ async def audit_export_csv(
             event.get("target_type"),
             event.get("target"),
             event.get("node"),
+            event.get("infrastructure_id"),
+            (
+                infrastructures.get(
+                    event.get("infrastructure_id")
+                ) or {}
+            ).get("name"),
             event.get("result"),
             event.get("severity"),
             event.get("duration_ms"),
@@ -1688,6 +1858,9 @@ async def audit_export_json(
     node: list[str] | None = Query(
         default=None,
     ),
+    infrastructure_id: list[int] | None = Query(
+        default=None,
+    ),
     target_type: list[str] | None = Query(
         default=None,
     ),
@@ -1716,6 +1889,7 @@ async def audit_export_json(
         results=result,
         severities=severity,
         nodes=node,
+        infrastructure_ids=infrastructure_id,
         target_types=target_type,
         search=search,
         date_from=date_from,
@@ -1739,6 +1913,28 @@ async def audit_export_json(
             "entries": len(events),
         },
     )
+
+    infrastructures = {
+        int(item["id"]): item
+        for item in list_infrastructures()
+    }
+
+    for event in events:
+        infrastructure = infrastructures.get(
+            event.get("infrastructure_id")
+        )
+
+        event["infrastructure_name"] = (
+            infrastructure.get("name")
+            if infrastructure
+            else None
+        )
+
+        event["infrastructure_type"] = (
+            infrastructure.get("type")
+            if infrastructure
+            else None
+        )
 
     payload = json.dumps(
         events,
@@ -1937,6 +2133,186 @@ async def system_information(
     }
 
 
+@app.get("/api/infrastructures")
+async def infrastructure_list(
+    request: Request,
+):
+    require_authenticated(request)
+
+    return {
+        "infrastructures":
+            list_infrastructures(),
+    }
+
+
+@app.get("/api/infrastructures/{infrastructure_id}")
+async def infrastructure_get(
+    infrastructure_id: int,
+    request: Request,
+):
+    require_authenticated(request)
+
+    infrastructure = get_infrastructure(
+        infrastructure_id
+    )
+
+    if infrastructure is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Infrastructure not found.",
+        )
+
+    return infrastructure
+
+
+@app.post("/api/infrastructures/discover")
+async def infrastructure_discover(
+    payload: InfrastructureDiscoverPayload,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    try:
+        return await discover_infrastructure(
+            endpoint=payload.endpoint,
+            token_id=payload.token_id,
+            token_secret=payload.token_secret,
+            verify_ssl=payload.verify_ssl,
+        )
+
+    except InfrastructureError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/api/infrastructures")
+async def infrastructure_create(
+    payload: InfrastructureCreatePayload,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    try:
+        return create_infrastructure(
+            name=payload.name,
+            infrastructure_type=payload.type,
+            description=payload.description,
+            api_endpoints=payload.api_endpoints,
+            api_token_id=payload.api_token_id,
+            api_token_secret=payload.api_token_secret,
+            verify_ssl=payload.verify_ssl,
+            ssh_user=payload.ssh_user,
+            ssh_key=payload.ssh_key,
+            ssh_port=payload.ssh_port,
+            proxmox_cluster_name=(
+                payload.proxmox_cluster_name
+            ),
+            nodes=[
+                node.model_dump()
+                for node in payload.nodes
+            ],
+            enabled=payload.enabled,
+        )
+
+    except InfrastructureError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+
+@app.put("/api/infrastructures/{infrastructure_id}")
+async def infrastructure_update(
+    infrastructure_id: int,
+    payload: InfrastructureUpdatePayload,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    try:
+        return update_infrastructure(
+            infrastructure_id,
+            name=payload.name,
+            description=payload.description,
+            enabled=payload.enabled,
+            verify_ssl=payload.verify_ssl,
+            ssh_user=payload.ssh_user,
+            ssh_key=payload.ssh_key,
+            ssh_port=payload.ssh_port,
+        )
+
+    except InfrastructureError as exc:
+        raise HTTPException(
+            status_code=404
+            if "not found" in str(exc).lower()
+            else 400,
+            detail=str(exc),
+        ) from exc
+
+
+@app.delete(
+    "/api/infrastructures/"
+    "{infrastructure_id}/nodes/{node_id}"
+)
+async def infrastructure_node_delete(
+    infrastructure_id: int,
+    node_id: int,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    try:
+        deleted = delete_infrastructure_node(
+            infrastructure_id,
+            node_id,
+        )
+
+        return {
+            "ok": True,
+            "deleted_node_id":
+                deleted["id"],
+            "deleted_node_name":
+                deleted["node_name"],
+        }
+
+    except InfrastructureError as exc:
+        raise HTTPException(
+            status_code=404
+            if "not found" in str(exc).lower()
+            else 400,
+            detail=str(exc),
+        ) from exc
+
+
+@app.delete("/api/infrastructures/{infrastructure_id}")
+async def infrastructure_delete(
+    infrastructure_id: int,
+    request: Request,
+):
+    require_operator_or_admin(request)
+
+    try:
+        deleted = delete_infrastructure(
+            infrastructure_id
+        )
+
+        return {
+            "ok": True,
+            "deleted_id":
+                infrastructure_id,
+            "deleted_name":
+                deleted["name"],
+        }
+
+    except InfrastructureError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+
 @app.get("/api/config")
 async def config():
     settings = get_settings()
@@ -1946,85 +2322,47 @@ async def config():
     }
 
 
-@app.get("/api/network")
-async def network_overview():
-    try:
-        network = await asyncio.to_thread(
-            collect_cluster_network
-        )
+@app.get(
+    "/api/infrastructures/"
+    "{infrastructure_id}/network/{node}"
+)
+async def infrastructure_node_network(
+    infrastructure_id: int,
+    node: str,
+):
+    infrastructure = get_infrastructure(
+        infrastructure_id
+    )
 
-        dashboard = await client.dashboard()
-
-        guests = {}
-
-        for guest in dashboard.get("guests", []):
-            vmid = guest.get("vmid")
-            if vmid is None:
-                continue
-
-            guests[int(vmid)] = {
-                "vmid": int(vmid),
-                "type": guest.get("type"),
-                "name": guest.get("name"),
-                "status": guest.get("status"),
-                "node": guest.get("node"),
-            }
-
-        import re
-
-        for node in network.get("nodes", []):
-            for interface in node.get("interfaces", []):
-                name = interface.get("name", "")
-
-                match = re.match(
-                    r"^(?:tap|veth)(\d+)i\d+$",
-                    name,
-                )
-
-                if not match:
-                    continue
-
-                vmid = int(match.group(1))
-
-                if vmid in guests:
-                    interface["guest"] = guests[vmid]
-
-        return {
-            **network,
-            "guests": guests,
-        }
-
-    except (NetworkError, ProxmoxError) as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=str(exc),
-        ) from exc
-
-
-@app.get("/api/network/{node}")
-async def node_network(node: str):
-    settings = get_settings()
-
-    if node not in settings.node_hosts:
+    if infrastructure is None:
         raise HTTPException(
             status_code=404,
-            detail=(
-                f"Node '{node}' ist nicht konfiguriert."
-            ),
+            detail="Infrastructure not found.",
         )
 
     try:
         network = await asyncio.to_thread(
             collect_node_network,
             node,
+            infrastructure_id,
         )
 
-        dashboard = await client.dashboard()
+        infrastructure_client = ProxmoxClient(
+            infrastructure_id=infrastructure_id
+        )
+
+        dashboard = await (
+            infrastructure_client.dashboard()
+        )
 
         guests = {}
 
-        for guest in dashboard.get("guests", []):
+        for guest in dashboard.get(
+            "guests",
+            [],
+        ):
             vmid = guest.get("vmid")
+
             if vmid is None:
                 continue
 
@@ -2038,7 +2376,10 @@ async def node_network(node: str):
 
         import re
 
-        for interface in network.get("interfaces", []):
+        for interface in network.get(
+            "interfaces",
+            [],
+        ):
             match = re.match(
                 r"^(?:tap|veth)(\d+)i\d+$",
                 interface.get("name", ""),
@@ -2047,36 +2388,50 @@ async def node_network(node: str):
             if not match:
                 continue
 
-            vmid = int(match.group(1))
+            vmid = int(
+                match.group(1)
+            )
 
             if vmid in guests:
-                interface["guest"] = guests[vmid]
+                interface["guest"] = (
+                    guests[vmid]
+                )
 
         return network
 
-    except (NetworkError, ProxmoxError) as exc:
+    except (
+        NetworkError,
+        ProxmoxError,
+    ) as exc:
         raise HTTPException(
             status_code=502,
             detail=str(exc),
         ) from exc
 
 
-@app.get("/api/node/{node}/details")
-async def node_details(node: str):
-    settings = get_settings()
+@app.get(
+    "/api/infrastructures/"
+    "{infrastructure_id}/node/{node}/details"
+)
+async def infrastructure_node_details(
+    infrastructure_id: int,
+    node: str,
+):
+    infrastructure = get_infrastructure(
+        infrastructure_id
+    )
 
-    if node not in settings.node_hosts:
+    if infrastructure is None:
         raise HTTPException(
             status_code=404,
-            detail=(
-                f"Node '{node}' ist nicht konfiguriert."
-            ),
+            detail="Infrastructure not found.",
         )
 
     try:
         return await asyncio.to_thread(
             collect_host_details,
             node,
+            infrastructure_id,
         )
 
     except HostDetailsError as exc:
@@ -2088,26 +2443,206 @@ async def node_details(node: str):
 
 @app.get("/api/dashboard")
 async def dashboard():
-    try:
-        data = await client.dashboard()
+    infrastructures = [
+        infrastructure
+        for infrastructure in list_infrastructures()
+        if infrastructure.get("enabled")
+    ]
 
-        maintenance_nodes = {
-            item.get("node") or item.get("name")
-            for item in data.get("ha", [])
-            if item.get("type") == "lrm"
-            and "maintenance" in str(item.get("status", "")).lower()
+    if not infrastructures:
+        return {
+            "nodes": [],
+            "guests": [],
+            "storages": [],
+            "replications": [],
+            "backup_jobs": [],
+            "backup_tasks": [],
+            "ha": [],
+            "infrastructure_errors": [],
         }
 
-        for node in data.get("nodes", []):
-            node["maintenance"] = node.get("node") in maintenance_nodes
+    async def load_infrastructure(
+        infrastructure: dict,
+    ):
+        infrastructure_id = int(
+            infrastructure["id"]
+        )
 
-        return data
+        infrastructure_name = str(
+            infrastructure["name"]
+        )
 
-    except ProxmoxError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=str(exc),
-        ) from exc
+        infrastructure_type = str(
+            infrastructure["type"]
+        )
+
+        try:
+            infrastructure_client = (
+                ProxmoxClient(
+                    infrastructure_id=
+                        infrastructure_id
+                )
+            )
+
+            data = await (
+                infrastructure_client.dashboard()
+            )
+
+            maintenance_nodes = {
+                item.get("node")
+                or item.get("name")
+                for item in data.get(
+                    "ha",
+                    [],
+                )
+                if (
+                    item.get("type") == "lrm"
+                    and "maintenance"
+                    in str(
+                        item.get(
+                            "status",
+                            "",
+                        )
+                    ).lower()
+                )
+            }
+
+            metadata = {
+                "infrastructure_id":
+                    infrastructure_id,
+                "infrastructure_name":
+                    infrastructure_name,
+                "infrastructure_type":
+                    infrastructure_type,
+            }
+
+            for key in (
+                "nodes",
+                "guests",
+                "storages",
+                "replications",
+                "backup_jobs",
+                "backup_tasks",
+                "ha",
+            ):
+                entries = data.get(
+                    key,
+                    [],
+                )
+
+                if not isinstance(
+                    entries,
+                    list,
+                ):
+                    data[key] = []
+                    continue
+
+                enriched = []
+
+                for entry in entries:
+                    if not isinstance(
+                        entry,
+                        dict,
+                    ):
+                        continue
+
+                    item = {
+                        **entry,
+                        **metadata,
+                    }
+
+                    if key == "nodes":
+                        item["maintenance"] = (
+                            item.get("node")
+                            in maintenance_nodes
+                        )
+
+                    enriched.append(
+                        item
+                    )
+
+                data[key] = enriched
+
+            return {
+                "ok": True,
+                "infrastructure_id":
+                    infrastructure_id,
+                "infrastructure_name":
+                    infrastructure_name,
+                "data": data,
+            }
+
+        except Exception as exc:
+            return {
+                "ok": False,
+                "infrastructure_id":
+                    infrastructure_id,
+                "infrastructure_name":
+                    infrastructure_name,
+                "error": str(exc),
+            }
+
+    results = await asyncio.gather(
+        *[
+            load_infrastructure(
+                infrastructure
+            )
+            for infrastructure
+            in infrastructures
+        ]
+    )
+
+    aggregated = {
+        "nodes": [],
+        "guests": [],
+        "storages": [],
+        "replications": [],
+        "backup_jobs": [],
+        "backup_tasks": [],
+        "ha": [],
+        "infrastructure_errors": [],
+    }
+
+    for result in results:
+        if not result["ok"]:
+            aggregated[
+                "infrastructure_errors"
+            ].append(
+                {
+                    "infrastructure_id":
+                        result[
+                            "infrastructure_id"
+                        ],
+                    "infrastructure_name":
+                        result[
+                            "infrastructure_name"
+                        ],
+                    "error":
+                        result["error"],
+                }
+            )
+
+            continue
+
+        data = result["data"]
+
+        for key in (
+            "nodes",
+            "guests",
+            "storages",
+            "replications",
+            "backup_jobs",
+            "backup_tasks",
+            "ha",
+        ):
+            aggregated[key].extend(
+                data.get(
+                    key,
+                    [],
+                )
+            )
+
+    return aggregated
 
 
 @app.post("/api/backup/run")
@@ -2124,7 +2659,11 @@ async def run_backup(
                 detail="Der manuelle Backup-Start muss bestätigt werden.",
             )
 
-        data = await client.dashboard()
+        backup_client = ProxmoxClient(
+            infrastructure_id=request.infrastructure_id
+        )
+
+        data = await backup_client.dashboard()
 
         job = next(
             (
@@ -2186,10 +2725,12 @@ async def run_backup(
 
         for node in online_nodes:
             task = await start_backup_task(
-                client,
+                backup_client,
                 node,
                 request.job_id,
                 dict(parameters),
+                infrastructure_id=
+                    request.infrastructure_id,
             )
 
             tasks.append(task.public())
@@ -2201,7 +2742,10 @@ async def run_backup(
             severity="info",
             target_type="backup_job",
             target=request.job_id,
+            infrastructure_id=request.infrastructure_id,
             details={
+                "infrastructure_id":
+                    request.infrastructure_id,
                 "job_id": request.job_id,
                 "nodes": online_nodes,
                 "storage": parameters.get("storage"),
@@ -2214,6 +2758,8 @@ async def run_backup(
 
         return {
             "ok": True,
+            "infrastructure_id":
+                request.infrastructure_id,
             "job_id": request.job_id,
             "nodes": online_nodes,
             "tasks": tasks,
@@ -2231,6 +2777,7 @@ async def run_backup(
             ),
             target_type="backup_job",
             target=request.job_id,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "job_id": request.job_id,
                 "http_status": exc.status_code,
@@ -2248,6 +2795,7 @@ async def run_backup(
             severity="error",
             target_type="backup_job",
             target=request.job_id,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "job_id": request.job_id,
                 "error": str(exc),
@@ -2279,7 +2827,11 @@ async def run_guest_backup(
                 detail="Der Einzelbackup-Start muss bestätigt werden.",
             )
 
-        data = await client.dashboard()
+        backup_client = ProxmoxClient(
+            infrastructure_id=request.infrastructure_id
+        )
+
+        data = await backup_client.dashboard()
 
         job = next(
             (
@@ -2397,15 +2949,17 @@ async def run_guest_backup(
                 parameters["prune-backups"] = ",".join(prune_values)
 
         task = await start_backup_task(
-            client,
+            backup_client,
             request.node,
             f"{request.job_id} · VMID {request.vmid}",
             parameters,
+            infrastructure_id=
+                request.infrastructure_id,
         )
 
         public_task = task.public()
 
-        if task.state == "failed":
+        if task.state == "error":
             raise HTTPException(
                 status_code=502,
                 detail=(
@@ -2422,6 +2976,7 @@ async def run_guest_backup(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "guest_type": request.guest_type,
@@ -2435,6 +2990,8 @@ async def run_guest_backup(
 
         return {
             "ok": True,
+            "infrastructure_id":
+                request.infrastructure_id,
             "job_id": request.job_id,
             "node": request.node,
             "guest_type": request.guest_type,
@@ -2458,6 +3015,7 @@ async def run_guest_backup(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "guest_type": request.guest_type,
@@ -2478,6 +3036,7 @@ async def run_guest_backup(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "guest_type": request.guest_type,
@@ -2494,6 +3053,7 @@ async def run_guest_backup(
 
 @app.get("/api/backup/task-log")
 async def backup_task_log(
+    infrastructure_id: int = Query(gt=0),
     node: str = Query(
         min_length=1,
         max_length=64,
@@ -2505,7 +3065,14 @@ async def backup_task_log(
     ),
 ):
     try:
-        return await client.task_details(node, upid)
+        task_client = ProxmoxClient(
+            infrastructure_id=infrastructure_id
+        )
+
+        return await task_client.task_details(
+            node,
+            upid,
+        )
 
     except ProxmoxError as exc:
         raise HTTPException(
@@ -2533,6 +3100,7 @@ async def snapshots(
     node: str,
     guest_type: Literal["qemu", "lxc"],
     vmid: int,
+    infrastructure_id: int = Query(gt=0),
 ):
     if vmid <= 0:
         raise HTTPException(
@@ -2541,7 +3109,11 @@ async def snapshots(
         )
 
     try:
-        items = await client.snapshots(
+        snapshot_client = ProxmoxClient(
+            infrastructure_id=infrastructure_id
+        )
+
+        items = await snapshot_client.snapshots(
             node,
             guest_type,
             vmid,
@@ -2584,6 +3156,7 @@ async def create_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.name,
@@ -2597,13 +3170,28 @@ async def create_snapshot(
         )
 
     try:
-        upid = await client.create_snapshot(
+        snapshot_client = ProxmoxClient(
+            infrastructure_id=
+                request.infrastructure_id
+        )
+
+        upid = await snapshot_client.create_snapshot(
             request.node,
             request.guest_type,
             request.vmid,
             request.name,
             request.description,
             request.include_ram,
+        )
+
+        task = await track_snapshot_task(
+            snapshot_client,
+            request.node,
+            request.guest_type,
+            request.vmid,
+            request.name,
+            upid,
+            request.infrastructure_id,
         )
 
         write_request_audit_event(
@@ -2614,6 +3202,7 @@ async def create_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.name,
@@ -2632,6 +3221,7 @@ async def create_snapshot(
             "vmid": request.vmid,
             "snapshot_name": request.name,
             "upid": upid,
+            "task": task.public(),
         }
 
     except ProxmoxError as exc:
@@ -2643,6 +3233,7 @@ async def create_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.name,
@@ -2677,6 +3268,7 @@ async def delete_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.snapshot_name,
@@ -2690,7 +3282,12 @@ async def delete_snapshot(
         )
 
     try:
-        upid = await client.delete_snapshot(
+        snapshot_client = ProxmoxClient(
+            infrastructure_id=
+                request.infrastructure_id
+        )
+
+        upid = await snapshot_client.delete_snapshot(
             request.node,
             request.guest_type,
             request.vmid,
@@ -2705,6 +3302,7 @@ async def delete_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.snapshot_name,
@@ -2732,6 +3330,7 @@ async def delete_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.snapshot_name,
@@ -2766,6 +3365,7 @@ async def rollback_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.snapshot_name,
@@ -2779,7 +3379,12 @@ async def rollback_snapshot(
         )
 
     try:
-        upid = await client.rollback_snapshot(
+        snapshot_client = ProxmoxClient(
+            infrastructure_id=
+                request.infrastructure_id
+        )
+
+        upid = await snapshot_client.rollback_snapshot(
             request.node,
             request.guest_type,
             request.vmid,
@@ -2794,6 +3399,7 @@ async def rollback_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.snapshot_name,
@@ -2821,6 +3427,7 @@ async def rollback_snapshot(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "snapshot_name": request.snapshot_name,
@@ -2838,6 +3445,7 @@ async def rollback_snapshot(
 async def guest_disk_usage(
     node: str,
     vmid: int,
+    infrastructure_id: int = Query(gt=0),
 ):
     if vmid <= 0:
         raise HTTPException(
@@ -2846,7 +3454,11 @@ async def guest_disk_usage(
         )
 
     try:
-        return await client.guest_disk_usage(
+        guest_client = ProxmoxClient(
+            infrastructure_id=infrastructure_id
+        )
+
+        return await guest_client.guest_disk_usage(
             node,
             vmid,
         )
@@ -2863,6 +3475,7 @@ async def guest_details(
     node: str,
     guest_type: Literal["qemu", "lxc"],
     vmid: int,
+    infrastructure_id: int = Query(gt=0),
 ):
     if vmid <= 0:
         raise HTTPException(
@@ -2871,7 +3484,11 @@ async def guest_details(
         )
 
     try:
-        return await client.guest_details(
+        guest_client = ProxmoxClient(
+            infrastructure_id=infrastructure_id
+        )
+
+        return await guest_client.guest_details(
             node,
             guest_type,
             vmid,
@@ -2905,6 +3522,7 @@ async def migrate_guest(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "target_node": request.target,
@@ -2926,6 +3544,7 @@ async def migrate_guest(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "target_node": request.target,
@@ -2947,6 +3566,7 @@ async def migrate_guest(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "target_node": request.target,
@@ -2963,7 +3583,12 @@ async def migrate_guest(
         )
 
     try:
-        upid = await client.migrate_guest(
+        migration_client = ProxmoxClient(
+            infrastructure_id=
+                request.infrastructure_id
+        )
+
+        upid = await migration_client.migrate_guest(
             node=request.node,
             guest_type=request.guest_type,
             vmid=request.vmid,
@@ -2982,6 +3607,7 @@ async def migrate_guest(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "source_node": request.node,
@@ -3013,6 +3639,7 @@ async def migrate_guest(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "source_node": request.node,
@@ -3030,13 +3657,21 @@ async def migrate_guest(
 @app.get("/api/proxmox-task/{node}")
 async def proxmox_task(
     node: str,
+    infrastructure_id: int = Query(gt=0),
     upid: str = Query(
         min_length=6,
         max_length=1024,
     ),
 ):
     try:
-        return await client.task_details(node, upid)
+        task_client = ProxmoxClient(
+            infrastructure_id=infrastructure_id
+        )
+
+        return await task_client.task_details(
+            node,
+            upid,
+        )
 
     except ProxmoxError as exc:
         raise HTTPException(
@@ -3059,7 +3694,12 @@ async def guest_action(
     )
 
     try:
-        upid = await client.guest_action(
+        guest_client = ProxmoxClient(
+            infrastructure_id=
+                request.infrastructure_id
+        )
+
+        upid = await guest_client.guest_action(
             request.node,
             request.guest_type,
             request.vmid,
@@ -3074,6 +3714,7 @@ async def guest_action(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "guest_type": request.guest_type,
@@ -3097,6 +3738,7 @@ async def guest_action(
             target_type=request.guest_type,
             target=audit_target,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "vmid": request.vmid,
                 "guest_type": request.guest_type,
@@ -3122,6 +3764,7 @@ async def maintenance(
         message = await set_maintenance(
             request.node,
             request.action,
+            request.infrastructure_id,
         )
 
         write_request_audit_event(
@@ -3132,6 +3775,7 @@ async def maintenance(
             target_type="node",
             target=request.node,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "maintenance_action": request.action,
                 "message": message,
@@ -3152,6 +3796,7 @@ async def maintenance(
             target_type="node",
             target=request.node,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "maintenance_action": request.action,
                 "error": str(exc),
@@ -3198,7 +3843,12 @@ async def node_action(
             and not request.acknowledge_no_maintenance
         ):
             try:
-                data = await client.dashboard()
+                action_client = ProxmoxClient(
+                    infrastructure_id=
+                        request.infrastructure_id
+                )
+
+                data = await action_client.dashboard()
 
                 maintenance_enabled = any(
                     (
@@ -3230,17 +3880,23 @@ async def node_action(
 
         if request.action == "check-updates":
             task = await start_update_check(
-                request.node
+                request.node,
+                infrastructure_id=
+                    request.infrastructure_id,
             )
 
         elif request.action == "install-updates":
             task = await start_update_install(
-                request.node
+                request.node,
+                infrastructure_id=
+                    request.infrastructure_id,
             )
 
         elif request.action == "package-cleanup":
             task = await start_package_cleanup(
-                request.node
+                request.node,
+                infrastructure_id=
+                    request.infrastructure_id,
             )
 
         elif request.action in {
@@ -3250,6 +3906,8 @@ async def node_action(
             task = await start_power_action(
                 request.node,
                 request.action,
+                infrastructure_id=
+                    request.infrastructure_id,
             )
 
         else:
@@ -3278,6 +3936,7 @@ async def node_action(
             target_type="node",
             target=request.node,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "requested_action": request.action,
                 "confirmed": request.confirmed,
@@ -3305,6 +3964,7 @@ async def node_action(
             target_type="node",
             target=request.node,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "requested_action": request.action,
                 "http_status": exc.status_code,
@@ -3323,6 +3983,7 @@ async def node_action(
             target_type="node",
             target=request.node,
             node=request.node,
+            infrastructure_id=request.infrastructure_id,
             details={
                 "requested_action": request.action,
                 "error": str(exc),
@@ -3375,6 +4036,8 @@ async def scheduler_create_task(
 
     try:
         task = create_scheduled_task(
+            infrastructure_id=
+                payload.infrastructure_id,
             name=payload.name,
             description=payload.description,
             action=payload.action,
@@ -3401,9 +4064,14 @@ async def scheduler_create_task(
             target_type="scheduled_task",
             target=get_scheduled_task_target(task),
             node=task.get("node"),
+            infrastructure_id=task.get(
+                "infrastructure_id"
+            ),
             details={
                 "task_id": task["id"],
                 "task_uuid": task["uuid"],
+                "infrastructure_id":
+                    task.get("infrastructure_id"),
                 "action": task["action"],
                 "target_type": task["target_type"],
                 "guest_type": task.get("guest_type"),
@@ -3426,6 +4094,7 @@ async def scheduler_create_task(
             target_type="scheduled_task",
             target=payload.name,
             node=payload.node,
+            infrastructure_id=payload.infrastructure_id,
             details={
                 "error": str(exc),
             },
@@ -3448,6 +4117,8 @@ async def scheduler_update_task(
     try:
         task = update_scheduled_task(
             task_id,
+            infrastructure_id=
+                payload.infrastructure_id,
             name=payload.name,
             description=payload.description,
             action=payload.action,
@@ -3472,9 +4143,14 @@ async def scheduler_update_task(
             target_type="scheduled_task",
             target=get_scheduled_task_target(task),
             node=task.get("node"),
+            infrastructure_id=task.get(
+                "infrastructure_id"
+            ),
             details={
                 "task_id": task["id"],
                 "task_uuid": task["uuid"],
+                "infrastructure_id":
+                    task.get("infrastructure_id"),
                 "action": task["action"],
                 "start_at": task["start_at"],
                 "repeat_enabled": task["repeat_enabled"],
@@ -3521,6 +4197,9 @@ async def scheduler_set_enabled(
             target_type="scheduled_task",
             target=get_scheduled_task_target(task),
             node=task.get("node"),
+            infrastructure_id=task.get(
+                "infrastructure_id"
+            ),
             details={
                 "task_id": task["id"],
                 "task_uuid": task["uuid"],
@@ -3553,6 +4232,7 @@ async def scheduler_run_task_now(
             username=session.username,
             role=session.role,
             source=session.source,
+            ip_address=get_client_ip(request),
         )
 
         return result
@@ -3590,9 +4270,14 @@ async def scheduler_delete_task(
             target_type="scheduled_task",
             target=get_scheduled_task_target(task),
             node=task.get("node"),
+            infrastructure_id=task.get(
+                "infrastructure_id"
+            ),
             details={
                 "task_id": task["id"],
                 "task_uuid": task["uuid"],
+                "infrastructure_id":
+                    task.get("infrastructure_id"),
                 "action": task["action"],
             },
         )

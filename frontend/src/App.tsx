@@ -55,7 +55,10 @@ import { TaskSchedulerPage } from './pages/TaskSchedulerPage';
 import { NetworkPage } from './pages/NetworkPage';
 import { ActivityPanel } from './components/ActivityPanel';
 import { AboutDialog } from './components/AboutDialog';
-import { useDashboard } from './hooks/useDashboard';
+import {
+  type ClusterNode,
+  useDashboard,
+} from './hooks/useDashboard';
 
 type NavigationItem = {
   label: string;
@@ -106,7 +109,8 @@ export default function App() {
 
   const [activeNavigation, setActiveNavigation] = useState('Dashboard');
 
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] =
+    useState<ClusterNode | null>(null);
 
   const [selectedTaskId, setSelectedTaskId] =
     useState<string | null>(null);
@@ -514,7 +518,7 @@ export default function App() {
           <DashboardPage
             onOpenNode={(node) => {
               setActiveNavigation('Nodes');
-              setSelectedNode(node.node);
+              setSelectedNode(node);
             }}
           />
         )}
@@ -523,7 +527,7 @@ export default function App() {
           selectedNode === null && (
             <NodesPage
               onOpenNode={(node) =>
-                setSelectedNode(node.node)
+                setSelectedNode(node)
               }
             />
           )}
@@ -531,8 +535,13 @@ export default function App() {
         {activeNavigation === 'Nodes' &&
           selectedNode !== null && (
             <HostDetailsPage
-              node={selectedNode}
-              onBack={() => setSelectedNode(null)}
+              infrastructureId={
+                selectedNode.infrastructure_id
+              }
+              node={selectedNode.node}
+              onBack={() =>
+                setSelectedNode(null)
+              }
             />
           )}
 

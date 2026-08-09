@@ -189,6 +189,11 @@ export function TaskSchedulerPage({
     null,
   );
 
+  const [
+    infrastructureId,
+    setInfrastructureId,
+  ] = useState<number | null>(null);
+
   const [name, setName] =
     useState('');
   const [description, setDescription] =
@@ -240,15 +245,68 @@ export function TaskSchedulerPage({
   const [formError, setFormError] =
     useState<string | null>(null);
 
+  const infrastructureOptions =
+    useMemo(() => {
+      const seen =
+        new Map<
+          number,
+          {
+            value: string;
+            label: string;
+          }
+        >();
+
+      for (
+        const entry
+        of dashboard.data?.nodes ?? []
+      ) {
+        if (
+          seen.has(
+            entry.infrastructure_id,
+          )
+        ) {
+          continue;
+        }
+
+        seen.set(
+          entry.infrastructure_id,
+          {
+            value: String(
+              entry.infrastructure_id,
+            ),
+            label:
+              entry.infrastructure_type ===
+              'cluster'
+                ? `${entry.infrastructure_name} · Cluster`
+                : `${entry.infrastructure_name} · Standalone`,
+          },
+        );
+      }
+
+      return Array.from(
+        seen.values(),
+      );
+    }, [dashboard.data?.nodes]);
+
   const nodeOptions = useMemo(
     () =>
-      (dashboard.data?.nodes ?? []).map(
-        (entry) => ({
-          value: entry.node,
-          label: entry.node,
-        }),
-      ),
-    [dashboard.data?.nodes],
+      (dashboard.data?.nodes ?? [])
+        .filter(
+          (entry) =>
+            infrastructureId !== null &&
+            entry.infrastructure_id ===
+              infrastructureId,
+        )
+        .map(
+          (entry) => ({
+            value: entry.node,
+            label: entry.node,
+          }),
+        ),
+    [
+      dashboard.data?.nodes,
+      infrastructureId,
+    ],
   );
 
   const guestOptions = useMemo(
@@ -256,8 +314,12 @@ export function TaskSchedulerPage({
       (dashboard.data?.guests ?? [])
         .filter(
           (guest) =>
-            guest.type === 'qemu' ||
-            guest.type === 'lxc',
+            guest.infrastructure_id ===
+              infrastructureId &&
+            (
+              guest.type === 'qemu' ||
+              guest.type === 'lxc'
+            ),
         )
         .map((guest) => ({
           value: `${guest.node}|${guest.type}|${guest.vmid}`,
@@ -265,13 +327,21 @@ export function TaskSchedulerPage({
             `${guest.name || `Guest ${guest.vmid}`} ` +
             `(${guest.type?.toUpperCase()} ${guest.vmid} · ${guest.node})`,
         })),
-    [dashboard.data?.guests],
+    [
+      dashboard.data?.guests,
+      infrastructureId,
+    ],
   );
 
   const backupJobOptions = useMemo(
     () =>
       (dashboard.data?.backup_jobs ?? [])
-        .filter((job) => job.enabled !== 0)
+        .filter(
+          (job) =>
+            job.infrastructure_id ===
+              infrastructureId &&
+            job.enabled !== 0,
+        )
         .map((job) => ({
           value: job.id,
           label:
@@ -280,7 +350,10 @@ export function TaskSchedulerPage({
               ? ` · ${job.storage}`
               : ''),
         })),
-    [dashboard.data?.backup_jobs],
+    [
+      dashboard.data?.backup_jobs,
+      infrastructureId,
+    ],
   );
 
   const selectedGuest =
@@ -338,6 +411,12 @@ export function TaskSchedulerPage({
             `/snapshots/${encodeURIComponent(
               guest.node,
             )}/${guest.guest_type}/${guest.vmid}`,
+            {
+              params: {
+                infrastructure_id:
+                  infrastructureId,
+              },
+            },
           );
 
         if (!cancelled) {
@@ -366,10 +445,12 @@ export function TaskSchedulerPage({
     selectedGuest?.node,
     selectedGuest?.guest_type,
     selectedGuest?.vmid,
+    infrastructureId,
   ]);
 
   function resetForm() {
     setEditingTask(null);
+    setInfrastructureId(null);
     setName('');
     setDescription('');
     setAction('');
@@ -389,11 +470,26 @@ export function TaskSchedulerPage({
 
   function openCreate() {
     resetForm();
+
+    const firstInfrastructure =
+      infrastructureOptions[0];
+
+    if (firstInfrastructure) {
+      setInfrastructureId(
+        Number(
+          firstInfrastructure.value,
+        ),
+      );
+    }
+
     editorModal.open();
   }
 
   function openEdit(task: ScheduledTask) {
     setEditingTask(task);
+    setInfrastructureId(
+      task.infrastructure_id,
+    );
     setName(task.name);
     setDescription(
       task.description ?? '',
@@ -461,6 +557,16 @@ export function TaskSchedulerPage({
 
   async function saveTask() {
     setFormError(null);
+
+    if (
+      infrastructureId === null ||
+      infrastructureId <= 0
+    ) {
+      setFormError(
+        'Select an infrastructure.',
+      );
+      return;
+    }
 
     if (!name.trim()) {
       setFormError('Enter a task name.');
@@ -590,6 +696,8 @@ export function TaskSchedulerPage({
     }
 
     const input: ScheduledTaskInput = {
+      infrastructure_id:
+        infrastructureId,
       name: name.trim(),
       description:
         description.trim() || null,
@@ -744,6 +852,7 @@ export function TaskSchedulerPage({
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
+                <Table.Th>Infrastructure</Table.Th>
                 <Table.Th>Action</Table.Th>
                 <Table.Th>Target</Table.Th>
                 <Table.Th>Schedule</Table.Th>
@@ -774,6 +883,19 @@ export function TaskSchedulerPage({
                           {task.description}
                         </Text>
                       )}
+                    </Table.Td>
+
+                    <Table.Td>
+                      {
+                        dashboard.data?.nodes
+                          .find(
+                            (entry) =>
+                              entry.infrastructure_id ===
+                              task.infrastructure_id,
+                          )
+                          ?.infrastructure_name ??
+                        `Infrastructure ${task.infrastructure_id}`
+                      }
                     </Table.Td>
 
                     <Table.Td>
@@ -1002,10 +1124,49 @@ export function TaskSchedulerPage({
           />
 
           <Select
+            label="Infrastructure"
+            required
+            data={
+              infrastructureOptions
+            }
+            value={
+              infrastructureId !== null
+                ? String(
+                    infrastructureId,
+                  )
+                : null
+            }
+            onChange={(value) => {
+              const parsed =
+                value
+                  ? Number(value)
+                  : null;
+
+              setInfrastructureId(
+                parsed &&
+                Number.isInteger(parsed)
+                  ? parsed
+                  : null,
+              );
+
+              setNode(null);
+              setGuestKey(null);
+              setSnapshotName(null);
+              setSnapshotCreateName('');
+              setBackupJobId(null);
+              setMigrationTarget(null);
+            }}
+            allowDeselect={false}
+          />
+
+          <Select
             label="Action"
             required
             data={ACTIONS}
             value={action}
+            disabled={
+              infrastructureId === null
+            }
             onChange={(value) => {
               setAction(value ?? '');
               setNode(null);

@@ -7,6 +7,9 @@ services:
     env_file:
       - .env
 
+    environment:
+      TZ: ${TZ:-UTC}
+
     volumes:
       - ./ssh:/app/ssh:ro
       - ./data:/app/data
@@ -26,10 +29,6 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
-
-    environment:
-      TZ: ${TZ:-UTC}
-
 
   frontend:
     image: ghcr.io/mauckisch/proxpilot-frontend:latest

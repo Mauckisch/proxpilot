@@ -37,6 +37,26 @@ import {
 export function StoragePage() {
   const dashboard = useDashboard();
 
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-storage-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
+
   const [search, setSearch] = useState('');
   const [nodeFilter, setNodeFilter] =
     useState<string | null>('all');
@@ -47,12 +67,95 @@ export function StoragePage() {
   const [typeFilter, setTypeFilter] =
     useState<string | null>('all');
 
-  const storages =
+  const allStorages =
     dashboard.data?.storages ?? [];
 
-  const nodes = sortNodes(
+  const allNodes = sortNodes(
     dashboard.data?.nodes ?? [],
   );
+
+  const infrastructures = Array.from(
+    allNodes.reduce(
+      (
+        result,
+        node,
+      ) => {
+        if (
+          !result.has(
+            node.infrastructure_id,
+          )
+        ) {
+          result.set(
+            node.infrastructure_id,
+            {
+              id:
+                node.infrastructure_id,
+              name:
+                node.infrastructure_name,
+              type:
+                node.infrastructure_type,
+            },
+          );
+        }
+
+        return result;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type:
+            | 'cluster'
+            | 'standalone';
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructures.some(
+      (item) =>
+        item.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructures[0]?.id ??
+        null;
+
+  const storages =
+    effectiveInfrastructureId === null
+      ? []
+      : allStorages.filter(
+          (storage) =>
+            storage.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const nodes =
+    effectiveInfrastructureId === null
+      ? []
+      : allNodes.filter(
+          (node) =>
+            node.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const infrastructureOptions =
+    infrastructures.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          infrastructure.type ===
+          'cluster'
+            ? `${infrastructure.name} · Cluster`
+            : `${infrastructure.name} · Standalone`,
+      }),
+    );
 
   const storageTypes = useMemo(() => {
     return Array.from(
@@ -222,7 +325,47 @@ export function StoragePage() {
           </Text>
         </div>
 
-        <Group gap="xs">
+        <Group gap="xs" align="flex-end">
+          <Select
+            label="Infrastructure"
+            data={infrastructureOptions}
+            value={
+              effectiveInfrastructureId !==
+              null
+                ? String(
+                    effectiveInfrastructureId,
+                  )
+                : null
+            }
+            onChange={(value) => {
+              if (!value) {
+                return;
+              }
+
+              const id = Number(value);
+
+              if (
+                !Number.isInteger(id) ||
+                id <= 0
+              ) {
+                return;
+              }
+
+              setSelectedInfrastructureId(
+                id,
+              );
+
+              localStorage.setItem(
+                'proxpilot-storage-infrastructure',
+                String(id),
+              );
+
+              setNodeFilter('all');
+            }}
+            allowDeselect={false}
+            w={300}
+          />
+
           <Badge
             color="green"
             variant="light"

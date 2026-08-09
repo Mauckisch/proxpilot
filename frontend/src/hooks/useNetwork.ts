@@ -4,10 +4,11 @@ import { api } from '../api';
 
 export interface NetworkAddress {
   family?: string;
-  local?: string;
-  prefixlen?: number;
+  address?: string;
+  prefix_length?: number;
   scope?: string;
-  label?: string;
+  broadcast?: string;
+  dynamic?: boolean;
 }
 
 export interface NetworkStatistics {
@@ -82,20 +83,37 @@ export interface NetworkData {
 }
 
 async function fetchNetwork(
+  infrastructureId: number,
   node: string,
 ): Promise<NetworkData> {
   const response = await api.get<NetworkData>(
-    `/network/${encodeURIComponent(node)}`,
+    (
+      `/infrastructures/${infrastructureId}` +
+      `/network/${encodeURIComponent(node)}`
+    ),
   );
 
   return response.data;
 }
 
-export function useNetwork(node: string) {
+export function useNetwork(
+  infrastructureId: number,
+  node: string,
+) {
   return useQuery({
-    queryKey: ['network', node],
-    queryFn: () => fetchNetwork(node),
-    enabled: Boolean(node),
+    queryKey: [
+      'network',
+      infrastructureId,
+      node,
+    ],
+    queryFn: () =>
+      fetchNetwork(
+        infrastructureId,
+        node,
+      ),
+    enabled:
+      infrastructureId > 0 &&
+      Boolean(node),
     refetchInterval: 15000,
     retry: 1,
   });

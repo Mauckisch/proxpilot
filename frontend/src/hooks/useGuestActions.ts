@@ -142,6 +142,8 @@ export function useGuestActions(
       const response = await api.post(
         '/guest/action',
         {
+          infrastructure_id:
+            guest.infrastructure_id,
           node: guest.node,
           guest_type: guest.type,
           vmid: guest.vmid,

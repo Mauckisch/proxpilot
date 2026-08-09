@@ -41,14 +41,13 @@ router = APIRouter(
     tags=["console"],
 )
 
-client = ProxmoxClient()
-
 CONSOLE_SESSION_TTL = 60
 
 
 @dataclass
 class ConsoleSession:
     user_id: int
+    infrastructure_id: int
     node: str
     guest_type: Literal["qemu", "lxc"]
     vmid: int
@@ -61,6 +60,7 @@ console_sessions: dict[str, ConsoleSession] = {}
 
 
 class ConsoleTicketRequest(BaseModel):
+    infrastructure_id: int = Field(gt=0)
     node: str = Field(
         min_length=1,
         max_length=64,
@@ -110,6 +110,7 @@ def cleanup_console_sessions() -> None:
 
 
 def build_proxmox_websocket_url(
+    client: ProxmoxClient,
     node: str,
     guest_type: Literal["qemu", "lxc"],
     vmid: int,
@@ -123,7 +124,7 @@ def build_proxmox_websocket_url(
             f"No host mapping is configured for node {node}."
         )
 
-    endpoints = client.s.endpoints
+    endpoints = client.endpoints
 
     if not endpoints:
         raise ProxmoxError(
@@ -174,7 +175,7 @@ def build_proxmox_websocket_url(
     ssl_context: ssl.SSLContext | None = None
 
     if websocket_scheme == "wss":
-        if client.s.pve_verify_ssl:
+        if client.verify_ssl:
             ssl_context = ssl.create_default_context()
         else:
             ssl_context = ssl._create_unverified_context()
@@ -216,7 +217,12 @@ async def create_console_ticket(
     cleanup_console_sessions()
 
     try:
-        ticket_data = await client.create_console_ticket(
+        console_client = ProxmoxClient(
+            infrastructure_id=
+                console_request.infrastructure_id
+        )
+
+        ticket_data = await console_client.create_console_ticket(
             node=console_request.node,
             guest_type=console_request.guest_type,
             vmid=console_request.vmid,
@@ -231,6 +237,8 @@ async def create_console_ticket(
 
     console_sessions[console_id] = ConsoleSession(
         user_id=int(request.state.session.user_id),
+        infrastructure_id=
+            console_request.infrastructure_id,
         node=console_request.node,
         guest_type=console_request.guest_type,
         vmid=console_request.vmid,
@@ -255,6 +263,7 @@ async def create_console_ticket(
             f"{console_request.vmid}"
         ),
         node=console_request.node,
+        infrastructure_id=console_request.infrastructure_id,
         details={
             "vmid": console_request.vmid,
             "node": console_request.node,
@@ -263,6 +272,8 @@ async def create_console_ticket(
 
     return {
         "ok": True,
+        "infrastructure_id":
+            console_request.infrastructure_id,
         "node": console_request.node,
         "guest_type": console_request.guest_type,
         "vmid": console_request.vmid,
@@ -313,8 +324,14 @@ async def console_websocket(
         return
 
     try:
+        console_client = ProxmoxClient(
+            infrastructure_id=
+                console_session.infrastructure_id
+        )
+
         upstream_url, ssl_context = (
             build_proxmox_websocket_url(
+                console_client,
                 node=console_session.node,
                 guest_type=console_session.guest_type,
                 vmid=console_session.vmid,
@@ -325,7 +342,8 @@ async def console_websocket(
 
         async with connect(
             upstream_url,
-            additional_headers=client.headers,
+            additional_headers=
+                console_client.headers,
             subprotocols=["binary"],
             compression=None,
             proxy=None,

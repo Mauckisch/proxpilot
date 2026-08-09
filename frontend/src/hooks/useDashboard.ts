@@ -2,7 +2,16 @@ import { useQuery } from '@tanstack/react-query';
 
 import { api } from '../api';
 
-export interface ClusterNode {
+export interface InfrastructureResource {
+  infrastructure_id: number;
+  infrastructure_name: string;
+  infrastructure_type:
+    | 'cluster'
+    | 'standalone';
+}
+
+export interface ClusterNode
+  extends InfrastructureResource {
   id?: string;
   node: string;
   type?: string;
@@ -17,7 +26,8 @@ export interface ClusterNode {
   maintenance?: boolean;
 }
 
-export interface Guest {
+export interface Guest
+  extends InfrastructureResource {
   id?: string;
   vmid: number;
   name?: string;
@@ -38,7 +48,8 @@ export interface Guest {
   latest_snapshot?: string | null;
 }
 
-export interface StorageResource {
+export interface StorageResource
+  extends InfrastructureResource {
   id?: string;
   storage?: string;
   node?: string;
@@ -51,7 +62,8 @@ export interface StorageResource {
   maxdisk?: number;
 }
 
-export interface ReplicationJob {
+export interface ReplicationJob
+  extends InfrastructureResource {
   id: string;
   guest: number;
   jobnum?: number;
@@ -61,7 +73,8 @@ export interface ReplicationJob {
   type?: string;
 }
 
-export interface HaStatusEntry {
+export interface HaStatusEntry
+  extends InfrastructureResource {
   id?: string;
 
   type:
@@ -92,7 +105,8 @@ export interface HaStatusEntry {
   'auto-rebalance'?: number;
 }
 
-export interface BackupJob {
+export interface BackupJob
+  extends InfrastructureResource {
   id: string;
   type?: string;
   storage?: string;
@@ -116,7 +130,8 @@ export interface BackupJob {
   };
 }
 
-export interface BackupTask {
+export interface BackupTask
+  extends InfrastructureResource {
   node: string;
   id?: string;
   type: string;
@@ -129,6 +144,12 @@ export interface BackupTask {
   pstart?: number;
 }
 
+export interface InfrastructureError {
+  infrastructure_id: number;
+  infrastructure_name: string;
+  error: string;
+}
+
 export interface DashboardData {
   nodes: ClusterNode[];
   guests: Guest[];
@@ -137,6 +158,8 @@ export interface DashboardData {
   backup_jobs: BackupJob[];
   backup_tasks: BackupTask[];
   ha: HaStatusEntry[];
+  infrastructure_errors:
+    InfrastructureError[];
 }
 
 async function fetchDashboard(): Promise<DashboardData> {

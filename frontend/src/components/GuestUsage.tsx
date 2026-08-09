@@ -153,6 +153,7 @@ export function GuestUsage({
 
   const diskUsage =
     useGuestDiskUsage(
+      guest.infrastructure_id,
       guest.node,
       guest.vmid,
       guest.type === 'qemu' &&

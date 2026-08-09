@@ -247,9 +247,15 @@ export interface HostDetails {
   };
 }
 
-async function fetchHostDetails(node: string): Promise<HostDetails> {
+async function fetchHostDetails(
+  infrastructureId: number,
+  node: string,
+): Promise<HostDetails> {
   const response = await api.get<HostDetails>(
-    `/node/${encodeURIComponent(node)}/details`,
+    (
+      `/infrastructures/${infrastructureId}` +
+      `/node/${encodeURIComponent(node)}/details`
+    ),
     {
       timeout: 90000,
     },
@@ -258,11 +264,24 @@ async function fetchHostDetails(node: string): Promise<HostDetails> {
   return response.data;
 }
 
-export function useHostDetails(node: string) {
+export function useHostDetails(
+  infrastructureId: number,
+  node: string,
+) {
   return useQuery({
-    queryKey: ['host-details', node],
-    queryFn: () => fetchHostDetails(node),
-    enabled: Boolean(node),
+    queryKey: [
+      'host-details',
+      infrastructureId,
+      node,
+    ],
+    queryFn: () =>
+      fetchHostDetails(
+        infrastructureId,
+        node,
+      ),
+    enabled:
+      infrastructureId > 0 &&
+      Boolean(node),
     staleTime: 30000,
     refetchInterval: 60000,
     retry: 1,

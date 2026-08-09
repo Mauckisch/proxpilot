@@ -103,6 +103,12 @@ export function SnapshotButton({
     try {
       const response = await api.get<SnapshotResponse>(
         `/snapshots/${encodeURIComponent(node)}/${guestType}/${guest.vmid}`,
+        {
+          params: {
+            infrastructure_id:
+              guest.infrastructure_id,
+          },
+        },
       );
 
       setSnapshots(response.data.snapshots ?? []);
@@ -132,7 +138,9 @@ export function SnapshotButton({
           exitstatus?: string;
         };
       }>(
-        `/backup/task-log?node=${encodeURIComponent(
+        `/backup/task-log?infrastructure_id=${encodeURIComponent(
+          String(guest.infrastructure_id),
+        )}&node=${encodeURIComponent(
           node,
         )}&upid=${encodeURIComponent(upid)}`,
       );
@@ -216,6 +224,8 @@ export function SnapshotButton({
     await runSnapshotRequest(
       '/snapshots/create',
       {
+        infrastructure_id:
+          guest.infrastructure_id,
         node,
         guest_type: guestType,
         vmid: guest.vmid,
@@ -248,6 +258,8 @@ export function SnapshotButton({
     await runSnapshotRequest(
       '/snapshots/delete',
       {
+        infrastructure_id:
+          guest.infrastructure_id,
         node,
         guest_type: guestType,
         vmid: guest.vmid,
@@ -274,6 +286,8 @@ export function SnapshotButton({
     await runSnapshotRequest(
       '/snapshots/rollback',
       {
+        infrastructure_id:
+          guest.infrastructure_id,
         node,
         guest_type: guestType,
         vmid: guest.vmid,
@@ -494,13 +508,24 @@ export function SnapshotButton({
         <Stack gap="md">
           <TextInput
             label="Snapshot name"
-            placeholder="before-update"
-            description="Letters, numbers, dots, underscores and hyphens only."
+            placeholder="before_update"
+            description="Letters, numbers and underscores only."
             value={snapshotName}
             maxLength={64}
             required
+            error={
+              snapshotName.length > 0 &&
+              !/^[A-Za-z0-9_]+$/.test(snapshotName)
+                ? 'Only letters, numbers and underscores are allowed.'
+                : undefined
+            }
             onChange={(event) =>
-              setSnapshotName(event.currentTarget.value)
+              setSnapshotName(
+                event.currentTarget.value.replace(
+                  /[^A-Za-z0-9_]/g,
+                  '',
+                ),
+              )
             }
           />
 
@@ -539,7 +564,9 @@ export function SnapshotButton({
 
             <OperatorButton
               leftSection={<IconCamera size={16} />}
-              disabled={!snapshotName.trim()}
+              disabled={
+                !/^[A-Za-z0-9_]+$/.test(snapshotName)
+              }
               permissionTooltip="Operator or administrator permissions required to create snapshots."
               onClick={() => void createSnapshot()}
             >

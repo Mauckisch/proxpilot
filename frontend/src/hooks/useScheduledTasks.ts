@@ -15,6 +15,7 @@ export type SchedulerIntervalUnit =
 
 export interface ScheduledTask {
   id: number;
+  infrastructure_id: number;
   uuid: string;
   name: string;
   description?: string | null;
@@ -42,6 +43,7 @@ export interface ScheduledTask {
 }
 
 export interface ScheduledTaskInput {
+  infrastructure_id: number;
   name: string;
   description?: string | null;
   action: string;

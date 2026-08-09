@@ -8,23 +8,63 @@ from typing import Any
 
 import paramiko
 
-from .config import get_settings
+from .infrastructures import get_infrastructure
 
 
 class HostDetailsError(RuntimeError):
     pass
 
 
-def _ssh_client(node: str) -> paramiko.SSHClient:
-    settings = get_settings()
-    host = settings.node_hosts.get(node)
+def _ssh_client(
+    node: str,
+    infrastructure_id: int,
+) -> paramiko.SSHClient:
+    if infrastructure_id <= 0:
+        raise HostDetailsError(
+            "A valid infrastructure ID is required."
+        )
+
+    infrastructure = get_infrastructure(
+        infrastructure_id
+    )
+
+    if infrastructure is None:
+        raise HostDetailsError(
+            f"Infrastructure {infrastructure_id} not found."
+        )
+
+    if not infrastructure["enabled"]:
+        raise HostDetailsError(
+            f"Infrastructure {infrastructure_id} is disabled."
+        )
+
+    node_entry = next(
+        (
+            item
+            for item in infrastructure["nodes"]
+            if item.get("node_name") == node
+            and item.get("enabled")
+        ),
+        None,
+    )
+
+    if node_entry is None:
+        raise HostDetailsError(
+            f"Node '{node}' is not configured in "
+            f"infrastructure {infrastructure_id}."
+        )
+
+    host = node_entry.get("host")
+    ssh_user = infrastructure["ssh_user"]
+    ssh_key = infrastructure["ssh_key"]
+    ssh_port = infrastructure["ssh_port"]
 
     if not host:
         raise HostDetailsError(
             f"Keine SSH-Adresse für Node '{node}' konfiguriert."
         )
 
-    key = Path(settings.pve_ssh_key)
+    key = Path(ssh_key)
 
     if not key.is_file():
         raise HostDetailsError(
@@ -39,8 +79,8 @@ def _ssh_client(node: str) -> paramiko.SSHClient:
     try:
         client.connect(
             hostname=host,
-            port=settings.pve_ssh_port,
-            username=settings.pve_ssh_user,
+            port=ssh_port,
+            username=ssh_user,
             key_filename=str(key),
             look_for_keys=False,
             allow_agent=False,
@@ -1111,8 +1151,14 @@ def _collect_nut_data(
         "ups": ups_entries,
     }
 
-def collect_host_details(node: str) -> dict[str, Any]:
-    client = _ssh_client(node)
+def collect_host_details(
+    node: str,
+    infrastructure_id: int,
+) -> dict[str, Any]:
+    client = _ssh_client(
+        node,
+        infrastructure_id,
+    )
 
     try:
         hostname = _run_command(

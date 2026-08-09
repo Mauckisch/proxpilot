@@ -24,6 +24,7 @@ import {
 } from '@tabler/icons-react';
 
 import { TaskCard } from '../components/TaskCard';
+import { useDashboard } from '../hooks/useDashboard';
 import { useTasks } from '../hooks/useTasks';
 import {
   getTaskType,
@@ -38,6 +39,27 @@ export function TasksPage({
   selectedTaskId,
 }: TasksPageProps) {
   const tasksQuery = useTasks();
+  const dashboard = useDashboard();
+
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-tasks-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
 
   const [search, setSearch] = useState('');
 
@@ -47,7 +69,95 @@ export function TasksPage({
   const [typeFilter, setTypeFilter] =
     useState<string | null>('all');
 
-  const tasks = tasksQuery.data?.tasks ?? [];
+  const allTasks =
+    tasksQuery.data?.tasks ?? [];
+
+  const dashboardNodes =
+    dashboard.data?.nodes ?? [];
+
+  const infrastructures = Array.from(
+    dashboardNodes.reduce(
+      (
+        result,
+        node,
+      ) => {
+        if (
+          !result.has(
+            node.infrastructure_id,
+          )
+        ) {
+          result.set(
+            node.infrastructure_id,
+            {
+              id:
+                node.infrastructure_id,
+              name:
+                node.infrastructure_name,
+              type:
+                node.infrastructure_type,
+            },
+          );
+        }
+
+        return result;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type:
+            | 'cluster'
+            | 'standalone';
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructures.some(
+      (infrastructure) =>
+        infrastructure.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructures[0]?.id ??
+        null;
+
+  const infrastructureNames =
+    new Map(
+      infrastructures.map(
+        (infrastructure) => [
+          infrastructure.id,
+          infrastructure.name,
+        ],
+      ),
+    );
+
+  const infrastructureOptions =
+    infrastructures.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          infrastructure.type ===
+          'cluster'
+            ? `${infrastructure.name} · Cluster`
+            : `${infrastructure.name} · Standalone`,
+      }),
+    );
+
+  const tasks =
+    effectiveInfrastructureId === null
+      ? []
+      : allTasks.filter(
+          (task) =>
+            task.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
 
   useEffect(() => {
     if (!selectedTaskId) {
@@ -57,6 +167,27 @@ export function TasksPage({
     setSearch('');
     setStateFilter('all');
     setTypeFilter('all');
+
+    const selectedTask =
+      allTasks.find(
+        (task) =>
+          task.id === selectedTaskId,
+      );
+
+    if (
+      selectedTask?.infrastructure_id != null
+    ) {
+      setSelectedInfrastructureId(
+        selectedTask.infrastructure_id,
+      );
+
+      localStorage.setItem(
+        'proxpilot-tasks-infrastructure',
+        String(
+          selectedTask.infrastructure_id,
+        ),
+      );
+    }
 
     const timeout = window.setTimeout(() => {
       const element = document.getElementById(
@@ -70,7 +201,10 @@ export function TasksPage({
     }, 100);
 
     return () => window.clearTimeout(timeout);
-  }, [selectedTaskId]);
+  }, [
+    allTasks,
+    selectedTaskId,
+  ]);
 
   const filteredTasks = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -84,6 +218,12 @@ export function TasksPage({
           !query ||
           `${task.title} ${task.node ?? ''} ${
             task.action ?? ''
+          } ${
+            task.infrastructure_id != null
+              ? infrastructureNames.get(
+                  task.infrastructure_id,
+                ) ?? ''
+              : ''
           }`
             .toLowerCase()
             .includes(query);
@@ -114,6 +254,7 @@ export function TasksPage({
         return secondDate - firstDate;
       });
   }, [
+    infrastructureNames,
     search,
     stateFilter,
     typeFilter,
@@ -221,7 +362,45 @@ export function TasksPage({
           </Text>
         </div>
 
-        <Group gap="xs">
+        <Group gap="xs" align="flex-end">
+          <Select
+            label="Infrastructure"
+            data={infrastructureOptions}
+            value={
+              effectiveInfrastructureId !==
+              null
+                ? String(
+                    effectiveInfrastructureId,
+                  )
+                : null
+            }
+            onChange={(value) => {
+              if (!value) {
+                return;
+              }
+
+              const id = Number(value);
+
+              if (
+                !Number.isInteger(id) ||
+                id <= 0
+              ) {
+                return;
+              }
+
+              setSelectedInfrastructureId(
+                id,
+              );
+
+              localStorage.setItem(
+                'proxpilot-tasks-infrastructure',
+                String(id),
+              );
+            }}
+            allowDeselect={false}
+            w={300}
+          />
+
           <Badge
             color={
               runningTasks > 0
@@ -334,7 +513,12 @@ export function TasksPage({
 
       <Text size="sm" c="dimmed">
         Showing {filteredTasks.length} of{' '}
-        {tasks.length} tasks
+        {tasks.length} tasks in{' '}
+        {effectiveInfrastructureId !== null
+          ? infrastructureNames.get(
+              effectiveInfrastructureId,
+            ) ?? 'selected infrastructure'
+          : 'selected infrastructure'}
       </Text>
 
       {filteredTasks.length === 0 ? (
@@ -368,7 +552,16 @@ export function TasksPage({
                   'outline 150ms ease',
               }}
             >
-              <TaskCard task={task} />
+              <TaskCard
+                task={task}
+                infrastructureName={
+                  task.infrastructure_id != null
+                    ? infrastructureNames.get(
+                        task.infrastructure_id,
+                      )
+                    : undefined
+                }
+              />
             </div>
           ))}
         </Stack>

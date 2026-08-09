@@ -3,7 +3,7 @@ import sqlite3
 
 
 DATABASE_PATH = Path("/app/data/proxpilot.db")
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 7
 
 
 def get_connection() -> sqlite3.Connection:
@@ -456,6 +456,189 @@ def _migrate_to_version_4(
         4,
     )
 
+def _migrate_to_version_5(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE infrastructures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            uuid TEXT NOT NULL UNIQUE,
+
+            name TEXT NOT NULL,
+
+            type TEXT NOT NULL
+                CHECK (
+                    type IN (
+                        'cluster',
+                        'standalone'
+                    )
+                ),
+
+            description TEXT,
+
+            enabled INTEGER NOT NULL DEFAULT 1
+                CHECK (
+                    enabled IN (0, 1)
+                ),
+
+            api_endpoints TEXT NOT NULL DEFAULT '[]',
+
+            api_token_id TEXT NOT NULL,
+            api_token_secret TEXT NOT NULL,
+
+            verify_ssl INTEGER NOT NULL DEFAULT 0
+                CHECK (
+                    verify_ssl IN (0, 1)
+                ),
+
+            ssh_user TEXT NOT NULL DEFAULT 'root',
+            ssh_key TEXT NOT NULL DEFAULT '/app/ssh/id_ed25519',
+
+            ssh_port INTEGER NOT NULL DEFAULT 22
+                CHECK (
+                    ssh_port >= 1
+                    AND ssh_port <= 65535
+                ),
+
+            proxmox_cluster_name TEXT,
+
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_infrastructures_type
+        ON infrastructures(type)
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_infrastructures_enabled
+        ON infrastructures(enabled)
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE TABLE infrastructure_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            infrastructure_id INTEGER NOT NULL,
+
+            node_name TEXT NOT NULL,
+
+            host TEXT NOT NULL,
+
+            enabled INTEGER NOT NULL DEFAULT 1
+                CHECK (
+                    enabled IN (0, 1)
+                ),
+
+            discovered_at TEXT,
+            updated_at TEXT NOT NULL,
+
+            UNIQUE (
+                infrastructure_id,
+                node_name
+            ),
+
+            FOREIGN KEY (
+                infrastructure_id
+            )
+            REFERENCES infrastructures(id)
+            ON DELETE CASCADE
+        )
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_infrastructure_nodes_infrastructure
+        ON infrastructure_nodes(infrastructure_id)
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX idx_infrastructure_nodes_node_name
+        ON infrastructure_nodes(node_name)
+        """
+    )
+
+    _set_schema_version(
+        connection,
+        5,
+    )
+
+
+def _migrate_to_version_6(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        ALTER TABLE scheduled_tasks
+        ADD COLUMN infrastructure_id INTEGER
+        REFERENCES infrastructures(id)
+        ON DELETE SET NULL
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX
+        idx_scheduled_tasks_infrastructure
+        ON scheduled_tasks(infrastructure_id)
+        """
+    )
+
+    # Existing scheduler entries predate multi-infrastructure
+    # support. Disable them until an administrator assigns
+    # the correct infrastructure explicitly.
+    connection.execute(
+        """
+        UPDATE scheduled_tasks
+        SET enabled = 0
+        WHERE infrastructure_id IS NULL
+        """
+    )
+
+    _set_schema_version(
+        connection,
+        6,
+    )
+
+
+
+def _migrate_to_version_7(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        '''
+        ALTER TABLE audit_log
+        ADD COLUMN infrastructure_id INTEGER
+        '''
+    )
+
+    connection.execute(
+        '''
+        CREATE INDEX idx_audit_log_infrastructure_id
+        ON audit_log(infrastructure_id)
+        '''
+    )
+
+    _set_schema_version(
+        connection,
+        7,
+    )
+
+
+
 def initialize_database() -> None:
     with get_connection() as connection:
         _create_settings_table(connection)
@@ -485,5 +668,17 @@ def initialize_database() -> None:
         if schema_version < 4:
             _migrate_to_version_4(connection)
             schema_version = 4
+
+        if schema_version < 5:
+            _migrate_to_version_5(connection)
+            schema_version = 5
+
+        if schema_version < 6:
+            _migrate_to_version_6(connection)
+            schema_version = 6
+
+        if schema_version < 7:
+            _migrate_to_version_7(connection)
+            schema_version = 7
 
         connection.commit()

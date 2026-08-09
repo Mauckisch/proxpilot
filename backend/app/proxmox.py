@@ -1,9 +1,8 @@
-import os
 from urllib.parse import quote, urlparse
 
 import httpx
 
-from .config import get_settings
+from .infrastructures import get_infrastructure
 
 
 class ProxmoxError(RuntimeError):
@@ -11,14 +10,92 @@ class ProxmoxError(RuntimeError):
 
 
 class ProxmoxClient:
-    def __init__(self):
-        self.s = get_settings()
+    def __init__(
+        self,
+        infrastructure_id: int,
+    ):
+        if infrastructure_id <= 0:
+            raise ProxmoxError(
+                "A valid infrastructure ID is required."
+            )
+
+        self.infrastructure_id = (
+            infrastructure_id
+        )
+
+        infrastructure = (
+            get_infrastructure(
+                infrastructure_id,
+                include_secret=True,
+            )
+        )
+
+        if infrastructure is None:
+            raise ProxmoxError(
+                (
+                    "Infrastructure "
+                    f"{infrastructure_id} "
+                    "was not found."
+                )
+            )
+
+        if not infrastructure[
+            "enabled"
+        ]:
+            raise ProxmoxError(
+                (
+                    "Infrastructure "
+                    f"{infrastructure_id} "
+                    "is disabled."
+                )
+            )
+
+        self.infrastructure = (
+            infrastructure
+        )
+
+        self.endpoints = list(
+            infrastructure[
+                "api_endpoints"
+            ]
+        )
+
+        self.token_id = str(
+            infrastructure[
+                "api_token_id"
+            ]
+        )
+
+        self.token_secret = str(
+            infrastructure[
+                "api_token_secret"
+            ]
+        )
+
+        self.verify_ssl = bool(
+            infrastructure[
+                "verify_ssl"
+            ]
+        )
+
+        self.node_hosts = {
+            str(node["node_name"]):
+                str(node["host"])
+            for node in infrastructure[
+                "nodes"
+            ]
+            if (
+                node.get("enabled")
+                and node.get("node_name")
+                and node.get("host")
+            )
+        }
 
         self.headers = {
             "Authorization": (
                 f"PVEAPIToken="
-                f"{self.s.pve_token_id}="
-                f"{self.s.pve_token_secret}"
+                f"{self.token_id}="
+                f"{self.token_secret}"
             )
         }
 
@@ -85,7 +162,7 @@ class ProxmoxClient:
         connection_errors: list[str] = []
         server_errors: list[str] = []
 
-        for endpoint in self.s.endpoints:
+        for endpoint in self.endpoints:
             url = (
                 f"{endpoint}/api2/json/"
                 f"{path.lstrip('/')}"
@@ -93,7 +170,7 @@ class ProxmoxClient:
 
             try:
                 async with httpx.AsyncClient(
-                    verify=self.s.pve_verify_ssl,
+                    verify=self.verify_ssl,
                     timeout=20,
                     headers=self.headers,
                 ) as client:
@@ -159,13 +236,13 @@ class ProxmoxClient:
                 f"No host mapping is configured for node {node}."
             )
 
-        if not self.s.endpoints:
+        if not self.endpoints:
             raise ProxmoxError(
                 "No Proxmox API endpoints are configured."
             )
 
         reference_endpoint = urlparse(
-            self.s.endpoints[0]
+            self.endpoints[0]
         )
 
         scheme = reference_endpoint.scheme or "https"
@@ -193,7 +270,7 @@ class ProxmoxClient:
 
         try:
             async with httpx.AsyncClient(
-                verify=self.s.pve_verify_ssl,
+                verify=self.verify_ssl,
                 timeout=20,
                 headers=self.headers,
             ) as api_client:
@@ -530,39 +607,22 @@ class ProxmoxClient:
             "log": log,
         }
 
-    def node_host(self, node: str) -> str | None:
-        raw_mapping = os.getenv("PVE_NODE_HOSTS", "")
+    def node_host(
+        self,
+        node: str,
+    ) -> str | None:
+        host = self.node_hosts.get(
+            node
+        )
 
-        for entry in raw_mapping.split(","):
-            entry = entry.strip()
+        if not host:
+            return None
 
-            if not entry or "=" not in entry:
-                continue
+        resolved_host = str(
+            host
+        ).strip()
 
-            node_name, host = entry.split("=", 1)
-
-            if node_name.strip() == node:
-                resolved_host = host.strip()
-                return resolved_host or None
-
-        return None
-
-    def node_host(self, node: str) -> str | None:
-        raw_mapping = os.getenv("PVE_NODE_HOSTS", "")
-
-        for entry in raw_mapping.split(","):
-            entry = entry.strip()
-
-            if not entry or "=" not in entry:
-                continue
-
-            node_name, host = entry.split("=", 1)
-
-            if node_name.strip() == node:
-                resolved_host = host.strip()
-                return resolved_host or None
-
-        return None
+        return resolved_host or None
 
     async def guest_details(
         self,

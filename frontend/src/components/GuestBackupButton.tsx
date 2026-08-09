@@ -140,6 +140,8 @@ export function GuestBackupButton({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          infrastructure_id:
+            guest.infrastructure_id,
           job_id: selectedJob.id,
           node: guest.node,
           guest_type: guest.type,

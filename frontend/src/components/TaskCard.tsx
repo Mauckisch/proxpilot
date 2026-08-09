@@ -25,6 +25,7 @@ import { getTaskType } from '../utils/taskType';
 
 type TaskCardProps = {
   task: ManagedTask;
+  infrastructureName?: string;
 };
 
 function getStateConfiguration(state: TaskState) {
@@ -78,6 +79,7 @@ function formatDate(value?: string | null): string {
 
 export function TaskCard({
   task,
+  infrastructureName,
 }: TaskCardProps) {
   const state = getStateConfiguration(task.state);
   const taskType = getTaskType(task);
@@ -109,6 +111,16 @@ export function TaskCard({
             </Group>
 
             <Group gap="xs" mt={6}>
+              {task.infrastructure_id != null && (
+                <Badge
+                  variant="light"
+                  color="grape"
+                >
+                  {infrastructureName ??
+                    `Infrastructure ${task.infrastructure_id}`}
+                </Badge>
+              )}
+
               <Badge
                 variant="light"
                 color={taskType.color}

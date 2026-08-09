@@ -1,21 +1,27 @@
 # ProxPilot Installation Guide
 
-This guide explains how to install and configure ProxPilot for a new Proxmox VE environment.
+This guide explains how to install and configure **ProxPilot 1.7.0** for one or more Proxmox VE environments.
 
-Two installation methods are supported:
+ProxPilot 1.7.0 supports multiple independent Proxmox infrastructures. An infrastructure can be either:
 
-- Docker Compose using the published container images (**recommended**)
+- a Proxmox VE cluster
+- a standalone Proxmox VE host
+
+Proxmox API endpoints, API tokens, TLS verification, node addresses and SSH settings are no longer configured through `PVE_*` environment variables. They are managed in the ProxPilot web interface under **Settings → Infrastructure**.
+
+The `.env` file is used only for global ProxPilot application settings such as authentication, sessions, refresh interval and timezone.
+
+This guide covers:
+
+- Docker Compose installation using published images
 - Building ProxPilot from source
-
-The guide also covers:
-
 - Preparing Proxmox VE
-- Creating the required API user
-- Creating the API token
-- Creating custom roles
-- Assigning ACLs
-- Configuring SSH
-- Configuring ProxPilot
+- Creating the API user and token
+- Creating the required custom roles and ACLs
+- Preparing SSH access
+- Configuring global ProxPilot settings
+- Adding clusters and standalone hosts through Infrastructure discovery
+- Adding multiple infrastructures
 - Verifying the installation
 - Updating ProxPilot
 - Troubleshooting
@@ -24,70 +30,14 @@ The guide also covers:
 
 # Installation Methods
 
-## Option 1 — Docker Compose (Recommended)
+## Option 1 — Docker Compose with Published Images (Recommended)
 
-This is the recommended installation method for almost all users.
+This is the recommended installation method for normal and production deployments.
 
-No source code needs to be compiled.
-
-Download the following files from the GitHub repository or the latest GitHub Release:
+Download these files from the ProxPilot repository or a release:
 
 - `docker-compose.yml`
 - `.env.example`
-
-Rename
-
-```text
-.env.example
-```
-
-to
-
-```text
-.env
-```
-
-Open `.env` and configure all required values.
-
-Start ProxPilot:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-`docker compose pull` automatically downloads every required container image:
-
-- ghcr.io/mauckisch/proxpilot-backend
-- ghcr.io/mauckisch/proxpilot-frontend
-
-Verify the installation:
-
-```bash
-docker compose ps
-```
-
-View logs:
-
-```bash
-docker compose logs -f
-```
-
-This installation method is recommended for production environments.
-
----
-
-## Option 2 — Build from Source
-
-This installation method is intended for developers or users who want to modify the source code.
-
-Clone the repository:
-
-```bash
-git clone https://github.com/Mauckisch/proxpilot.git
-
-cd proxpilot
-```
 
 Create the environment file:
 
@@ -95,7 +45,51 @@ Create the environment file:
 cp .env.example .env
 ```
 
-Build and start the containers:
+Edit it before starting ProxPilot:
+
+```bash
+nano .env
+```
+
+Start the containers:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The published images are:
+
+```text
+ghcr.io/mauckisch/proxpilot-backend
+ghcr.io/mauckisch/proxpilot-frontend
+```
+
+Verify:
+
+```bash
+docker compose ps
+```
+
+View logs when required:
+
+```bash
+docker compose logs --tail=100
+```
+
+---
+
+## Option 2 — Build from Source
+
+Use this method for development or when modifying ProxPilot itself.
+
+```bash
+git clone https://github.com/Mauckisch/proxpilot.git
+cd proxpilot
+cp .env.example .env
+```
+
+Edit `.env` and build:
 
 ```bash
 docker compose up -d --build
@@ -107,17 +101,18 @@ Verify:
 docker compose ps
 ```
 
-View logs:
+For the development Compose override used by contributors:
 
 ```bash
-docker compose logs -f
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  up -d --build
 ```
 
 ---
 
 # Requirements
-
-Before installing ProxPilot ensure that the following requirements are met.
 
 ## Software
 
@@ -127,41 +122,45 @@ Before installing ProxPilot ensure that the following requirements are met.
 
 ## Network
 
-The Docker host running ProxPilot must be able to reach every configured Proxmox node.
-
-Required ports:
+The Docker host running ProxPilot must be able to reach every Proxmox node that is added to ProxPilot.
 
 | Port | Protocol | Purpose |
 |------:|:--------:|---------|
-| 22 | TCP | SSH |
+| 22 | TCP | SSH host-level functions |
 | 8006 | TCP | Proxmox VE API |
-| 8085 | TCP | ProxPilot Web Interface |
+| 8085 | TCP | Default ProxPilot web interface |
 
-If a firewall is used, ensure that these ports are reachable.
+For multi-infrastructure installations, this requirement applies independently to every configured cluster and standalone host.
+
+DNS names may be used instead of IP addresses if they are resolvable and reachable from the ProxPilot backend container.
 
 ## Proxmox Requirements
 
-The installation requires:
+For every independent Proxmox infrastructure, prepare:
 
-- A dedicated API user
-- A dedicated API token
-- A dedicated SSH key
-- Custom Proxmox roles
-- Appropriate ACL assignments
+- a dedicated API user
+- a dedicated API token
+- the required Proxmox roles and ACLs
+- SSH access to every node used by ProxPilot
 
-These are configured in the following chapters.
+A cluster only needs to be added once. ProxPilot discovers its nodes from one reachable cluster API endpoint.
+
+A standalone host is added as its own infrastructure.
 
 ---
 
 # Prepare Proxmox VE
 
-Before ProxPilot can communicate with your cluster, a dedicated API account must be created.
+Prepare each independent Proxmox environment before adding it in ProxPilot.
 
-Using a dedicated account is recommended because it allows permissions to be limited to exactly the operations required by ProxPilot.
+For a cluster, create the account, token, roles and ACLs in the cluster configuration. You do not add every cluster node separately as a ProxPilot infrastructure.
 
-Do **not** use the root account for API access.
+For separate standalone hosts or separate clusters, repeat the preparation for each environment as required.
 
-The next chapters describe how to create the required user, token and permissions.
+Do **not** use `root@pam` as the ProxPilot API account.
+
+---
+
 # Create API User
 
 ProxPilot uses a dedicated Proxmox VE API user.
@@ -274,14 +273,14 @@ Create the role:
 
 ```bash
 pveum role add DashboardManager \
-  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Migrate VM.PowerMgmt"
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt VM.GuestAgent.Audit"
 ```
 
 If the role already exists:
 
 ```bash
 pveum role modify DashboardManager \
-  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Migrate VM.PowerMgmt"
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt VM.GuestAgent.Audit"
 ```
 
 ---
@@ -649,254 +648,113 @@ The `ssh/` directory is ignored by Git and should never be committed.
 
 ---
 
-# Configure .env
+# Configure Global ProxPilot Settings
 
-Copy the example configuration.
+ProxPilot 1.7.0 separates global application configuration from Proxmox infrastructure configuration.
 
-```bash
-cp .env.example .env
-```
-
-Open the file in your preferred editor.
-
-```bash
-nano .env
-```
-
-Configure every variable before starting ProxPilot.
-
----
-
-## Proxmox API
-
-### PVE_ENDPOINTS
-
-Comma-separated list of all Proxmox API endpoints.
-
-Example:
+The following settings remain in `.env`:
 
 ```dotenv
-PVE_ENDPOINTS=https://pve1.example.local:8006,https://pve2.example.local:8006,https://pve3.example.local:8006
-```
-
----
-
-### PVE_TOKEN_ID
-
-The full API token ID.
-
-Example:
-
-```dotenv
-PVE_TOKEN_ID=dashboard@pve!dashboard
-```
-
----
-
-### PVE_TOKEN_SECRET
-
-Paste the token secret generated when creating the API token.
-
-Example:
-
-```dotenv
-PVE_TOKEN_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-Never publish this value.
-
----
-
-### PVE_VERIFY_SSL
-
-Enable certificate validation.
-
-```dotenv
-PVE_VERIFY_SSL=true
-```
-
-For self-signed certificates inside trusted homelabs:
-
-```dotenv
-PVE_VERIFY_SSL=false
-```
-
----
-
-## SSH Configuration
-
-### PVE_SSH_USER
-
-Normally:
-
-```dotenv
-PVE_SSH_USER=root
-```
-
----
-
-### PVE_SSH_KEY
-
-Path inside the backend container.
-
-```dotenv
-PVE_SSH_KEY=/app/ssh/id_ed25519
-```
-
----
-
-### PVE_SSH_PORT
-
-Default:
-
-```dotenv
-PVE_SSH_PORT=22
-```
-
----
-
-### PVE_NODE_HOSTS
-
-Maps Proxmox node names to reachable IP addresses or hostnames.
-
-Example:
-
-```dotenv
-PVE_NODE_HOSTS=pve1=192.168.1.10,pve2=192.168.1.11,pve3=192.168.1.12
-```
-
-The names on the left side **must exactly match** the node names reported by Proxmox.
-
----
-
-## General Settings
-
-### REFRESH_INTERVAL
-
-Refresh interval in seconds.
-
-Example:
-
-```dotenv
+TZ=Europe/Berlin
 REFRESH_INTERVAL=10
-```
 
----
-
-## Local Authentication
-
-Enable or disable authentication.
-
-```dotenv
 PROXPILOT_AUTH_ENABLED=true
-```
-
----
-
-Initial administrator username:
-
-```dotenv
 PROXPILOT_AUTH_USERNAME=admin
-```
-
----
-
-Initial administrator password:
-
-```dotenv
 PROXPILOT_AUTH_PASSWORD=replace-with-a-secure-password
+
+PROXPILOT_SESSION_SECRET=replace-with-a-long-random-secret
+
+PROXPILOT_COOKIE_SECURE=false
+PROXPILOT_SESSION_MAX_AGE=43200
 ```
 
----
+The following legacy variables must **not** be used to configure infrastructures in 1.7.0:
 
-Session signing secret.
+```text
+PVE_ENDPOINTS
+PVE_TOKEN_ID
+PVE_TOKEN_SECRET
+PVE_VERIFY_SSL
+PVE_SSH_USER
+PVE_SSH_KEY
+PVE_SSH_PORT
+PVE_NODE_HOSTS
+```
 
-Generate a random secret:
+These settings have been replaced by the Infrastructure configuration in the web interface.
+
+## Session Secret
+
+Generate a strong session secret:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(64))"
 ```
 
-Example:
+Copy the generated value to:
 
 ```dotenv
-PROXPILOT_SESSION_SECRET=replace-with-generated-secret
+PROXPILOT_SESSION_SECRET=...
 ```
 
----
+## Secure Cookies
 
-### PROXPILOT_COOKIE_SECURE
-
-When using HTTPS:
+For HTTPS deployments:
 
 ```dotenv
 PROXPILOT_COOKIE_SECURE=true
 ```
 
-For HTTP development environments only:
+For HTTP-only development or initial local testing:
 
 ```dotenv
 PROXPILOT_COOKIE_SECURE=false
 ```
 
-When Secure cookies are enabled, HTTP logins will not work because browsers refuse to send Secure cookies over unencrypted connections.
+Browsers do not send Secure cookies over plain HTTP. Therefore an HTTP deployment cannot log in correctly when `PROXPILOT_COOKIE_SECURE=true`.
 
----
+## Initial Administrator
 
-### PROXPILOT_SESSION_MAX_AGE
-
-Session lifetime in seconds.
+The configured initial administrator is created only when no local user with that username already exists in the SQLite database.
 
 Example:
 
 ```dotenv
-PROXPILOT_SESSION_MAX_AGE=43200
+PROXPILOT_AUTH_USERNAME=admin
+PROXPILOT_AUTH_PASSWORD=replace-with-a-secure-password
 ```
 
-This example keeps users logged in for 12 hours.
+Use a strong password before exposing ProxPilot to a network.
 
 ---
 
 # First Startup
 
-## Docker Compose Installation
+For the published-image installation:
 
 ```bash
 docker compose pull
-
 docker compose up -d
 ```
 
----
-
-## Source Installation
+For a source build:
 
 ```bash
 docker compose up -d --build
 ```
 
----
-
-Verify that all containers are running.
+Verify:
 
 ```bash
 docker compose ps
 ```
 
-Example:
+The backend should become healthy.
 
-```text
-proxpilot-backend     Up (healthy)
-
-proxpilot-frontend    Up
-```
-
-View the logs:
+Check recent logs if necessary:
 
 ```bash
 docker compose logs --tail=100
-
-docker compose logs -f
 ```
 
 Open ProxPilot:
@@ -905,113 +763,295 @@ Open ProxPilot:
 http://YOUR-SERVER-IP:8085
 ```
 
-If HTTPS is configured through a reverse proxy:
-
-```text
-https://proxpilot.example.com
-```
-# Verify Installation
-
-After starting the containers, verify that ProxPilot is operating correctly.
-
----
-
-## Verify Docker Containers
-
-Check the container status.
-
-```bash
-docker compose ps
-```
-
-Example:
-
-```text
-NAME                   STATUS
-proxpilot-backend      Up (healthy)
-proxpilot-frontend     Up
-```
-
-The backend container should eventually report a healthy status.
-
----
-
-## Verify the Web Interface
-
-Open the application in your browser.
-
-HTTP:
-
-```text
-http://SERVER-IP:8085
-```
-
-HTTPS (recommended):
+or, when a reverse proxy and HTTPS are configured:
 
 ```text
 https://proxpilot.example.com
 ```
 
-The login page should appear if authentication is enabled.
+Log in with the initial local administrator configured in `.env`.
+
+At this point it is normal for no Proxmox resources to be displayed yet. Proxmox environments are added after login.
 
 ---
 
-## Verify Login
+# Add the First Infrastructure
 
-Log in using the administrator account configured in `.env`.
+Open:
+
+```text
+Settings
+→ Infrastructure
+→ Add Infrastructure
+```
+
+ProxPilot first asks for one reachable Proxmox API endpoint and API credentials.
+
+## 1. Enter the API Endpoint
 
 Example:
 
 ```text
-Username: admin
-Password: ********
+https://192.168.1.10:8006
 ```
 
-If LDAP is enabled later, LDAP users can authenticate using their Active Directory credentials.
+For a cluster, enter **one reachable node**. ProxPilot uses discovery to determine that the endpoint belongs to a cluster and discovers the cluster nodes.
+
+For a standalone Proxmox host, enter that host's API endpoint.
+
+## 2. Enter the API Token
+
+Enter:
+
+```text
+Token ID
+Token secret
+```
+
+Example Token ID:
+
+```text
+dashboard@pve!dashboard
+```
+
+The token secret is the value shown by Proxmox when the token was created.
+
+## 3. Configure TLS Verification
+
+The switch is named:
+
+```text
+Verify TLS certificate
+```
+
+Enable it when the Proxmox API certificate is trusted by the ProxPilot backend container.
+
+If the environment uses an untrusted or self-signed certificate, certificate verification may need to remain disabled until a trusted certificate chain is available.
+
+## 4. Test and Discover
+
+Click:
+
+```text
+Test & Discover
+```
+
+Successful authentication displays:
+
+```text
+Infrastructure detected
+```
+
+and confirms that Proxmox API authentication succeeded.
+
+ProxPilot then displays:
+
+- **Type** — `Cluster` or `Standalone`
+- **Cluster name** — when available
+- **Nodes** — number of discovered nodes
+
+Do not save the infrastructure before checking the detected result.
 
 ---
 
-## Verify Dashboard
+# Configure the Detected Infrastructure
 
-Confirm that:
+After successful discovery, complete the remaining fields.
 
-- Cluster summary is displayed
-- Nodes are listed
-- Guest counts are correct
-- Storage information is available
-- No API errors are shown
+## Infrastructure Name
+
+Set:
+
+```text
+Infrastructure name
+```
+
+This is ProxPilot's display name for the environment. It does not rename the actual Proxmox cluster or node.
+
+Use a descriptive name when multiple environments will be managed, for example:
+
+```text
+Production
+Lab
+Datacenter 1
+Remote Site
+```
+
+## Description
+
+The description is optional and can be used to document the purpose or location of the infrastructure.
+
+## Node Addresses
+
+For every discovered node ProxPilot displays:
+
+```text
+Node
+Reachable host / IP
+```
+
+`Node` is the Proxmox node name and is read-only.
+
+`Reachable host / IP` is the address ProxPilot should use for API and SSH communication with that node.
+
+Verify every discovered node carefully.
+
+Examples:
+
+```text
+pve1    192.168.1.10
+pve2    192.168.1.11
+pve3    192.168.1.12
+```
+
+The addresses must be reachable from the ProxPilot backend.
+
+This is particularly important when Proxmox reports node names that are not resolvable inside Docker or when management traffic uses dedicated addresses.
 
 ---
 
-## Verify Nodes
+# Configure SSH for the Infrastructure
 
-Open the **Nodes** page.
+Host-level functions use SSH in addition to the Proxmox API.
 
-Verify:
+The Infrastructure dialog provides:
+
+```text
+SSH user
+SSH port
+SSH key
+```
+
+Typical values are:
+
+```text
+SSH user: root
+SSH port: 22
+SSH key:  /app/ssh/id_ed25519
+```
+
+The SSH key path refers to the path available **inside the backend container**, not an arbitrary host filesystem path.
+
+Before saving, make sure the corresponding key is mounted into the backend container by the Compose configuration.
+
+The same infrastructure-level SSH configuration is used together with the individual `Reachable host / IP` values of its nodes.
+
+After the API, node and SSH settings are correct, save the infrastructure.
+
+---
+
+# Add Additional Infrastructures
+
+Repeat:
+
+```text
+Settings
+→ Infrastructure
+→ Add Infrastructure
+```
+
+for every additional independent Proxmox environment.
+
+Examples include:
+
+- a second Proxmox cluster
+- a standalone lab host
+- a remote Proxmox environment
+- production and development clusters managed by the same ProxPilot instance
+
+Each infrastructure has its own:
+
+- API endpoint
+- Token ID
+- Token secret
+- TLS verification setting
+- discovered topology
+- infrastructure name
+- description
+- node addresses
+- SSH user
+- SSH port
+- SSH key
+
+Resources with identical node names in different infrastructures remain distinguishable because ProxPilot 1.7.0 tracks them by infrastructure.
+
+---
+
+# Cluster vs. Standalone Behavior
+
+## Cluster
+
+Provide one reachable cluster node as the initial API endpoint.
+
+After **Test & Discover**, ProxPilot detects the cluster and lists the nodes belonging to it.
+
+Confirm a reachable address for every node.
+
+Do **not** add each node from the same cluster as a separate infrastructure.
+
+## Standalone
+
+A non-clustered Proxmox VE host is detected as:
+
+```text
+Standalone
+```
+
+It can coexist with clusters and other standalone hosts in the same ProxPilot installation.
+
+---
+
+# Verify the Installation
+
+After saving the infrastructure, verify the installation in stages.
+
+## Infrastructure
+
+Open **Settings → Infrastructure** and confirm:
+
+- the infrastructure is listed
+- the expected type is shown
+- all expected nodes are present
+- node addresses are correct
+- the infrastructure is enabled
+
+## Dashboard
+
+Confirm:
+
+- the infrastructure is available
+- nodes are listed
+- guest counts are plausible
+- storage information is available
+- no API connection error is displayed
+
+With multiple infrastructures, verify data from each environment rather than checking only one cluster.
+
+## Nodes
+
+Open **Nodes** and verify:
 
 - CPU information
-- Memory usage
-- Storage usage
-- Hardware information
-- Network information
-- Temperature information
-- Package update information
+- memory usage
+- storage usage
+- hardware information
+- network information
+- IP addresses
+- temperature information
+- package update information
 
----
-
-## Verify Guests
-
-Confirm that:
-
-- Virtual machines are listed
-- LXC containers are listed
-- Power state is correct
-- Tags are displayed
-- Configuration opens correctly
-
-Test a non-production guest.
+## Guests
 
 Verify:
+
+- QEMU virtual machines are listed
+- LXC containers are listed
+- infrastructure assignment is correct
+- node assignment is correct
+- power state is correct
+- configuration opens correctly
+
+Test management operations only on a non-production guest:
 
 - Start
 - Shutdown
@@ -1020,98 +1060,102 @@ Verify:
 - Suspend
 - Resume
 
----
+## Snapshots
 
-## Verify Snapshots
+On a test guest:
 
-Open a guest.
+- create a snapshot
+- verify that it appears
+- delete the test snapshot
 
-Create a test snapshot.
+Test rollback only when it is safe to modify the guest state.
 
-Verify that:
-
-- Snapshot creation succeeds
-- Snapshot list refreshes
-- Snapshot deletion works
-
----
-
-## Verify Backups
-
-Open the Backups page.
+## Backups
 
 Verify:
 
-- Backup jobs are visible
-- Existing backups are listed
-- Manual backup creation works
+- backup jobs are visible
+- existing backups are listed
+- manual backup creation works
 
----
+## Browser Console
 
-## Verify Browser Console
+Verify:
 
-Open the integrated browser console.
+- QEMU console opens
+- LXC console opens where supported
+- keyboard input works
+- mouse input works where applicable
 
-Verify that:
+The integrated browser console uses WebSockets. HTTPS is strongly recommended.
 
-- The console opens successfully
-- Keyboard input works
-- Mouse input works
+## Node Actions
 
-If the browser console cannot connect, verify HTTPS and reverse proxy configuration.
-
----
-
-## Verify Node Actions
-
-Open the Nodes page.
-
-Test:
+Test non-disruptive operations first:
 
 - Check for updates
-- Package cleanup
-- Maintenance mode
+- Package cleanup where appropriate
+- Maintenance mode on a suitable test node
 
-Avoid rebooting production nodes during the initial verification.
+Do not reboot or shut down production nodes merely to verify the installation.
 
 ---
 
-# Browser Console
+# Temperature Monitoring
 
-The integrated browser console uses noVNC.
+Hardware temperature monitoring requires `lm-sensors` on the relevant Proxmox node.
 
-Unlike ordinary REST API requests, browser consoles rely on WebSockets.
+Install it on Proxmox:
 
-For the best browser compatibility HTTPS is strongly recommended.
+```bash
+apt update
+apt install -y lm-sensors
+sensors-detect --auto
+```
 
-When accessing ProxPilot over HTTPS, configure:
+Verify:
+
+```bash
+sensors
+```
+
+Once sensor data is available on the host, ProxPilot can display the hardware temperatures exposed by the system.
+
+---
+
+# Browser Console and HTTPS
+
+The integrated browser console uses noVNC and WebSockets.
+
+For HTTPS deployments:
 
 ```dotenv
 PROXPILOT_COOKIE_SECURE=true
 ```
 
-For local HTTP-only development:
+For HTTP-only development:
 
 ```dotenv
 PROXPILOT_COOKIE_SECURE=false
 ```
 
-Modern browsers refuse to send Secure cookies over plain HTTP.
+A reverse proxy must support WebSocket forwarding.
 
-If Secure cookies are enabled while using HTTP, login will fail.
+See:
+
+```text
+docs/HTTPS_AND_REVERSE_PROXY.md
+```
+
+for the complete reverse-proxy configuration.
 
 ---
 
 # LDAP Authentication
 
-ProxPilot supports both:
+ProxPilot supports local and LDAP users.
 
-- Local users
-- LDAP users
-
-LDAP configuration is performed through the web interface.
-
-Open:
+LDAP is configured through the web interface:
 
 ```text
 Settings
@@ -1119,34 +1163,28 @@ Settings
 → LDAP
 ```
 
-Configure:
+Configure the LDAP server, bind account, Base DN, user search settings and TLS options there.
 
-- LDAP server
-- Bind DN
-- Bind password
-- Base DN
-- User search filter
-- TLS settings
+Test LDAP before relying on it for administrative access.
 
-Test the connection before enabling LDAP authentication.
+Keep at least one working local administrator account for emergency access.
 
-Local administrator accounts remain available and should always be kept as emergency accounts.
+See:
+
+```text
+docs/AUTHENTICATION.md
+```
 
 ---
 
 # Updating ProxPilot
 
-## Docker Compose Installation
+## Published Docker Images
 
-Pull the latest images.
+Pull the current images:
 
 ```bash
 docker compose pull
-```
-
-Restart the containers.
-
-```bash
 docker compose up -d
 ```
 
@@ -1154,21 +1192,18 @@ Verify:
 
 ```bash
 docker compose ps
-
 docker compose logs --tail=100
 ```
 
----
-
 ## Source Installation
 
-Update the repository.
+Update the repository:
 
 ```bash
 git pull
 ```
 
-Rebuild the containers.
+Rebuild:
 
 ```bash
 docker compose up -d --build
@@ -1178,128 +1213,220 @@ Verify:
 
 ```bash
 docker compose ps
-
 docker compose logs --tail=100
 ```
+
+Persistent configuration stored in the ProxPilot data directory must be preserved during upgrades.
+
+Do not remove the SQLite database as part of a normal update.
 
 ---
 
 # Troubleshooting
 
-## Containers do not start
+## Containers Do Not Start
 
-Validate the Compose configuration.
+Validate Compose:
 
 ```bash
 docker compose config
 ```
 
-View logs.
+Check status:
 
 ```bash
-docker compose logs
+docker compose ps
+```
 
+Check recent logs:
+
+```bash
 docker compose logs --tail=200
 ```
 
----
+## Infrastructure Discovery Fails
 
-## API Authentication Fails
+Check these items in **Add Infrastructure**:
 
-Verify the configured token.
+- API endpoint is reachable from the backend
+- port `8006/TCP` is reachable
+- Token ID is correct
+- Token secret is correct
+- API token still exists in Proxmox
+- required API permissions are assigned
+- TLS verification matches the certificate environment
 
-```bash
-grep PVE_TOKEN_ID .env
-```
-
-Verify that the token exists.
+Verify the token on Proxmox:
 
 ```bash
 pveum user token list dashboard@pve
 ```
 
-Check backend logs.
+Then inspect the backend logs:
 
 ```bash
-docker compose logs backend
+docker compose logs --tail=100 backend
 ```
 
----
+The Proxmox token is no longer diagnosed with `grep PVE_TOKEN_ID .env` because infrastructure credentials are not stored in the legacy `PVE_*` environment variables.
+
+## Cluster Is Detected but a Node Is Unreachable
+
+Check the `Reachable host / IP` value for the affected node under **Settings → Infrastructure**.
+
+The address must be reachable from the ProxPilot backend for the required API and SSH operations.
+
+Test network reachability from the Docker host first.
+
+For SSH:
+
+```bash
+ssh -i ./ssh/id_ed25519 root@NODE-IP hostname
+```
+
+Also verify DNS resolution when hostnames are used.
 
 ## SSH Functions Fail
 
-Verify SSH connectivity.
-
-```bash
-ssh -i ./ssh/id_ed25519 root@pve1 hostname
-```
-
-Check file permissions.
+Verify the key permissions on the Docker host:
 
 ```bash
 ls -l ./ssh/id_ed25519
 ```
 
-Expected:
+The private key should not be world-readable.
 
-```text
--rw-------
-```
-
-Correct them if required.
+Set:
 
 ```bash
 chmod 600 ./ssh/id_ed25519
 ```
 
----
+Test the key directly:
+
+```bash
+ssh -i ./ssh/id_ed25519 root@NODE-IP hostname
+```
+
+Then verify that the Infrastructure configuration uses the correct:
+
+- SSH user
+- SSH port
+- SSH key container path
+- node `Reachable host / IP`
+
+## API Works but Hardware or Update Information Fails
+
+This usually indicates that API communication works while SSH communication does not.
+
+Check SSH connectivity and the Infrastructure SSH settings.
+
+Host-level information such as hardware, SMART, ZFS and package management depends on SSH.
+
+## Wrong Infrastructure or Duplicate Node Names
+
+In 1.7.0 node identity is infrastructure-aware.
+
+When two independent environments contain a node with the same name, verify that both infrastructures were added independently and that each resource is associated with the expected infrastructure.
+
+Do not merge independent environments by manually reusing node addresses.
+
+## IP Addresses Missing from Network Overview
+
+ProxPilot's backend returns network address fields as:
+
+```text
+address
+prefix_length
+```
+
+The frontend must use the same schema.
+
+If this problem appears after a development change, verify that frontend types and consumers are not still expecting legacy field names such as:
+
+```text
+local
+prefixlen
+```
+
+Rebuild the frontend after correcting the schema.
 
 ## Browser Console Does Not Connect
 
 Verify:
 
-- HTTPS is configured correctly.
-- Reverse proxy supports WebSockets.
-- Browser blocks neither cookies nor mixed content.
-- `PROXPILOT_COOKIE_SECURE` matches your deployment.
-
----
+- HTTPS configuration
+- WebSocket forwarding
+- `PROXPILOT_COOKIE_SECURE`
+- browser mixed-content restrictions
+- API permissions including console access
 
 ## Database
 
-Local users and settings are stored in:
+Persistent local ProxPilot data is stored in:
 
 ```text
 ./data/proxpilot.db
 ```
 
-The database is created automatically during the first startup.
+The database is created automatically.
 
-Do not delete this file unless you intentionally want to reset the local configuration.
+It contains persistent ProxPilot configuration and must be preserved during normal updates.
+
+Do not delete it unless you intentionally want to reset the local application state.
 
 ---
 
-# Next Steps
+# Security Notes
 
-Your ProxPilot installation is now complete.
+Never publish or commit:
 
-For additional documentation see:
+```text
+.env
+data/
+ssh/
+```
 
-- `CONFIGURATION.md`
-- `API-PERMISSIONS.md`
-- `AUTHENTICATION.md`
-- `HTTPS_AND_REVERSE_PROXY.md`
-- `TROUBLESHOOTING.md`
-- `DEVELOPMENT.md`
+Never expose:
 
-You are now ready to monitor and manage your Proxmox VE environment using ProxPilot.
+- Proxmox API token secrets
+- local or LDAP passwords
+- SSH private keys
+- session secrets
+- the ProxPilot SQLite database
+
+Use a dedicated Proxmox API account rather than `root@pam`.
+
+Use HTTPS for production deployments.
+
+Enable TLS certificate verification for Proxmox API connections whenever the backend can validate the certificate chain.
+
 ---
 
-# Appendix
+# Backup Before Major Changes
 
-## Default Directory Structure
+At minimum, preserve:
 
-A typical ProxPilot installation looks like this:
+```text
+.env
+data/
+ssh/
+docker-compose.yml
+```
+
+The most important persistent application state is the SQLite database:
+
+```text
+data/proxpilot.db
+```
+
+Infrastructure configuration introduced with ProxPilot 1.7.0 is persistent application data, so protecting the database is especially important in multi-infrastructure deployments.
+
+---
+
+# Default Directory Structure
+
+A source-based installation typically looks like:
 
 ```text
 proxpilot/
@@ -1318,72 +1445,65 @@ proxpilot/
 └── CHANGELOG.md
 ```
 
----
-
-## Files Created Automatically
-
-During the first startup ProxPilot creates the local SQLite database automatically.
-
-```text
-./data/proxpilot.db
-```
-
-No manual database initialization is required.
+The exact source directories are not required when deploying only the published container images.
 
 ---
 
-## Files That Must Never Be Committed
+# Related Documentation
 
-Never commit the following files to Git:
-
-```text
-.env
-data/
-ssh/
-```
-
-The repository already ignores these paths using `.gitignore`.
-
----
-
-## Related Documentation
-
-Additional documentation is available in the `docs` directory.
-
-| Document | Description |
-|----------|-------------|
-| API-PERMISSIONS.md | Required Proxmox permissions |
-| AUTHENTICATION.md | Local users and LDAP |
-| CONFIGURATION.md | Environment variables |
-| DEVELOPMENT.md | Development setup |
-| HTTPS_AND_REVERSE_PROXY.md | HTTPS configuration |
-| TROUBLESHOOTING.md | Common issues |
+| Document | Purpose |
+|----------|---------|
+| `docs/CONFIGURATION.md` | Global application and Infrastructure configuration |
+| `docs/API-PERMISSIONS.md` | Required Proxmox permissions |
+| `docs/AUTHENTICATION.md` | Local users and LDAP |
+| `docs/HTTPS_AND_REVERSE_PROXY.md` | HTTPS, reverse proxies and WebSockets |
+| `docs/TROUBLESHOOTING.md` | Common problems |
+| `docs/DEVELOPMENT.md` | Development and release workflow |
 
 ---
 
-## Getting Help
+# Installation Checklist
 
-If you encounter a problem:
+Before considering the installation complete, verify:
 
-1. Verify the installation steps.
-2. Check the Docker container logs.
-3. Review the troubleshooting guide.
-4. Search existing GitHub Issues.
-5. Open a new issue if the problem persists.
+- Docker containers are running
+- backend is healthy
+- a strong session secret is configured
+- initial administrator login works
+- API user and token exist
+- required Proxmox roles and ACLs are configured
+- SSH key access works
+- at least one Infrastructure was successfully discovered and saved
+- cluster/standalone detection is correct
+- all node addresses are reachable
+- dashboard data is visible
+- node information loads
+- guests are assigned to the correct infrastructure
+- snapshots and backups work where permitted
+- browser console works
+- HTTPS is configured for production
+- persistent `data/` and SSH material are backed up
 
-Please include:
+---
+
+# Getting Help
+
+When reporting a problem, include:
 
 - ProxPilot version
 - Proxmox VE version
+- whether the target is a cluster or standalone host
+- number of configured infrastructures
 - Docker version
-- Browser
-- Relevant log output
-- Steps to reproduce
+- browser
+- relevant log output
+- steps to reproduce
 
 Never include:
 
 - API token secrets
-- Passwords
+- passwords
+- session secrets
 - SSH private keys
 - SQLite databases
 

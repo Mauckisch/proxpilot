@@ -27,6 +27,9 @@ export type AuditEvent = {
   target_type: string | null;
   target: string | null;
   node: string | null;
+  infrastructure_id: number | null;
+  infrastructure_name?: string | null;
+  infrastructure_type?: 'cluster' | 'standalone' | null;
   result: AuditResult;
   severity: AuditSeverity;
   duration_ms: number | null;
@@ -34,6 +37,12 @@ export type AuditEvent = {
     | Record<string, unknown>
     | string
     | null;
+};
+
+export type AuditInfrastructure = {
+  id: number;
+  name: string;
+  type: 'cluster' | 'standalone';
 };
 
 export type AuditFilters = {
@@ -62,6 +71,7 @@ export type AuditResponse = {
   limit: number;
   offset: number;
   retention_days: number;
+  infrastructures: AuditInfrastructure[];
   filters: AuditFilters;
   summary: AuditSummary;
 };
@@ -76,6 +86,7 @@ export type AuditQuery = {
   result?: AuditResult[];
   severity?: AuditSeverity[];
   node?: string[];
+  infrastructure_id?: number[];
   target_type?: string[];
   search?: string | null;
   date_from?: string | null;
@@ -94,6 +105,24 @@ function appendValues(
       params.append(
         key,
         value.trim(),
+      );
+    }
+  }
+}
+
+function appendNumberValues(
+  params: URLSearchParams,
+  key: string,
+  values?: number[],
+) {
+  for (const value of values ?? []) {
+    if (
+      Number.isInteger(value) &&
+      value > 0
+    ) {
+      params.append(
+        key,
+        String(value),
       );
     }
   }
@@ -162,6 +191,12 @@ export function useAuditLog(
         params,
         'node',
         query.node,
+      );
+
+      appendNumberValues(
+        params,
+        'infrastructure_id',
+        query.infrastructure_id,
       );
 
       appendValues(

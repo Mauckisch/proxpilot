@@ -48,6 +48,7 @@ import { useNetwork } from '../hooks/useNetwork';
 import { useUpdates } from '../hooks/useUpdates';
 
 type HostDetailsPageProps = {
+  infrastructureId: number;
   node: string;
   onBack: () => void;
 };
@@ -359,11 +360,20 @@ function smartLabel(
 }
 
 export function HostDetailsPage({
+  infrastructureId,
   node,
   onBack,
 }: HostDetailsPageProps) {
-  const details = useHostDetails(node);
-  const network = useNetwork(node);
+  const details = useHostDetails(
+    infrastructureId,
+    node,
+  );
+
+  const network = useNetwork(
+    infrastructureId,
+    node,
+  );
+
   const updates = useUpdates();
 
   if (details.isLoading) {
@@ -1130,7 +1140,7 @@ export function HostDetailsPage({
                                 {(networkInterface.addresses ?? [])
                                   .map(
                                     (address) =>
-                                      `${address.local}/${address.prefixlen}`,
+                                      `${address.address}/${address.prefix_length}`,
                                   )
                                   .join(', ') || '—'}
                               </Table.Td>

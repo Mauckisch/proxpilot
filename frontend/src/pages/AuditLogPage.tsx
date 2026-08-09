@@ -126,6 +126,11 @@ export function AuditLogPage() {
   const [node, setNode] =
     useState<string[]>([]);
 
+  const [
+    infrastructureId,
+    setInfrastructureId,
+  ] = useState<string[]>([]);
+
   const [targetType, setTargetType] =
     useState<string[]>([]);
 
@@ -172,6 +177,14 @@ export function AuditLogPage() {
     result,
     severity,
     node,
+    infrastructure_id:
+      infrastructureId
+        .map((value) => Number(value))
+        .filter(
+          (value) =>
+            Number.isInteger(value) &&
+            value > 0,
+        ),
     target_type: targetType,
     date_from:
       dateFrom
@@ -289,6 +302,29 @@ export function AuditLogPage() {
       ],
     );
 
+  const infrastructureOptions =
+    useMemo(
+      () =>
+        (
+          audit.data?.infrastructures
+          ?? []
+        ).map((infrastructure) => ({
+          value: String(
+            infrastructure.id,
+          ),
+          label:
+            `${infrastructure.name} · ${
+              infrastructure.type ===
+              'cluster'
+                ? 'Cluster'
+                : 'Standalone'
+            }`,
+        })),
+      [
+        audit.data?.infrastructures,
+      ],
+    );
+
   const targetTypeOptions =
     useMemo(
       () =>
@@ -314,6 +350,7 @@ export function AuditLogPage() {
     setResult([]);
     setSeverity([]);
     setNode([]);
+    setInfrastructureId([]);
     setTargetType([]);
     setDateFrom('');
     setDateTo('');
@@ -420,6 +457,11 @@ export function AuditLogPage() {
       appendValues(
         'node',
         node,
+      );
+
+      appendValues(
+        'infrastructure_id',
+        infrastructureId,
       );
 
       appendValues(
@@ -813,6 +855,21 @@ export function AuditLogPage() {
             />
 
             <MultiSelect
+              label="Infrastructure"
+              placeholder="All infrastructures"
+              searchable
+              clearable
+              value={infrastructureId}
+              data={infrastructureOptions}
+              onChange={(values) => {
+                setInfrastructureId(
+                  values,
+                );
+                setPage(1);
+              }}
+            />
+
+            <MultiSelect
               label="Action"
               placeholder="All actions"
               searchable
@@ -993,6 +1050,10 @@ export function AuditLogPage() {
                 <Table.Th>
                   Node
                 </Table.Th>
+
+                <Table.Th>
+                  Infrastructure
+                </Table.Th>
                 <Table.Th>
                   Result
                 </Table.Th>
@@ -1047,6 +1108,39 @@ export function AuditLogPage() {
 
                     <Table.Td>
                       {event.node ?? '—'}
+                    </Table.Td>
+
+                    <Table.Td>
+                      {event.infrastructure_name ? (
+                        <Stack gap={2}>
+                          <Text fw={600}>
+                            {event.infrastructure_name}
+                          </Text>
+
+                          <Text
+                            size="xs"
+                            c="dimmed"
+                          >
+                            {event.infrastructure_type ===
+                            'cluster'
+                              ? 'Cluster'
+                              : event.infrastructure_type ===
+                                  'standalone'
+                                ? 'Standalone'
+                                : event.infrastructure_id
+                                  ? `ID ${event.infrastructure_id}`
+                                  : '—'}
+                          </Text>
+                        </Stack>
+                      ) : event.infrastructure_id ? (
+                        <Text>
+                          ID {event.infrastructure_id}
+                        </Text>
+                      ) : (
+                        <Text c="dimmed">
+                          —
+                        </Text>
+                      )}
                     </Table.Td>
 
                     <Table.Td>

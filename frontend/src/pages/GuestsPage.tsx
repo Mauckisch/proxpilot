@@ -42,6 +42,26 @@ export function GuestsPage() {
     },
   );
 
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-guests-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
+
   const [search, setSearch] = useState('');
   const [nodeFilter, setNodeFilter] =
     useState<string | null>('all');
@@ -52,10 +72,95 @@ export function GuestsPage() {
   const [selectedGuest, setSelectedGuest] =
     useState<Guest | null>(null);
 
-  const guests = dashboard.data?.guests ?? [];
-  const nodes = sortNodes(
+  const allGuests =
+    dashboard.data?.guests ?? [];
+
+  const allNodes = sortNodes(
     dashboard.data?.nodes ?? [],
   );
+
+  const infrastructures = Array.from(
+    allNodes.reduce(
+      (
+        result,
+        node,
+      ) => {
+        if (
+          !result.has(
+            node.infrastructure_id,
+          )
+        ) {
+          result.set(
+            node.infrastructure_id,
+            {
+              id:
+                node.infrastructure_id,
+              name:
+                node.infrastructure_name,
+              type:
+                node.infrastructure_type,
+            },
+          );
+        }
+
+        return result;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type:
+            | 'cluster'
+            | 'standalone';
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructures.some(
+      (item) =>
+        item.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructures[0]?.id ??
+        null;
+
+  const guests =
+    effectiveInfrastructureId === null
+      ? []
+      : allGuests.filter(
+          (guest) =>
+            guest.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const nodes =
+    effectiveInfrastructureId === null
+      ? []
+      : allNodes.filter(
+          (node) =>
+            node.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const infrastructureOptions =
+    infrastructures.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          infrastructure.type ===
+          'cluster'
+            ? `${infrastructure.name} · Cluster`
+            : `${infrastructure.name} · Standalone`,
+      }),
+    );
 
   const filteredGuests = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -181,7 +286,48 @@ export function GuestsPage() {
             </Text>
           </div>
 
-          <Group gap="xs">
+          <Group gap="xs" align="flex-end">
+            <Select
+              label="Infrastructure"
+              data={infrastructureOptions}
+              value={
+                effectiveInfrastructureId !==
+                null
+                  ? String(
+                      effectiveInfrastructureId,
+                    )
+                  : null
+              }
+              onChange={(value) => {
+                if (!value) {
+                  return;
+                }
+
+                const id = Number(value);
+
+                if (
+                  !Number.isInteger(id) ||
+                  id <= 0
+                ) {
+                  return;
+                }
+
+                setSelectedInfrastructureId(
+                  id,
+                );
+
+                localStorage.setItem(
+                  'proxpilot-guests-infrastructure',
+                  String(id),
+                );
+
+                setNodeFilter('all');
+                setSelectedGuest(null);
+              }}
+              allowDeselect={false}
+              w={300}
+            />
+
             <Badge
               color="green"
               variant="light"
@@ -329,7 +475,10 @@ export function GuestsPage() {
           >
             {filteredGuests.map((guest) => (
               <GuestCard
-                key={`${guest.node}-${guest.type}-${guest.vmid}`}
+                key={
+                  `${guest.infrastructure_id}-` +
+                  `${guest.node}-${guest.type}-${guest.vmid}`
+                }
                 guest={guest}
                 actionRunning={
                   guestActions.actionRunning

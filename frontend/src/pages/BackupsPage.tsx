@@ -116,6 +116,26 @@ function retentionText(
 export function BackupsPage() {
   const dashboard = useDashboard();
 
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-backups-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
+
   const [search, setSearch] = useState('');
   const [nodeFilter, setNodeFilter] =
     useState<string | null>('all');
@@ -134,12 +154,119 @@ export function BackupsPage() {
   const [backupError, setBackupError] =
     useState<string | null>(null);
 
-  const jobs = dashboard.data?.backup_jobs ?? [];
-  const tasks = dashboard.data?.backup_tasks ?? [];
-  const guests = dashboard.data?.guests ?? [];
-  const nodes = sortNodes(
+  const allJobs =
+    dashboard.data?.backup_jobs ?? [];
+
+  const allTasks =
+    dashboard.data?.backup_tasks ?? [];
+
+  const allGuests =
+    dashboard.data?.guests ?? [];
+
+  const allNodes = sortNodes(
     dashboard.data?.nodes ?? [],
   );
+
+  const infrastructures = Array.from(
+    allNodes.reduce(
+      (
+        result,
+        node,
+      ) => {
+        if (
+          !result.has(
+            node.infrastructure_id,
+          )
+        ) {
+          result.set(
+            node.infrastructure_id,
+            {
+              id:
+                node.infrastructure_id,
+              name:
+                node.infrastructure_name,
+              type:
+                node.infrastructure_type,
+            },
+          );
+        }
+
+        return result;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type:
+            | 'cluster'
+            | 'standalone';
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructures.some(
+      (item) =>
+        item.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructures[0]?.id ??
+        null;
+
+  const jobs =
+    effectiveInfrastructureId === null
+      ? []
+      : allJobs.filter(
+          (job) =>
+            job.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const tasks =
+    effectiveInfrastructureId === null
+      ? []
+      : allTasks.filter(
+          (task) =>
+            task.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const guests =
+    effectiveInfrastructureId === null
+      ? []
+      : allGuests.filter(
+          (guest) =>
+            guest.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const nodes =
+    effectiveInfrastructureId === null
+      ? []
+      : allNodes.filter(
+          (node) =>
+            node.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const infrastructureOptions =
+    infrastructures.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          infrastructure.type ===
+          'cluster'
+            ? `${infrastructure.name} · Cluster`
+            : `${infrastructure.name} · Standalone`,
+      }),
+    );
 
   const guestNames = useMemo(() => {
     const result = new Map<number, string>();
@@ -244,6 +371,8 @@ export function BackupsPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          infrastructure_id:
+            effectiveInfrastructureId,
           job_id: jobId,
           confirmed: true,
         }),
@@ -333,14 +462,57 @@ export function BackupsPage() {
           </Text>
         </div>
 
-        <Button
-          variant="light"
-          leftSection={<IconRefresh size={16} />}
+        <Group gap="xs" align="flex-end">
+          <Select
+            label="Infrastructure"
+            data={infrastructureOptions}
+            value={
+              effectiveInfrastructureId !==
+              null
+                ? String(
+                    effectiveInfrastructureId,
+                  )
+                : null
+            }
+            onChange={(value) => {
+              if (!value) {
+                return;
+              }
+
+              const id = Number(value);
+
+              if (
+                !Number.isInteger(id) ||
+                id <= 0
+              ) {
+                return;
+              }
+
+              setSelectedInfrastructureId(
+                id,
+              );
+
+              localStorage.setItem(
+                'proxpilot-backups-infrastructure',
+                String(id),
+              );
+
+              setNodeFilter('all');
+              setSelectedTask(null);
+            }}
+            allowDeselect={false}
+            w={300}
+          />
+
+          <Button
+            variant="light"
+            leftSection={<IconRefresh size={16} />}
           loading={dashboard.isFetching}
           onClick={() => dashboard.refetch()}
         >
           Refresh
         </Button>
+        </Group>
       </Group>
 
       {backupMessage && (

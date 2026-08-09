@@ -10,6 +10,7 @@ export interface PackageUpdate {
 }
 
 export interface NodeUpdateStatus {
+  infrastructure_id: number | null;
   node: string;
   checked_at: string | null;
   updates: number;

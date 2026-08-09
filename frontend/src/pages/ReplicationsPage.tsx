@@ -39,21 +39,140 @@ import { sortNodes } from '../utils/sort';
 export function ReplicationsPage() {
   const dashboard = useDashboard();
 
+  const [
+    selectedInfrastructureId,
+    setSelectedInfrastructureId,
+  ] = useState<number | null>(() => {
+    const stored = localStorage.getItem(
+      'proxpilot-replications-infrastructure',
+    );
+
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = Number(stored);
+
+    return Number.isInteger(parsed) &&
+      parsed > 0
+      ? parsed
+      : null;
+  });
+
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] =
     useState<string | null>('all');
   const [targetFilter, setTargetFilter] =
     useState<string | null>('all');
 
-  const replications =
+  const allReplications =
     dashboard.data?.replications ?? [];
 
-  const guests =
+  const allGuests =
     dashboard.data?.guests ?? [];
 
-  const nodes = sortNodes(
+  const allNodes = sortNodes(
     dashboard.data?.nodes ?? [],
   );
+
+  const infrastructures = Array.from(
+    allNodes.reduce(
+      (
+        result,
+        node,
+      ) => {
+        if (
+          !result.has(
+            node.infrastructure_id,
+          )
+        ) {
+          result.set(
+            node.infrastructure_id,
+            {
+              id:
+                node.infrastructure_id,
+              name:
+                node.infrastructure_name,
+              type:
+                node.infrastructure_type,
+            },
+          );
+        }
+
+        return result;
+      },
+      new Map<
+        number,
+        {
+          id: number;
+          name: string;
+          type:
+            | 'cluster'
+            | 'standalone';
+        }
+      >(),
+    ).values(),
+  ).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const effectiveInfrastructureId =
+    infrastructures.some(
+      (item) =>
+        item.id ===
+        selectedInfrastructureId,
+    )
+      ? selectedInfrastructureId
+      : infrastructures[0]?.id ??
+        null;
+
+  const selectedInfrastructure =
+    infrastructures.find(
+      (item) =>
+        item.id ===
+        effectiveInfrastructureId,
+    ) ?? null;
+
+  const replications =
+    effectiveInfrastructureId === null
+      ? []
+      : allReplications.filter(
+          (replication) =>
+            replication.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const guests =
+    effectiveInfrastructureId === null
+      ? []
+      : allGuests.filter(
+          (guest) =>
+            guest.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const nodes =
+    effectiveInfrastructureId === null
+      ? []
+      : allNodes.filter(
+          (node) =>
+            node.infrastructure_id ===
+            effectiveInfrastructureId,
+        );
+
+  const infrastructureOptions =
+    infrastructures.map(
+      (infrastructure) => ({
+        value: String(
+          infrastructure.id,
+        ),
+        label:
+          infrastructure.type ===
+          'cluster'
+            ? `${infrastructure.name} · Cluster`
+            : `${infrastructure.name} · Standalone`,
+      }),
+    );
 
   const guestByVmid = useMemo(() => {
     const map = new Map<number, Guest>();
@@ -196,7 +315,48 @@ export function ReplicationsPage() {
           </Text>
         </div>
 
-        <Group gap="xs">
+        <Group gap="xs" align="flex-end">
+          <Select
+            label="Infrastructure"
+            data={infrastructureOptions}
+            value={
+              effectiveInfrastructureId !==
+              null
+                ? String(
+                    effectiveInfrastructureId,
+                  )
+                : null
+            }
+            onChange={(value) => {
+              if (!value) {
+                return;
+              }
+
+              const id = Number(value);
+
+              if (
+                !Number.isInteger(id) ||
+                id <= 0
+              ) {
+                return;
+              }
+
+              setSelectedInfrastructureId(
+                id,
+              );
+
+              localStorage.setItem(
+                'proxpilot-replications-infrastructure',
+                String(id),
+              );
+
+              setSourceFilter('all');
+              setTargetFilter('all');
+            }}
+            allowDeselect={false}
+            w={300}
+          />
+
           <Badge
             size="lg"
             color="blue"
@@ -226,6 +386,18 @@ export function ReplicationsPage() {
         </Group>
       </Group>
 
+      {selectedInfrastructure?.type ===
+      'standalone' ? (
+        <Alert
+          color="blue"
+          icon={<IconAlertCircle size={20} />}
+          title="Replication not available"
+        >
+          ZFS replication is a cluster feature.
+          This infrastructure is configured as a
+          standalone Proxmox host.
+        </Alert>
+      ) : (
       <SimpleGrid
         cols={{
           base: 1,
@@ -266,7 +438,10 @@ export function ReplicationsPage() {
           </Card>
         ))}
       </SimpleGrid>
+      )}
 
+      {selectedInfrastructure?.type !==
+        'standalone' && (
       <Group align="flex-end">
         <TextInput
           label="Search"
@@ -332,7 +507,10 @@ export function ReplicationsPage() {
           </Button>
         )}
       </Group>
+      )}
 
+      {selectedInfrastructure?.type !==
+        'standalone' && (
       <Group justify="space-between">
         <Text size="sm" c="dimmed">
           Showing {filteredReplications.length} of{' '}
@@ -353,7 +531,11 @@ export function ReplicationsPage() {
           </Text>
         </Group>
       </Group>
+      )}
 
+      {selectedInfrastructure?.type !==
+        'standalone' && (
+      <>
       {filteredReplications.length === 0 ? (
         <Alert
           color="blue"
@@ -385,6 +567,8 @@ export function ReplicationsPage() {
             ),
           )}
         </SimpleGrid>
+      )}
+      </>
       )}
     </Stack>
   );

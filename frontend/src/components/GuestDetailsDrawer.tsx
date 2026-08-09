@@ -334,6 +334,12 @@ export function GuestDetailsDrawer({
           `/guest/${encodeURIComponent(
             guest.node,
           )}/${validGuestType}/${guest.vmid}`,
+          {
+            params: {
+              infrastructure_id:
+                guest.infrastructure_id,
+            },
+          },
         );
 
       setDetails(response.data);
@@ -411,6 +417,8 @@ export function GuestDetailsDrawer({
             )}`,
             {
               params: {
+                infrastructure_id:
+                  guest.infrastructure_id,
                 upid: migrationUpid,
               },
             },
@@ -632,6 +640,8 @@ export function GuestDetailsDrawer({
         await api.post<MigrationResponse>(
           '/guest/migrate',
           {
+            infrastructure_id:
+              guest.infrastructure_id,
             node: guest.node,
             guest_type: validGuestType,
             vmid: guest.vmid,
@@ -718,6 +728,8 @@ export function GuestDetailsDrawer({
     }
 
     const parameters = new URLSearchParams({
+      infrastructure_id:
+        String(guest.infrastructure_id),
       node: guest.node,
       guest_type: guestType,
       vmid: String(guest.vmid),
