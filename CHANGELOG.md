@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.7.2] - 2026-08-10
+
+### Added
+
+- Added automatic generation of a persistent Ed25519 SSH key pair during ProxPilot startup when no SSH key exists yet.
+- Added an API endpoint for retrieving the ProxPilot SSH public key.
+- Added the ProxPilot SSH public key to the infrastructure setup dialog with a copy-to-clipboard action for easier host enrollment.
+- Added automatic reconstruction of a missing public key from an existing Ed25519 private key.
+
+### Changed
+
+- New infrastructures now automatically use the managed ProxPilot SSH private key at `/app/ssh/id_ed25519`.
+- SSH key storage is persisted through the existing `./ssh:/app/ssh` Docker volume mount.
+- Infrastructure setup no longer requires users to manually enter the SSH private key path.
+
+### Security
+
+- Automatically generated SSH private keys are stored with `0600` permissions and public keys with `0644` permissions.
+- Existing SSH key pairs are preserved and are never silently regenerated or replaced.
+- ProxPilot refuses to silently generate a replacement private key when only a public key exists, preventing accidental loss of SSH trust relationships.
+
 ## [1.7.1] - 2026-08-09
 
 ### Fixed

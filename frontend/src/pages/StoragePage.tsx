@@ -24,11 +24,18 @@ import {
 } from '@tabler/icons-react';
 
 import {
+  InfrastructureSelectOption,
+} from '../components/InfrastructureSelectOption';
+import {
   StorageCard,
 } from '../components/StorageCard';
 import {
   useDashboard,
 } from '../hooks/useDashboard';
+import {
+  getInfrastructureHealth,
+  getInfrastructureHealthLabel,
+} from '../utils/infrastructureHealth';
 import {
   compareNaturalNames,
   sortNodes,
@@ -145,16 +152,35 @@ export function StoragePage() {
 
   const infrastructureOptions =
     infrastructures.map(
-      (infrastructure) => ({
-        value: String(
-          infrastructure.id,
-        ),
-        label:
-          infrastructure.type ===
-          'cluster'
-            ? `${infrastructure.name} · Cluster`
-            : `${infrastructure.name} · Standalone`,
-      }),
+      (infrastructure) => {
+        const health =
+          getInfrastructureHealth(
+            allNodes.filter(
+              (node) =>
+                node.infrastructure_id ===
+                infrastructure.id,
+            ),
+          );
+
+        return {
+          value: String(
+            infrastructure.id,
+          ),
+          label: `${
+            infrastructure.name
+          } · ${
+            infrastructure.type ===
+            'cluster'
+              ? 'Cluster'
+              : 'Standalone'
+          } · ${
+            getInfrastructureHealthLabel(
+              health,
+            )
+          }`,
+          health,
+        };
+      },
     );
 
   const storageTypes = useMemo(() => {
@@ -329,6 +355,24 @@ export function StoragePage() {
           <Select
             label="Infrastructure"
             data={infrastructureOptions}
+            renderOption={({ option }) => {
+              const infrastructure =
+                infrastructureOptions.find(
+                  (item) =>
+                    item.value ===
+                    option.value,
+                );
+
+              return (
+                <InfrastructureSelectOption
+                  label={option.label}
+                  health={
+                    infrastructure?.health ??
+                    'disconnected'
+                  }
+                />
+              );
+            }}
             value={
               effectiveInfrastructureId !==
               null

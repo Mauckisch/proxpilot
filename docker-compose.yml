@@ -11,7 +11,7 @@ services:
       TZ: ${TZ:-UTC}
 
     volumes:
-      - ./ssh:/app/ssh:ro
+      - ./ssh:/app/ssh
       - ./data:/app/data
 
     expose:

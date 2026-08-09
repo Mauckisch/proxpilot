@@ -35,9 +35,17 @@ import {
 } from 'react';
 
 import { api } from '../api';
+import {
+  InfrastructureSelectOption,
+} from '../components/InfrastructureSelectOption';
 import { ACTIONS } from '../constants/schedulerActions';
 import { useAuth } from '../auth';
 import { useDashboard } from '../hooks/useDashboard';
+import {
+  getInfrastructureHealth,
+  getInfrastructureHealthLabel,
+} from '../utils/infrastructureHealth';
+
 import {
   type ScheduledTask,
   type ScheduledTaskInput,
@@ -247,19 +255,23 @@ export function TaskSchedulerPage({
 
   const infrastructureOptions =
     useMemo(() => {
+      const nodes =
+        dashboard.data?.nodes ?? [];
+
       const seen =
         new Map<
           number,
           {
             value: string;
             label: string;
+            health:
+              | 'online'
+              | 'partial'
+              | 'disconnected';
           }
         >();
 
-      for (
-        const entry
-        of dashboard.data?.nodes ?? []
-      ) {
+      for (const entry of nodes) {
         if (
           seen.has(
             entry.infrastructure_id,
@@ -268,17 +280,37 @@ export function TaskSchedulerPage({
           continue;
         }
 
+        const infrastructureNodes =
+          nodes.filter(
+            (node) =>
+              node.infrastructure_id ===
+              entry.infrastructure_id,
+          );
+
+        const health =
+          getInfrastructureHealth(
+            infrastructureNodes,
+          );
+
         seen.set(
           entry.infrastructure_id,
           {
             value: String(
               entry.infrastructure_id,
             ),
-            label:
+            label: `${
+              entry.infrastructure_name
+            } · ${
               entry.infrastructure_type ===
               'cluster'
-                ? `${entry.infrastructure_name} · Cluster`
-                : `${entry.infrastructure_name} · Standalone`,
+                ? 'Cluster'
+                : 'Standalone'
+            } · ${
+              getInfrastructureHealthLabel(
+                health,
+              )
+            }`,
+            health,
           },
         );
       }
@@ -1129,6 +1161,24 @@ export function TaskSchedulerPage({
             data={
               infrastructureOptions
             }
+            renderOption={({ option }) => {
+              const infrastructure =
+                infrastructureOptions.find(
+                  (item) =>
+                    item.value ===
+                    option.value,
+                );
+
+              return (
+                <InfrastructureSelectOption
+                  label={option.label}
+                  health={
+                    infrastructure?.health ??
+                    'disconnected'
+                  }
+                />
+              );
+            }}
             value={
               infrastructureId !== null
                 ? String(

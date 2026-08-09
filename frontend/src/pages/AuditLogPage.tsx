@@ -28,6 +28,14 @@ import { useMemo, useState } from 'react';
 
 import { useAuth } from '../auth';
 import {
+  InfrastructureSelectOption,
+} from '../components/InfrastructureSelectOption';
+import { useDashboard } from '../hooks/useDashboard';
+import {
+  getInfrastructureHealth,
+  getInfrastructureHealthLabel,
+} from '../utils/infrastructureHealth';
+import {
   type AuditEvent,
   type AuditResult,
   type AuditSeverity,
@@ -98,6 +106,7 @@ function prettyDetails(
 
 export function AuditLogPage() {
   const { isAdmin } = useAuth();
+  const dashboard = useDashboard();
 
   const [page, setPage] =
     useState(1);
@@ -308,20 +317,40 @@ export function AuditLogPage() {
         (
           audit.data?.infrastructures
           ?? []
-        ).map((infrastructure) => ({
-          value: String(
-            infrastructure.id,
-          ),
-          label:
-            `${infrastructure.name} · ${
-              infrastructure.type ===
-              'cluster'
-                ? 'Cluster'
-                : 'Standalone'
-            }`,
-        })),
+        ).map((infrastructure) => {
+          const health =
+            getInfrastructureHealth(
+              (
+                dashboard.data?.nodes
+                ?? []
+              ).filter(
+                (node) =>
+                  node.infrastructure_id ===
+                  infrastructure.id,
+              ),
+            );
+
+          return {
+            value: String(
+              infrastructure.id,
+            ),
+            label:
+              `${infrastructure.name} · ${
+                infrastructure.type ===
+                'cluster'
+                  ? 'Cluster'
+                  : 'Standalone'
+              } · ${
+                getInfrastructureHealthLabel(
+                  health,
+                )
+              }`,
+            health,
+          };
+        }),
       [
         audit.data?.infrastructures,
+        dashboard.data?.nodes,
       ],
     );
 
@@ -861,6 +890,24 @@ export function AuditLogPage() {
               clearable
               value={infrastructureId}
               data={infrastructureOptions}
+              renderOption={({ option }) => {
+                const infrastructure =
+                  infrastructureOptions.find(
+                    (item) =>
+                      item.value ===
+                      option.value,
+                  );
+
+                return (
+                  <InfrastructureSelectOption
+                    label={option.label}
+                    health={
+                      infrastructure?.health ??
+                      'disconnected'
+                    }
+                  />
+                );
+              }}
               onChange={(values) => {
                 setInfrastructureId(
                   values,

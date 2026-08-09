@@ -1,4 +1,5 @@
 import {
+  Alert,
   Badge,
   Card,
   Group,
@@ -160,25 +161,58 @@ export function NodeCard({
   const storagePercent = percent(node.disk, node.maxdisk);
   const online = node.status?.toLowerCase() === 'online';
 
+  const disconnected =
+    node.status?.toLowerCase() ===
+    'disconnected';
+
+  const effectiveReadonly =
+    readonly || disconnected;
+
   return (
     <Card
       withBorder
       radius="md"
       padding="lg"
       style={{
-        cursor: 'pointer',
+        cursor:
+          disconnected
+            ? 'default'
+            : 'pointer',
         height: '100%',
         transition:
           'transform 120ms ease, box-shadow 120ms ease',
+        opacity:
+          disconnected
+            ? 0.78
+            : 1,
       }}
-      onClick={() => onOpenDetails?.(node)}
+      onClick={
+        disconnected
+          ? undefined
+          : () => onOpenDetails?.(node)
+      }
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (disconnected) {
+          return;
+        }
+
+        if (
+          event.key === 'Enter' ||
+          event.key === ' '
+        ) {
           onOpenDetails?.(node);
         }
       }}
-      tabIndex={0}
-      role="button"
+      tabIndex={
+        disconnected
+          ? -1
+          : 0
+      }
+      role={
+        disconnected
+          ? undefined
+          : 'button'
+      }
     >
       <Stack gap="md" h="100%">
         <Stack gap="sm">
@@ -250,7 +284,11 @@ export function NodeCard({
                   whiteSpace: 'nowrap',
                 }}
               >
-                Uptime: {formatUptime(node.uptime)}
+                {disconnected
+                  ? 'Live data unavailable'
+                  : `Uptime: ${formatUptime(
+                      node.uptime,
+                    )}`}
               </Text>
             </Group>
 
@@ -276,7 +314,7 @@ export function NodeCard({
                   : 'Normal'}
               </Badge>
 
-              {!readonly && (
+              {!effectiveReadonly && (
                 <>
                   <Badge
                     color={
@@ -346,65 +384,90 @@ export function NodeCard({
           </Group>
         </Stack>
 
-        <SimpleGrid cols={1}>
-          <Metric
-            label="CPU usage"
-            value={cpuPercent}
-            color={getMetricColor(cpuPercent, 70)}
-          />
+        {disconnected ? (
+          <Alert
+            color="red"
+            variant="light"
+            icon={
+              <IconAlertTriangle size={18} />
+            }
+            title="Node disconnected"
+          >
+            Live CPU, memory, storage and system
+            information is currently unavailable.
+          </Alert>
+        ) : (
+          <>
+            <SimpleGrid cols={1}>
+              <Metric
+                label="CPU usage"
+                value={cpuPercent}
+                color={getMetricColor(
+                  cpuPercent,
+                  70,
+                )}
+              />
 
-          <Metric
-            label="Memory usage"
-            value={memoryPercent}
-            color={getMetricColor(memoryPercent, 75)}
-          />
+              <Metric
+                label="Memory usage"
+                value={memoryPercent}
+                color={getMetricColor(
+                  memoryPercent,
+                  75,
+                )}
+              />
 
-          {node.maxdisk ? (
-            <Metric
-              label="Storage usage"
-              value={storagePercent}
-              color={getMetricColor(storagePercent, 80)}
-            />
-          ) : null}
-        </SimpleGrid>
+              {node.maxdisk ? (
+                <Metric
+                  label="Storage usage"
+                  value={storagePercent}
+                  color={getMetricColor(
+                    storagePercent,
+                    80,
+                  )}
+                />
+              ) : null}
+            </SimpleGrid>
 
-        <Group justify="space-between">
-          <div>
-            <Text size="xs" c="dimmed">
-              Memory
-            </Text>
+            <Group justify="space-between">
+              <div>
+                <Text size="xs" c="dimmed">
+                  Memory
+                </Text>
 
-            <Text size="sm" fw={600}>
-              {formatBytes(node.mem)} of{' '}
-              {formatBytes(node.maxmem)}
-            </Text>
-          </div>
+                <Text size="sm" fw={600}>
+                  {formatBytes(node.mem)} of{' '}
+                  {formatBytes(node.maxmem)}
+                </Text>
+              </div>
 
-          <div>
-            <Text size="xs" c="dimmed">
-              CPU cores
-            </Text>
+              <div>
+                <Text size="xs" c="dimmed">
+                  CPU cores
+                </Text>
 
-            <Text size="sm" fw={600}>
-              {node.maxcpu ?? 'Unknown'}
-            </Text>
-          </div>
-        </Group>
+                <Text size="sm" fw={600}>
+                  {node.maxcpu ?? 'Unknown'}
+                </Text>
+              </div>
+            </Group>
 
-        {node.maxdisk ? (
-          <Group justify="space-between">
-            <Text size="sm" c="dimmed">
-              Storage
-            </Text>
+            {node.maxdisk ? (
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed">
+                  Storage
+                </Text>
 
-            <Text size="sm" fw={600}>
-              {formatBytes(node.disk)} of{' '}
-              {formatBytes(node.maxdisk)}
-            </Text>
-          </Group>
-        ) : null}
+                <Text size="sm" fw={600}>
+                  {formatBytes(node.disk)} of{' '}
+                  {formatBytes(node.maxdisk)}
+                </Text>
+              </Group>
+            ) : null}
+          </>
+        )}
 
-        {!readonly && (
+        {!effectiveReadonly && (
           <Stack
             gap="md"
             mt="auto"

@@ -92,6 +92,11 @@ from .infrastructures import (
     update_infrastructure,
 )
 from .update_cache import update_cache
+from .ssh_keys import (
+    SshKeyError,
+    ensure_ssh_keypair,
+    get_ssh_public_key,
+)
 from .tasks import (
     manager,
     start_backup_task,
@@ -465,6 +470,8 @@ async def initialize_application() -> None:
 
     initialize_database()
 
+    ensure_ssh_keypair()
+
     if settings.proxpilot_auth_enabled:
         ensure_initial_admin(
             username=settings.proxpilot_auth_username,
@@ -719,6 +726,25 @@ async def health():
     return {
         "status": "ok",
         "version": APP_VERSION,
+    }
+
+
+@app.get("/api/ssh/public-key")
+async def ssh_public_key():
+    try:
+        public_key = get_ssh_public_key()
+
+    except SshKeyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "algorithm": "ssh-ed25519",
+        "public_key": public_key,
+        "private_key_path":
+            "/app/ssh/id_ed25519",
     }
 
 
@@ -2621,6 +2647,80 @@ async def dashboard():
                         result["error"],
                 }
             )
+
+            infrastructure = next(
+                (
+                    item
+                    for item in infrastructures
+                    if int(
+                        item["id"]
+                    )
+                    == int(
+                        result[
+                            "infrastructure_id"
+                        ]
+                    )
+                ),
+                None,
+            )
+
+            if infrastructure is not None:
+                infrastructure_id = int(
+                    infrastructure["id"]
+                )
+
+                infrastructure_name = str(
+                    infrastructure["name"]
+                )
+
+                infrastructure_type = str(
+                    infrastructure["type"]
+                )
+
+                for configured_node in (
+                    infrastructure.get(
+                        "nodes",
+                        [],
+                    )
+                    or []
+                ):
+                    if not configured_node.get(
+                        "enabled"
+                    ):
+                        continue
+
+                    node_name = str(
+                        configured_node.get(
+                            "node_name",
+                            "",
+                        )
+                    ).strip()
+
+                    if not node_name:
+                        continue
+
+                    aggregated[
+                        "nodes"
+                    ].append(
+                        {
+                            "node":
+                                node_name,
+                            "host":
+                                configured_node.get(
+                                    "host"
+                                ),
+                            "status":
+                                "disconnected",
+                            "maintenance":
+                                False,
+                            "infrastructure_id":
+                                infrastructure_id,
+                            "infrastructure_name":
+                                infrastructure_name,
+                            "infrastructure_type":
+                                infrastructure_type,
+                        }
+                    )
 
             continue
 

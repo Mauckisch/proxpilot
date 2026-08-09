@@ -99,6 +99,7 @@ async function fetchNetwork(
 export function useNetwork(
   infrastructureId: number,
   node: string,
+  enabled = true,
 ) {
   return useQuery({
     queryKey: [
@@ -112,6 +113,7 @@ export function useNetwork(
         node,
       ),
     enabled:
+      enabled &&
       infrastructureId > 0 &&
       Boolean(node),
     refetchInterval: 15000,

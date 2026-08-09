@@ -23,9 +23,16 @@ import {
   IconSearch,
 } from '@tabler/icons-react';
 
+import {
+  InfrastructureSelectOption,
+} from '../components/InfrastructureSelectOption';
 import { TaskCard } from '../components/TaskCard';
 import { useDashboard } from '../hooks/useDashboard';
 import { useTasks } from '../hooks/useTasks';
+import {
+  getInfrastructureHealth,
+  getInfrastructureHealthLabel,
+} from '../utils/infrastructureHealth';
 import {
   getTaskType,
   type TaskType,
@@ -138,16 +145,35 @@ export function TasksPage({
 
   const infrastructureOptions =
     infrastructures.map(
-      (infrastructure) => ({
-        value: String(
-          infrastructure.id,
-        ),
-        label:
-          infrastructure.type ===
-          'cluster'
-            ? `${infrastructure.name} · Cluster`
-            : `${infrastructure.name} · Standalone`,
-      }),
+      (infrastructure) => {
+        const health =
+          getInfrastructureHealth(
+            dashboardNodes.filter(
+              (node) =>
+                node.infrastructure_id ===
+                infrastructure.id,
+            ),
+          );
+
+        return {
+          value: String(
+            infrastructure.id,
+          ),
+          label: `${
+            infrastructure.name
+          } · ${
+            infrastructure.type ===
+            'cluster'
+              ? 'Cluster'
+              : 'Standalone'
+          } · ${
+            getInfrastructureHealthLabel(
+              health,
+            )
+          }`,
+          health,
+        };
+      },
     );
 
   const tasks =
@@ -366,6 +392,24 @@ export function TasksPage({
           <Select
             label="Infrastructure"
             data={infrastructureOptions}
+            renderOption={({ option }) => {
+              const infrastructure =
+                infrastructureOptions.find(
+                  (item) =>
+                    item.value ===
+                    option.value,
+                );
+
+              return (
+                <InfrastructureSelectOption
+                  label={option.label}
+                  health={
+                    infrastructure?.health ??
+                    'disconnected'
+                  }
+                />
+              );
+            }}
             value={
               effectiveInfrastructureId !==
               null

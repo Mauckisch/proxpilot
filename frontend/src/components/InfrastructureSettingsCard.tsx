@@ -21,6 +21,7 @@ import {
   IconBuilding,
   IconCheck,
   IconCloudNetwork,
+  IconCopy,
   IconEdit,
   IconPlus,
   IconRefresh,
@@ -192,11 +193,24 @@ export function InfrastructureSettingsCard() {
   ] = useState('22');
 
   const [
-    sshKey,
-    setSshKey,
-  ] = useState(
-    '/app/ssh/id_ed25519',
-  );
+    sshPublicKey,
+    setSshPublicKey,
+  ] = useState('');
+
+  const [
+    sshPublicKeyLoading,
+    setSshPublicKeyLoading,
+  ] = useState(false);
+
+  const [
+    sshPublicKeyError,
+    setSshPublicKeyError,
+  ] = useState<string | null>(null);
+
+  const [
+    sshPublicKeyCopied,
+    setSshPublicKeyCopied,
+  ] = useState(false);
 
   const [
     discovery,
@@ -291,6 +305,38 @@ export function InfrastructureSettingsCard() {
   }, []);
 
 
+  async function loadSshPublicKey() {
+    setSshPublicKeyLoading(true);
+    setSshPublicKeyError(null);
+
+    try {
+      const response =
+        await api.get<{
+          algorithm: string;
+          public_key: string;
+          private_key_path: string;
+        }>(
+          '/ssh/public-key',
+        );
+
+      setSshPublicKey(
+        response.data.public_key ?? '',
+      );
+    } catch (error) {
+      setSshPublicKey('');
+
+      setSshPublicKeyError(
+        extractErrorMessage(
+          error,
+          'ProxPilot SSH public key could not be loaded.',
+        ),
+      );
+    } finally {
+      setSshPublicKeyLoading(false);
+    }
+  }
+
+
   function resetForm() {
     setEndpoint('');
     setTokenId('');
@@ -300,9 +346,8 @@ export function InfrastructureSettingsCard() {
     setDescription('');
     setSshUser('root');
     setSshPort('22');
-    setSshKey(
-      '/app/ssh/id_ed25519',
-    );
+    setSshPublicKeyError(null);
+    setSshPublicKeyCopied(false);
     setDiscovery(null);
     setFormError(null);
   }
@@ -311,6 +356,7 @@ export function InfrastructureSettingsCard() {
   function openCreateModal() {
     resetForm();
     modal.open();
+    void loadSshPublicKey();
   }
 
 
@@ -645,7 +691,6 @@ export function InfrastructureSettingsCard() {
             sshUser.trim() ||
             'root',
           ssh_key:
-            sshKey.trim() ||
             '/app/ssh/id_ed25519',
           ssh_port:
             parsedSshPort,
@@ -1380,7 +1425,7 @@ export function InfrastructureSettingsCard() {
               <SimpleGrid
                 cols={{
                   base: 1,
-                  sm: 3,
+                  sm: 2,
                 }}
               >
                 <TextInput
@@ -1406,19 +1451,105 @@ export function InfrastructureSettingsCard() {
                     )
                   }
                 />
-
-                <TextInput
-                  label="SSH key"
-                  value={sshKey}
-                  onChange={(event) =>
-                    setSshKey(
-                      event
-                        .currentTarget
-                        .value,
-                    )
-                  }
-                />
               </SimpleGrid>
+
+              <Stack gap="xs">
+                <Text
+                  size="sm"
+                  fw={500}
+                >
+                  ProxPilot SSH public key
+                </Text>
+
+                <Text
+                  size="xs"
+                  c="dimmed"
+                >
+                  Add this key to the SSH user's
+                  ~/.ssh/authorized_keys file on every
+                  Proxmox node managed by this
+                  infrastructure.
+                </Text>
+
+                {sshPublicKeyError ? (
+                  <Alert
+                    color="red"
+                    icon={
+                      <IconAlertCircle
+                        size={18}
+                      />
+                    }
+                  >
+                    {sshPublicKeyError}
+                  </Alert>
+                ) : (
+                  <Group
+                    align="flex-end"
+                    wrap="nowrap"
+                  >
+                    <TextInput
+                      value={sshPublicKey}
+                      readOnly
+                      style={{
+                        flex: 1,
+                      }}
+                      placeholder={
+                        sshPublicKeyLoading
+                          ? 'Loading public key...'
+                          : 'Public key unavailable'
+                      }
+                    />
+
+                    <Button
+                      variant="light"
+                      leftSection={
+                        sshPublicKeyCopied
+                          ? (
+                            <IconCheck
+                              size={16}
+                            />
+                          )
+                          : (
+                            <IconCopy
+                              size={16}
+                            />
+                          )
+                      }
+                      disabled={
+                        !sshPublicKey ||
+                        sshPublicKeyLoading
+                      }
+                      onClick={() => {
+                        if (!sshPublicKey) {
+                          return;
+                        }
+
+                        void navigator.clipboard
+                          .writeText(
+                            sshPublicKey,
+                          )
+                          .then(() => {
+                            setSshPublicKeyCopied(
+                              true,
+                            );
+
+                            window.setTimeout(
+                              () =>
+                                setSshPublicKeyCopied(
+                                  false,
+                                ),
+                              2000,
+                            );
+                          });
+                      }}
+                    >
+                      {sshPublicKeyCopied
+                        ? 'Copied'
+                        : 'Copy'}
+                    </Button>
+                  </Group>
+                )}
+              </Stack>
 
               <Group
                 justify="flex-end"

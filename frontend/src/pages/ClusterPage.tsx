@@ -28,10 +28,17 @@ import {
 
 import { HaResourceCard } from '../components/HaResourceCard';
 import {
+  InfrastructureSelectOption,
+} from '../components/InfrastructureSelectOption';
+import {
   type Guest,
   type HaStatusEntry,
   useDashboard,
 } from '../hooks/useDashboard';
+import {
+  getInfrastructureHealth,
+  getInfrastructureHealthLabel,
+} from '../utils/infrastructureHealth';
 import { sortNodes } from '../utils/sort';
 
 function formatTimestamp(
@@ -181,13 +188,30 @@ export function ClusterPage() {
 
   const infrastructureOptions =
     infrastructures.map(
-      (infrastructure) => ({
-        value: String(
-          infrastructure.id,
-        ),
-        label:
-          `${infrastructure.name} · Cluster`,
-      }),
+      (infrastructure) => {
+        const health =
+          getInfrastructureHealth(
+            allNodes.filter(
+              (node) =>
+                node.infrastructure_id ===
+                infrastructure.id,
+            ),
+          );
+
+        return {
+          value: String(
+            infrastructure.id,
+          ),
+          label: `${
+            infrastructure.name
+          } · Cluster · ${
+            getInfrastructureHealthLabel(
+              health,
+            )
+          }`,
+          health,
+        };
+      },
     );
 
   const quorum = ha.find(
@@ -330,6 +354,24 @@ export function ClusterPage() {
           <Select
             label="Infrastructure"
             data={infrastructureOptions}
+            renderOption={({ option }) => {
+              const infrastructure =
+                infrastructureOptions.find(
+                  (item) =>
+                    item.value ===
+                    option.value,
+                );
+
+              return (
+                <InfrastructureSelectOption
+                  label={option.label}
+                  health={
+                    infrastructure?.health ??
+                    'disconnected'
+                  }
+                />
+              );
+            }}
             value={
               effectiveInfrastructureId ===
               null

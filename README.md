@@ -23,7 +23,7 @@ A modern, lightweight web interface for monitoring and managing multiple Proxmox
 
 ProxPilot is an open-source management interface for **Proxmox VE**.
 
-The current 1.7.0 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
+The current 1.7.2 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
 
 It complements the native Proxmox interface by providing a clean dashboard, simplified daily administration, integrated monitoring and commonly used management actions across multiple independent Proxmox infrastructures.
 
@@ -103,6 +103,8 @@ docker compose up -d --build
 
 Configure the global application settings in `.env` before starting. After the first login, add Proxmox environments under **Settings → Infrastructure**. Proxmox endpoints, API tokens, node addresses and SSH settings are configured there rather than through `PVE_*` environment variables.
 
+On first startup, ProxPilot automatically creates a persistent Ed25519 SSH key pair in `./ssh/` when no key pair exists yet. The private key is mounted into the backend at `/app/ssh/id_ed25519`. When adding an infrastructure, ProxPilot displays the corresponding public key with a copy action so it can be installed on the target Proxmox nodes.
+
 ---
 
 # Documentation
@@ -125,7 +127,7 @@ Configure the global application settings in `.env` before starting. After the f
 - Docker Engine
 - Docker Compose
 - A Proxmox API token for each configured infrastructure
-- SSH access to the Proxmox nodes for host-level functions
+- SSH access to the Proxmox nodes for host-level functions; ProxPilot automatically manages its persistent Ed25519 key pair, but the displayed public key must be authorized on the target nodes
 - Network access from the ProxPilot backend to the Proxmox API and SSH services
 - Installed `lm-sensors` package on nodes where temperature monitoring is required
 
@@ -266,6 +268,33 @@ An infrastructure can be:
 New environments are added under **Settings → Infrastructure**. Enter one reachable API endpoint and the API token, then use **Test & Discover**. ProxPilot detects whether the endpoint belongs to a cluster or a standalone host and discovers the available nodes.
 
 For every discovered node, the **Reachable host / IP** can be confirmed or adjusted independently. API credentials, TLS verification and SSH settings are stored per infrastructure.
+
+### Managed SSH Key
+
+ProxPilot automatically creates its own persistent Ed25519 SSH key pair on startup when no key pair exists yet:
+
+```text
+./ssh/id_ed25519
+./ssh/id_ed25519.pub
+```
+
+Inside the backend container, the managed private key is available at:
+
+```text
+/app/ssh/id_ed25519
+```
+
+The existing key pair is preserved across container rebuilds and restarts through the `./ssh:/app/ssh` volume mount. Existing keys are not silently replaced.
+
+When adding an infrastructure, the setup dialog displays the ProxPilot SSH public key and provides a copy action. Add that public key to the SSH account used on each target Proxmox node, normally `root`.
+
+For example, on a Proxmox node the public key can be appended to:
+
+```text
+/root/.ssh/authorized_keys
+```
+
+The infrastructure form automatically uses `/app/ssh/id_ed25519` as the managed private key path, so users normally only need to configure the SSH user and SSH port.
 
 This allows environments such as a production cluster, lab cluster and standalone hosts to coexist in the same ProxPilot instance. Identical node names in different infrastructures remain distinguishable through their infrastructure context.
 
@@ -561,11 +590,19 @@ Local authentication works without LDAP.
 
 ### Does ProxPilot support multiple Proxmox clusters?
 
-Yes. ProxPilot 1.7.0 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
+Yes. ProxPilot 1.7.2 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
 
 ### Where are Proxmox connections configured?
 
 Open **Settings → Infrastructure**. Proxmox API endpoints, API tokens, TLS verification, reachable node addresses and SSH settings are configured per infrastructure. The old `PVE_*` environment-variable model is no longer the normal configuration method.
+
+### How is SSH access configured?
+
+ProxPilot automatically generates and persists an Ed25519 SSH key pair when no managed key exists yet. Open **Settings → Infrastructure → Add Infrastructure** to view and copy the ProxPilot public key.
+
+Install that public key in the SSH account's `authorized_keys` file on every Proxmox node that ProxPilot needs to manage. New infrastructures automatically use the managed private key at `/app/ssh/id_ed25519`.
+
+The `ssh/` directory is persistent application data. Back it up together with the ProxPilot database and never commit or publish the private key.
 
 ### Where are users stored?
 

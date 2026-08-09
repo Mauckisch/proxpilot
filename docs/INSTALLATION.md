@@ -1,8 +1,8 @@
 # ProxPilot Installation Guide
 
-This guide explains how to install and configure **ProxPilot 1.7.0** for one or more Proxmox VE environments.
+This guide explains how to install and configure **ProxPilot 1.7.2** for one or more Proxmox VE environments.
 
-ProxPilot 1.7.0 supports multiple independent Proxmox infrastructures. An infrastructure can be either:
+ProxPilot 1.7.2 supports multiple independent Proxmox infrastructures. An infrastructure can be either:
 
 - a Proxmox VE cluster
 - a standalone Proxmox VE host
@@ -556,93 +556,142 @@ SSH is required for:
 - Node reboot
 - Node shutdown
 
-A dedicated SSH key is strongly recommended.
+Starting with ProxPilot 1.7.2, the application manages its own dedicated Ed25519 SSH key pair automatically. A normal installation no longer requires manually running `ssh-keygen` or manually entering a private-key path in the Infrastructure dialog.
 
 ---
 
-## Create the SSH Directory
+## Persistent SSH Directory
 
-Inside the ProxPilot directory create a folder for the SSH keys:
+The Docker Compose configuration mounts the local SSH directory into the backend container:
 
-```bash
-mkdir ssh
-
-chmod 700 ssh
+```yaml
+- ./ssh:/app/ssh
 ```
 
----
+The mount must be writable because ProxPilot creates the key pair automatically when it is missing.
 
-## Generate an SSH Key
-
-Generate a dedicated Ed25519 key pair.
-
-```bash
-ssh-keygen \
-  -t ed25519 \
-  -C "ProxPilot" \
-  -f ./ssh/id_ed25519
-```
-
-For unattended operation leave the passphrase empty.
-
-This creates:
+On the Docker host, the persistent files are:
 
 ```text
-ssh/id_ed25519
-ssh/id_ed25519.pub
+./ssh/id_ed25519
+./ssh/id_ed25519.pub
+```
+
+Inside the backend container, the corresponding paths are:
+
+```text
+/app/ssh/id_ed25519
+/app/ssh/id_ed25519.pub
+```
+
+Docker creates the bind-mount directory when required. For a source checkout you may also create it explicitly:
+
+```bash
+mkdir -p ssh
 ```
 
 ---
 
-## Install the Public Key
+## Automatic Key Generation
 
-Copy the public key to every Proxmox node.
+At backend startup ProxPilot checks the persistent SSH directory.
+
+If neither key file exists, ProxPilot creates a new Ed25519 key pair automatically. The generated files use these permissions:
+
+```text
+id_ed25519      0600
+id_ed25519.pub  0644
+```
+
+Existing complete key pairs are preserved and are never silently replaced.
+
+If the private key exists but the public key is missing, ProxPilot recreates only the public key from the existing Ed25519 private key.
+
+If the public key exists but the matching private key is missing, ProxPilot refuses to silently create a replacement private key. This avoids unexpectedly changing the SSH identity already trusted by the Proxmox nodes.
+
+---
+
+## Install the Public Key on Proxmox
+
+After the backend has started, open:
+
+```text
+Settings
+→ Infrastructure
+→ Add Infrastructure
+```
+
+The SSH section displays the **ProxPilot SSH public key** and provides a **Copy** button.
+
+Only the public key is intended to be copied to Proxmox. Never copy or expose the private key `ssh/id_ed25519`.
+
+The default SSH user is `root`. On each Proxmox node that ProxPilot should manage through SSH, prepare the root SSH directory if necessary:
+
+```bash
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+```
+
+Append the complete public key shown by ProxPilot to:
+
+```text
+/root/.ssh/authorized_keys
+```
 
 Example:
 
 ```bash
-ssh-copy-id -i ./ssh/id_ed25519.pub root@pve1
-
-ssh-copy-id -i ./ssh/id_ed25519.pub root@pve2
-
-ssh-copy-id -i ./ssh/id_ed25519.pub root@pve3
+echo 'ssh-ed25519 AAAA... proxpilot' >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
 ```
+
+Using `>>` appends the key and preserves existing authorized keys.
+
+For a Proxmox cluster, authorize the ProxPilot public key on every node that ProxPilot should manage through SSH. For a standalone environment, authorize it on that host.
+
+A newly generated ProxPilot key normally ends with the comment `proxpilot`. Upgraded installations can retain another comment from an older manually created key; the comment does not affect SSH authentication.
 
 ---
 
 ## Verify SSH Access
 
-Test every configured node.
+From the Docker host, test each configured node with the persistent private key:
 
 ```bash
-ssh -i ./ssh/id_ed25519 root@pve1 hostname
-
-ssh -i ./ssh/id_ed25519 root@pve2 hostname
-
-ssh -i ./ssh/id_ed25519 root@pve3 hostname
+ssh -i ./ssh/id_ed25519 root@NODE-IP hostname
 ```
 
-Expected output:
+For example:
 
-```text
-pve1
-
-pve2
-
-pve3
+```bash
+ssh -i ./ssh/id_ed25519 root@192.168.1.10 hostname
 ```
+
+Expected output is the hostname of the target Proxmox node.
+
+If the infrastructure uses a non-default SSH port, add `-p PORT`.
 
 ---
 
-## Protect the Private Key
+## Protect and Back Up the SSH Identity
 
-The private key should only be readable by its owner.
+The `ssh/` directory is security-critical persistent application data.
+
+It must:
+
+- remain outside Git
+- survive container recreation and image updates
+- be protected from unauthorized access
+- be included in ProxPilot backups
+
+The private key should remain mode `0600`:
 
 ```bash
 chmod 600 ./ssh/id_ed25519
-
 chmod 644 ./ssh/id_ed25519.pub
 ```
+
+If `ssh/id_ed25519` is lost and a new key pair is generated, the new public key must be authorized again on every affected Proxmox node.
 
 The `ssh/` directory is ignored by Git and should never be committed.
 
@@ -650,7 +699,7 @@ The `ssh/` directory is ignored by Git and should never be committed.
 
 # Configure Global ProxPilot Settings
 
-ProxPilot 1.7.0 separates global application configuration from Proxmox infrastructure configuration.
+ProxPilot separates global application configuration from Proxmox infrastructure configuration.
 
 The following settings remain in `.env`:
 
@@ -668,7 +717,7 @@ PROXPILOT_COOKIE_SECURE=false
 PROXPILOT_SESSION_MAX_AGE=43200
 ```
 
-The following legacy variables must **not** be used to configure infrastructures in 1.7.0:
+The following legacy variables must **not** be used to configure infrastructures:
 
 ```text
 PVE_ENDPOINTS
@@ -919,7 +968,7 @@ The Infrastructure dialog provides:
 ```text
 SSH user
 SSH port
-SSH key
+ProxPilot SSH public key
 ```
 
 Typical values are:
@@ -927,14 +976,27 @@ Typical values are:
 ```text
 SSH user: root
 SSH port: 22
-SSH key:  /app/ssh/id_ed25519
 ```
 
-The SSH key path refers to the path available **inside the backend container**, not an arbitrary host filesystem path.
+The private-key path is managed internally by ProxPilot. New infrastructures automatically use:
 
-Before saving, make sure the corresponding key is mounted into the backend container by the Compose configuration.
+```text
+/app/ssh/id_ed25519
+```
 
-The same infrastructure-level SSH configuration is used together with the individual `Reachable host / IP` values of its nodes.
+The user does not need to enter or edit this path during normal setup.
+
+Use the **Copy** button next to the displayed ProxPilot SSH public key and add that key to the configured SSH user's `authorized_keys` file on every node ProxPilot should manage.
+
+For the default `root` user, the target file is:
+
+```text
+/root/.ssh/authorized_keys
+```
+
+The infrastructure-level SSH user and port are combined with the individual `Reachable host / IP` values of the discovered nodes.
+
+For a cluster, authorize the same ProxPilot public key on every cluster node that should support SSH-dependent ProxPilot functions.
 
 After the API, node and SSH settings are correct, save the infrastructure.
 
@@ -971,7 +1033,7 @@ Each infrastructure has its own:
 - node addresses
 - SSH user
 - SSH port
-- SSH key
+- authorization of the managed ProxPilot public key on the target nodes
 
 Resources with identical node names in different infrastructures remain distinguishable because ProxPilot 1.7.0 tracks them by infrastructure.
 
@@ -1026,6 +1088,8 @@ Confirm:
 - no API connection error is displayed
 
 With multiple infrastructures, verify data from each environment rather than checking only one cluster.
+
+Starting with ProxPilot 1.7.2, an unreachable configured standalone host remains visible and is shown as `Disconnected` instead of disappearing from the interface. Infrastructure selectors use a health indicator: green when all nodes are online, yellow when only part of a cluster is online, and red when all nodes of an infrastructure are disconnected.
 
 ## Nodes
 
@@ -1288,18 +1352,24 @@ Also verify DNS resolution when hostnames are used.
 
 ## SSH Functions Fail
 
-Verify the key permissions on the Docker host:
+Verify that the managed private key exists on the Docker host:
 
 ```bash
-ls -l ./ssh/id_ed25519
+ls -l ./ssh/id_ed25519 ./ssh/id_ed25519.pub
 ```
 
-The private key should not be world-readable.
+The expected permissions are:
 
-Set:
+```text
+id_ed25519      0600
+id_ed25519.pub  0644
+```
+
+Correct them if required:
 
 ```bash
 chmod 600 ./ssh/id_ed25519
+chmod 644 ./ssh/id_ed25519.pub
 ```
 
 Test the key directly:
@@ -1308,12 +1378,23 @@ Test the key directly:
 ssh -i ./ssh/id_ed25519 root@NODE-IP hostname
 ```
 
-Then verify that the Infrastructure configuration uses the correct:
+Then verify:
 
-- SSH user
-- SSH port
-- SSH key container path
-- node `Reachable host / IP`
+- the Infrastructure uses the correct SSH user
+- the Infrastructure uses the correct SSH port
+- the node `Reachable host / IP` is correct
+- the ProxPilot public key shown in the Infrastructure dialog exists in the SSH user's `authorized_keys` file on the target node
+- the backend can reach the target node on the configured SSH port
+
+For the default root account, inspect the remote authorization file on the Proxmox node:
+
+```bash
+cat /root/.ssh/authorized_keys
+```
+
+The private key path is managed internally as `/app/ssh/id_ed25519` and is no longer a normal user-editable Infrastructure setting.
+
+If only `id_ed25519.pub` exists but the private key is missing, restore the original private key from backup. ProxPilot intentionally does not generate a replacement in this state.
 
 ## API Works but Hardware or Update Information Fails
 
@@ -1422,6 +1503,21 @@ data/proxpilot.db
 
 Infrastructure configuration introduced with ProxPilot 1.7.0 is persistent application data, so protecting the database is especially important in multi-infrastructure deployments.
 
+The SSH directory is also security-critical persistent application state:
+
+```text
+ssh/
+```
+
+In particular, preserve:
+
+```text
+ssh/id_ed25519
+ssh/id_ed25519.pub
+```
+
+The private key is the SSH identity already authorized on the configured Proxmox nodes. If it is lost, a newly generated key has a different public key and must be authorized again on every affected node.
+
 ---
 
 # Default Directory Structure
@@ -1472,6 +1568,7 @@ Before considering the installation complete, verify:
 - initial administrator login works
 - API user and token exist
 - required Proxmox roles and ACLs are configured
+- the ProxPilot SSH public key is authorized on every required node
 - SSH key access works
 - at least one Infrastructure was successfully discovered and saved
 - cluster/standalone detection is correct

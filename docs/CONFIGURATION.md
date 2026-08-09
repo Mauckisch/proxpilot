@@ -1,6 +1,6 @@
 # ProxPilot Configuration Guide
 
-This document describes the configuration model for **ProxPilot 1.7.0**.
+This document describes the configuration model for **ProxPilot 1.7.2**.
 
 ProxPilot configuration is divided into two areas:
 
@@ -37,7 +37,7 @@ The `.env` file contains only global ProxPilot application settings.
 
 # Global Application Settings
 
-A typical ProxPilot 1.7.0 environment file contains:
+A typical ProxPilot 1.7.2 environment file contains:
 
 ```dotenv
 TZ=Europe/Berlin
@@ -475,15 +475,17 @@ The node name itself is not changed by editing the reachable address.
 
 ProxPilot uses SSH for host-level functionality that is not fully available through the Proxmox API.
 
-The Infrastructure configuration contains:
+Starting with **ProxPilot 1.7.2**, ProxPilot manages a dedicated Ed25519 SSH key pair automatically. A normal installation no longer requires manually generating a key pair or entering the private-key path when adding an Infrastructure.
+
+The Infrastructure configuration exposes:
 
 ```text
 SSH user
 SSH port
-SSH key
+ProxPilot SSH public key
 ```
 
-These settings are stored per infrastructure.
+The SSH user and port are stored per infrastructure. The managed private-key path is used internally by ProxPilot.
 
 ---
 
@@ -511,31 +513,100 @@ Change this only if the Proxmox nodes of the infrastructure use another SSH port
 
 ---
 
-## SSH key
+## Managed SSH key
 
-Typical container path:
+Docker Compose persists the SSH identity through:
+
+```yaml
+- ./ssh:/app/ssh
+```
+
+On the Docker host:
+
+```text
+./ssh/id_ed25519
+./ssh/id_ed25519.pub
+```
+
+Inside the backend container:
 
 ```text
 /app/ssh/id_ed25519
+/app/ssh/id_ed25519.pub
 ```
 
-This is the key path visible **inside the ProxPilot backend container**.
+At backend startup ProxPilot checks this persistent directory.
 
-It is not simply an arbitrary path on the Docker host.
+If neither key file exists, ProxPilot creates a new Ed25519 key pair automatically.
 
-The corresponding key must be mounted into the backend container by the Docker Compose configuration.
+Generated permissions:
 
-Protect the private key on the Docker host:
+```text
+id_ed25519      0600
+id_ed25519.pub  0644
+```
+
+Existing complete key pairs are preserved and are never silently replaced.
+
+If the private key exists but the public key is missing, ProxPilot recreates only the public key from the existing Ed25519 private key.
+
+If the public key exists but the matching private key is missing, ProxPilot intentionally does not generate a replacement private key. Restore the original private key from backup instead.
+
+---
+
+## Authorize the ProxPilot public key
+
+When adding an Infrastructure, the SSH section displays the **ProxPilot SSH public key** and provides a copy-to-clipboard action.
+
+Copy only this public key to the target Proxmox node.
+
+For the default `root` SSH user:
 
 ```bash
-chmod 600 ./ssh/id_ed25519
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
 ```
 
-Test it directly when troubleshooting:
+Append the complete public key displayed by ProxPilot to:
+
+```text
+/root/.ssh/authorized_keys
+```
+
+Example:
+
+```bash
+echo 'ssh-ed25519 AAAA... proxpilot' >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+```
+
+Using `>>` preserves existing authorized keys.
+
+For a cluster, authorize the ProxPilot public key on every node that ProxPilot should manage through SSH.
+
+Never copy, publish or expose the private key:
+
+```text
+./ssh/id_ed25519
+```
+
+---
+
+## Verify SSH access
+
+From the Docker host:
 
 ```bash
 ssh -i ./ssh/id_ed25519 root@NODE-IP hostname
 ```
+
+For a non-default port:
+
+```bash
+ssh -p PORT -i ./ssh/id_ed25519 root@NODE-IP hostname
+```
+
+The command should return the hostname of the target Proxmox node.
 
 ---
 
@@ -582,7 +653,7 @@ Each infrastructure maintains its own:
 - reachable node addresses
 - SSH user
 - SSH port
-- SSH key
+- managed ProxPilot SSH identity
 - enabled state
 
 This allows one ProxPilot installation to manage combinations such as:
@@ -807,7 +878,16 @@ docker-compose.yml
 
 The API credentials and infrastructure configuration stored by the application should be treated as sensitive data.
 
-Never publish the SQLite database.
+The `ssh/` directory is also security-critical persistent state. Preserve both:
+
+```text
+ssh/id_ed25519
+ssh/id_ed25519.pub
+```
+
+If the private key is lost and a new SSH identity is generated, the new public key must be authorized again on every affected Proxmox node.
+
+Never publish the SQLite database or the SSH private key.
 
 ---
 
@@ -840,7 +920,7 @@ for the complete reverse-proxy configuration.
 
 # Example Global .env
 
-A normal ProxPilot 1.7.0 `.env` can look like:
+A normal ProxPilot 1.7.2 `.env` can look like:
 
 ```dotenv
 # ============================================================
@@ -905,8 +985,11 @@ root
 SSH port:
 22
 
-SSH key:
-/app/ssh/id_ed25519
+SSH identity:
+managed automatically by ProxPilot
+
+Public key:
+displayed in Settings → Infrastructure when adding an Infrastructure
 ```
 
 Example standalone host:
@@ -933,8 +1016,11 @@ root
 SSH port:
 22
 
-SSH key:
-/app/ssh/id_ed25519
+SSH identity:
+managed automatically by ProxPilot
+
+Public key:
+displayed in Settings → Infrastructure when adding an Infrastructure
 ```
 
 The values above are examples only and must be replaced with values appropriate for the actual installation.
@@ -1051,8 +1137,8 @@ Check:
 
 - SSH user
 - SSH port
-- SSH key
-- key mount inside the backend container
+- persistent `./ssh:/app/ssh` mount
+- presence and permissions of `./ssh/id_ed25519`
 - node address
 - SSH authorization on the Proxmox host
 

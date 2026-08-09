@@ -2,7 +2,7 @@
 
 This document collects common ProxPilot problems and practical troubleshooting steps.
 
-The examples in this guide reflect the ProxPilot 1.7.0 configuration model. Proxmox VE environments are configured as **Infrastructures** in the ProxPilot web interface. Proxmox API credentials, TLS settings, node addresses and SSH settings are therefore no longer expected as global `PVE_*` variables in `.env`.
+The examples in this guide reflect the ProxPilot 1.7.2 configuration model. Proxmox VE environments are configured as **Infrastructures** in the ProxPilot web interface. Proxmox API credentials, TLS settings, node addresses and SSH settings are therefore no longer expected as global `PVE_*` variables in `.env`.
 
 ---
 
@@ -69,11 +69,26 @@ ls -l data/proxpilot.db
 
 Do not delete the database as a troubleshooting step unless you intentionally want to reset persistent ProxPilot configuration.
 
+Starting with ProxPilot 1.7.2, also check the persistent SSH directory when the backend fails during startup:
+
+```bash
+ls -ld ssh
+ls -la ssh
+```
+
+The normal Compose mount must be writable:
+
+```yaml
+- ./ssh:/app/ssh
+```
+
+A backend startup error can occur if only `id_ed25519.pub` exists while the matching private key is missing. In that case restore the original private key from backup instead of generating an unrelated replacement key.
+
 ---
 
 # Infrastructure Configuration
 
-ProxPilot 1.7.0 supports multiple independent Proxmox VE environments.
+ProxPilot supports multiple independent Proxmox VE environments.
 
 Each configured Infrastructure contains its own:
 
@@ -83,7 +98,7 @@ Each configured Infrastructure contains its own:
 - node addresses
 - SSH user
 - SSH port
-- SSH key path
+- managed ProxPilot SSH identity and public-key authorization
 
 If only one Infrastructure is affected, troubleshoot that Infrastructure first instead of assuming a global ProxPilot problem.
 
@@ -203,7 +218,7 @@ Compare the affected Infrastructure with a working one and verify:
 - node addresses
 - SSH user
 - SSH port
-- SSH key path
+- managed ProxPilot SSH identity and public-key authorization
 - network/firewall reachability
 
 Do not troubleshoot this by changing unrelated global `.env` settings.
@@ -213,6 +228,35 @@ Check backend logs while opening or refreshing the affected Infrastructure:
 ```bash
 docker compose logs -f backend
 ```
+
+---
+
+## Infrastructure or standalone host is disconnected
+
+Starting with ProxPilot 1.7.2, a configured standalone host is not removed from the dashboard simply because its Proxmox API endpoint is unreachable.
+
+The expected behavior is:
+
+- all nodes online → infrastructure indicator is green
+- some cluster nodes offline → infrastructure indicator is yellow
+- all cluster nodes offline → infrastructure indicator is red
+- standalone host offline → infrastructure indicator is red
+- the configured node remains visible with status `disconnected`
+
+For a disconnected node, ProxPilot intentionally avoids opening host details or querying node network information that requires the unreachable host. This prevents avoidable `502` errors in the normal UI.
+
+If an Infrastructure unexpectedly disappears completely, verify that it is still enabled and that its stored node records still exist.
+
+If a node is shown as `disconnected`, check:
+
+- Proxmox host power state
+- network connectivity
+- API port `8006`
+- configured `Reachable host / IP`
+- DNS resolution when a hostname is used
+- firewall rules between the ProxPilot backend and the Proxmox host
+
+A disconnected status is different from deleting or disabling the Infrastructure.
 
 ---
 
@@ -310,7 +354,7 @@ curl -k https://127.0.0.1:8006/api2/json/version
 
 ## SSH commands fail
 
-Host-level functions use the SSH configuration stored for the affected Infrastructure.
+Host-level functions use the SSH user and port stored for the affected Infrastructure together with the ProxPilot-managed SSH identity.
 
 Verify in:
 
@@ -323,21 +367,33 @@ Check:
 
 - SSH user
 - SSH port
-- SSH key path
 - Reachable host / IP for the node
 - firewall rules
 - SSH service on the Proxmox node
+- ProxPilot public key authorization on the target account
+
+The private key path is managed internally and is normally:
+
+```text
+/app/ssh/id_ed25519
+```
+
+On the Docker host, the persistent file is:
+
+```text
+./ssh/id_ed25519
+```
 
 Test manually from the ProxPilot host:
 
 ```bash
-ssh -i ssh/id_ed25519 root@NODE-IP hostname
+ssh -i ./ssh/id_ed25519 root@NODE-IP hostname
 ```
 
 For a non-default port:
 
 ```bash
-ssh -p 2222 -i ssh/id_ed25519 root@NODE-IP hostname
+ssh -p 2222 -i ./ssh/id_ed25519 root@NODE-IP hostname
 ```
 
 The returned hostname should match the intended Proxmox node.
@@ -349,58 +405,124 @@ The returned hostname should match the intended Proxmox node.
 Check the private key permissions:
 
 ```bash
-ls -l ssh/id_ed25519
+ls -l ./ssh/id_ed25519
 ```
 
 The private key should normally be readable only by its owner:
 
 ```bash
-chmod 600 ssh/id_ed25519
+chmod 600 ./ssh/id_ed25519
 ```
 
-Verify that the corresponding public key is installed on the Proxmox node:
+The corresponding public key should exist as:
+
+```text
+./ssh/id_ed25519.pub
+```
+
+Verify that the public key shown by ProxPilot is present on the Proxmox node:
 
 ```bash
 cat /root/.ssh/authorized_keys
 ```
 
+For the default `root` account, the ProxPilot public key must be present in:
+
+```text
+/root/.ssh/authorized_keys
+```
+
 Test with verbose SSH output if required:
 
 ```bash
-ssh -vvv -i ssh/id_ed25519 root@NODE-IP hostname
+ssh -vvv -i ./ssh/id_ed25519 root@NODE-IP hostname
 ```
 
 Do not publish verbose SSH logs without checking them for sensitive information first.
 
 ---
 
-## SSH works on the host but not in ProxPilot
+## SSH works on the Docker host but not in ProxPilot
 
-The SSH key path configured in the Infrastructure is the path visible **inside the backend container**, not necessarily the path used on the Docker host.
-
-Check the Compose mount and inspect the backend container:
-
-```bash
-docker compose exec backend ls -l /app/ssh
-```
-
-If the configured key is:
+ProxPilot uses the private key inside the backend container at:
 
 ```text
 /app/ssh/id_ed25519
 ```
 
-verify it inside the container:
+The normal Compose mount is:
+
+```yaml
+- ./ssh:/app/ssh
+```
+
+Starting with ProxPilot 1.7.2 this mount must be writable because the backend can automatically create or reconstruct SSH key material.
+
+Inspect the backend container:
 
 ```bash
-docker compose exec backend test -r /app/ssh/id_ed25519 && echo "SSH key readable"
+docker compose exec backend ls -la /app/ssh
+```
+
+Verify the private key is readable:
+
+```bash
+docker compose exec backend   test -r /app/ssh/id_ed25519   && echo "SSH key readable"
 ```
 
 Also check backend logs:
 
 ```bash
-docker compose logs --tail=200 backend
+docker compose logs --tail=100 backend
 ```
+
+---
+
+## SSH key files are missing
+
+ProxPilot 1.7.2 manages the default Ed25519 key pair automatically.
+
+Expected persistent files:
+
+```text
+./ssh/id_ed25519
+./ssh/id_ed25519.pub
+```
+
+Behavior at backend startup:
+
+- neither file exists → a new Ed25519 key pair is generated
+- private key exists but `.pub` is missing → the public key is reconstructed
+- public key exists but private key is missing → startup does not silently create a replacement private key
+
+If only the public key exists, restore the matching private key from backup.
+
+Do not delete a working private key merely to force regeneration. A regenerated key has a different public key and must be authorized again on every Proxmox node.
+
+---
+
+## Public key shown in the GUI is not accepted
+
+When adding an Infrastructure, ProxPilot displays the **ProxPilot SSH public key** with a **Copy** button.
+
+Copy the complete value, beginning with:
+
+```text
+ssh-ed25519
+```
+
+Append it to the target account's `authorized_keys` file. For `root`:
+
+```bash
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+echo 'ssh-ed25519 AAAA... proxpilot' >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+```
+
+Using `>>` preserves other authorized keys.
+
+An upgraded installation may show an older comment such as a hostname instead of `proxpilot`. The comment at the end of the public key does not affect SSH authentication.
 
 ---
 
@@ -670,6 +792,15 @@ Before destructive database work, create a backup:
 ```bash
 cp data/proxpilot.db data/proxpilot.db.backup
 ```
+
+Also preserve the ProxPilot SSH identity:
+
+```text
+ssh/id_ed25519
+ssh/id_ed25519.pub
+```
+
+The private key is already trusted by the configured Proxmox nodes. Losing it means a newly generated public key must be authorized again on every affected node.
 
 ---
 

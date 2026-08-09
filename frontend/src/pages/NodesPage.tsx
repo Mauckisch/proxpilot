@@ -388,16 +388,46 @@ export function NodesPage({
 
   const infrastructureOptions =
     infrastructureGroups.map(
-      (infrastructure) => ({
-        value: String(
-          infrastructure.id,
-        ),
-        label:
-          infrastructure.type ===
-          'cluster'
-            ? `${infrastructure.name} · Cluster`
-            : `${infrastructure.name} · Standalone`,
-      }),
+      (infrastructure) => {
+        const onlineNodes =
+          infrastructure.nodes.filter(
+            (node) =>
+              node.status?.toLowerCase() ===
+              'online',
+          ).length;
+
+        const totalNodes =
+          infrastructure.nodes.length;
+
+        const health =
+          onlineNodes === totalNodes
+            ? 'online'
+            : onlineNodes === 0
+              ? 'disconnected'
+              : 'partial';
+
+        const statusLabel =
+          health === 'online'
+            ? 'Online'
+            : health === 'partial'
+              ? 'Partially disconnected'
+              : 'Disconnected';
+
+        return {
+          value: String(
+            infrastructure.id,
+          ),
+          label: `${
+            infrastructure.name
+          } · ${
+            infrastructure.type ===
+            'cluster'
+              ? 'Cluster'
+              : 'Standalone'
+          } · ${statusLabel}`,
+          health,
+        };
+      },
     );
 
   const selectedDashboard =
@@ -503,6 +533,42 @@ export function NodesPage({
             <Select
               label="Infrastructure"
               data={infrastructureOptions}
+              renderOption={({ option }) => {
+                const infrastructure =
+                  infrastructureOptions.find(
+                    (item) =>
+                      item.value ===
+                      option.value,
+                  );
+
+                const color =
+                  infrastructure?.health ===
+                  'online'
+                    ? 'green'
+                    : infrastructure?.health ===
+                        'partial'
+                      ? 'yellow'
+                      : 'red';
+
+                return (
+                  <Group
+                    gap="xs"
+                    wrap="nowrap"
+                  >
+                    <Text
+                      c={color}
+                      fw={600}
+                      size="sm"
+                    >
+                      ●
+                    </Text>
+
+                    <Text size="sm">
+                      {option.label}
+                    </Text>
+                  </Group>
+                );
+              }}
               value={
                 effectiveInfrastructureId !==
                 null

@@ -107,23 +107,38 @@ export function DashboardPage({
         result,
         node,
       ) => {
-        if (
-          !result.has(
-            node.infrastructure_id,
-          )
-        ) {
-          result.set(
-            node.infrastructure_id,
-            {
-              id:
-                node.infrastructure_id,
-              name:
-                node.infrastructure_name,
-              type:
-                node.infrastructure_type,
-            },
-          );
+        const existing = result.get(
+          node.infrastructure_id,
+        );
+
+        const online =
+          node.status?.toLowerCase() ===
+          'online';
+
+        if (existing) {
+          existing.totalNodes += 1;
+
+          if (online) {
+            existing.onlineNodes += 1;
+          }
+
+          return result;
         }
+
+        result.set(
+          node.infrastructure_id,
+          {
+            id:
+              node.infrastructure_id,
+            name:
+              node.infrastructure_name,
+            type:
+              node.infrastructure_type,
+            totalNodes: 1,
+            onlineNodes:
+              online ? 1 : 0,
+          },
+        );
 
         return result;
       },
@@ -135,6 +150,8 @@ export function DashboardPage({
           type:
             | 'cluster'
             | 'standalone';
+          totalNodes: number;
+          onlineNodes: number;
         }
       >(),
     ).values(),
@@ -179,16 +196,37 @@ export function DashboardPage({
 
   const infrastructureOptions =
     infrastructures.map(
-      (infrastructure) => ({
-        value: String(
-          infrastructure.id,
-        ),
-        label:
-          infrastructure.type ===
-          'cluster'
-            ? `${infrastructure.name} · Cluster`
-            : `${infrastructure.name} · Standalone`,
-      }),
+      (infrastructure) => {
+        const health =
+          infrastructure.onlineNodes ===
+          infrastructure.totalNodes
+            ? 'online'
+            : infrastructure.onlineNodes === 0
+              ? 'disconnected'
+              : 'partial';
+
+        const statusLabel =
+          health === 'online'
+            ? 'Online'
+            : health === 'partial'
+              ? 'Partially disconnected'
+              : 'Disconnected';
+
+        return {
+          value: String(
+            infrastructure.id,
+          ),
+          label: `${
+            infrastructure.name
+          } · ${
+            infrastructure.type ===
+            'cluster'
+              ? 'Cluster'
+              : 'Standalone'
+          } · ${statusLabel}`,
+          health,
+        };
+      },
     );
 
   const onlineNodes = nodes.filter(
@@ -231,6 +269,42 @@ export function DashboardPage({
             <Select
               label="Infrastructure"
               data={infrastructureOptions}
+              renderOption={({ option }) => {
+                const infrastructure =
+                  infrastructureOptions.find(
+                    (item) =>
+                      item.value ===
+                      option.value,
+                  );
+
+                const color =
+                  infrastructure?.health ===
+                  'online'
+                    ? 'green'
+                    : infrastructure?.health ===
+                        'partial'
+                      ? 'yellow'
+                      : 'red';
+
+                return (
+                  <Group
+                    gap="xs"
+                    wrap="nowrap"
+                  >
+                    <Text
+                      c={color}
+                      fw={600}
+                      size="sm"
+                    >
+                      ●
+                    </Text>
+
+                    <Text size="sm">
+                      {option.label}
+                    </Text>
+                  </Group>
+                );
+              }}
               value={
                 effectiveInfrastructureId !==
                 null

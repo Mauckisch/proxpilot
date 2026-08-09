@@ -267,6 +267,7 @@ async function fetchHostDetails(
 export function useHostDetails(
   infrastructureId: number,
   node: string,
+  enabled = true,
 ) {
   return useQuery({
     queryKey: [
@@ -280,6 +281,7 @@ export function useHostDetails(
         node,
       ),
     enabled:
+      enabled &&
       infrastructureId > 0 &&
       Boolean(node),
     staleTime: 30000,

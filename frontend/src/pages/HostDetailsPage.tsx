@@ -44,6 +44,7 @@ import {
   type HostSmartDevice,
   useHostDetails,
 } from '../hooks/useHostDetails';
+import { useDashboard } from '../hooks/useDashboard';
 import { useNetwork } from '../hooks/useNetwork';
 import { useUpdates } from '../hooks/useUpdates';
 
@@ -364,17 +365,63 @@ export function HostDetailsPage({
   node,
   onBack,
 }: HostDetailsPageProps) {
+  const dashboard = useDashboard();
+
+  const dashboardNode =
+    dashboard.data?.nodes.find(
+      (entry) =>
+        entry.infrastructure_id ===
+          infrastructureId &&
+        entry.node === node,
+    );
+
+  const disconnected =
+    dashboardNode?.status
+      ?.toLowerCase() ===
+    'disconnected';
+
   const details = useHostDetails(
     infrastructureId,
     node,
+    !disconnected,
   );
 
   const network = useNetwork(
     infrastructureId,
     node,
+    !disconnected,
   );
 
   const updates = useUpdates();
+
+  if (disconnected) {
+    return (
+      <Stack>
+        <Button
+          variant="subtle"
+          leftSection={
+            <IconArrowLeft size={18} />
+          }
+          onClick={onBack}
+          w="fit-content"
+        >
+          Back to nodes
+        </Button>
+
+        <Alert
+          color="red"
+          icon={
+            <IconAlertCircle size={20} />
+          }
+          title="Node disconnected"
+        >
+          {node} is currently unreachable.
+          Live host details are unavailable until
+          the node reconnects.
+        </Alert>
+      </Stack>
+    );
+  }
 
   if (details.isLoading) {
     return (

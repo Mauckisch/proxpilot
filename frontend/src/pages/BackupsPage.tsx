@@ -39,11 +39,18 @@ import {
   type BackupTask,
   useDashboard,
 } from '../hooks/useDashboard';
+import {
+  getInfrastructureHealth,
+  getInfrastructureHealthLabel,
+} from '../utils/infrastructureHealth';
 import { sortNodes } from '../utils/sort';
 
 import {
   BackupTaskDrawer,
 } from '../components/BackupTaskDrawer';
+import {
+  InfrastructureSelectOption,
+} from '../components/InfrastructureSelectOption';
 import { OperatorButton } from '../components/OperatorButton';
 
 function formatDate(timestamp?: number): string {
@@ -256,16 +263,35 @@ export function BackupsPage() {
 
   const infrastructureOptions =
     infrastructures.map(
-      (infrastructure) => ({
-        value: String(
-          infrastructure.id,
-        ),
-        label:
-          infrastructure.type ===
-          'cluster'
-            ? `${infrastructure.name} · Cluster`
-            : `${infrastructure.name} · Standalone`,
-      }),
+      (infrastructure) => {
+        const health =
+          getInfrastructureHealth(
+            allNodes.filter(
+              (node) =>
+                node.infrastructure_id ===
+                infrastructure.id,
+            ),
+          );
+
+        return {
+          value: String(
+            infrastructure.id,
+          ),
+          label: `${
+            infrastructure.name
+          } · ${
+            infrastructure.type ===
+            'cluster'
+              ? 'Cluster'
+              : 'Standalone'
+          } · ${
+            getInfrastructureHealthLabel(
+              health,
+            )
+          }`,
+          health,
+        };
+      },
     );
 
   const guestNames = useMemo(() => {
@@ -466,6 +492,24 @@ export function BackupsPage() {
           <Select
             label="Infrastructure"
             data={infrastructureOptions}
+            renderOption={({ option }) => {
+              const infrastructure =
+                infrastructureOptions.find(
+                  (item) =>
+                    item.value ===
+                    option.value,
+                );
+
+              return (
+                <InfrastructureSelectOption
+                  label={option.label}
+                  health={
+                    infrastructure?.health ??
+                    'disconnected'
+                  }
+                />
+              );
+            }}
             value={
               effectiveInfrastructureId !==
               null

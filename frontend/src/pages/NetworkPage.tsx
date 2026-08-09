@@ -35,8 +35,15 @@ import {
   type NetworkInterface,
   useNetwork,
 } from '../hooks/useNetwork';
+import {
+  InfrastructureSelectOption,
+} from '../components/InfrastructureSelectOption';
 import { NetworkGraph } from '../network/NetworkGraph';
 import { useDashboard } from '../hooks/useDashboard';
+import {
+  getInfrastructureHealth,
+  getInfrastructureHealthLabel,
+} from '../utils/infrastructureHealth';
 
 
 function formatBytes(value?: number): string {
@@ -258,16 +265,35 @@ export function NetworkPage() {
 
   const infrastructureOptions =
     infrastructures.map(
-      (infrastructure) => ({
-        value: String(
-          infrastructure.id,
-        ),
-        label:
-          infrastructure.type ===
-          'cluster'
-            ? `${infrastructure.name} · Cluster`
-            : `${infrastructure.name} · Standalone`,
-      }),
+      (infrastructure) => {
+        const health =
+          getInfrastructureHealth(
+            allNodes.filter(
+              (node) =>
+                node.infrastructure_id ===
+                infrastructure.id,
+            ),
+          );
+
+        return {
+          value: String(
+            infrastructure.id,
+          ),
+          label: `${
+            infrastructure.name
+          } · ${
+            infrastructure.type ===
+            'cluster'
+              ? 'Cluster'
+              : 'Standalone'
+          } · ${
+            getInfrastructureHealthLabel(
+              health,
+            )
+          }`,
+          health,
+        };
+      },
     );
 
   const nodeOptions =
@@ -281,9 +307,21 @@ export function NetworkPage() {
       }),
     );
 
+  const effectiveNodeData =
+    infrastructureNodes.find(
+      (node) =>
+        node.node === effectiveNode,
+    );
+
+  const disconnected =
+    effectiveNodeData?.status
+      ?.toLowerCase() ===
+    'disconnected';
+
   const network = useNetwork(
     effectiveInfrastructureId ?? 0,
     effectiveNode ?? '',
+    !disconnected,
   );
 
   const interfaces = useMemo(() => {
@@ -362,6 +400,103 @@ export function NetworkPage() {
     );
   }
 
+  if (disconnected) {
+    return (
+      <Stack gap="lg">
+        <Group justify="space-between">
+          <div>
+            <Title order={2}>Network</Title>
+
+            <Text c="dimmed" mt={4}>
+              Physical interfaces, bridges and VLANs
+            </Text>
+          </div>
+
+          <Group align="flex-end">
+            <Select
+              label="Infrastructure"
+              data={infrastructureOptions}
+              renderOption={({ option }) => {
+                const infrastructure =
+                  infrastructureOptions.find(
+                    (item) =>
+                      item.value ===
+                      option.value,
+                  );
+
+                return (
+                  <InfrastructureSelectOption
+                    label={option.label}
+                    health={
+                      infrastructure?.health ??
+                      'disconnected'
+                    }
+                  />
+                );
+              }}
+              value={
+                effectiveInfrastructureId !==
+                null
+                  ? String(
+                      effectiveInfrastructureId,
+                    )
+                  : null
+              }
+              onChange={(value) => {
+                if (!value) {
+                  return;
+                }
+
+                const id = Number(value);
+
+                if (
+                  !Number.isInteger(id) ||
+                  id <= 0
+                ) {
+                  return;
+                }
+
+                setSelectedInfrastructureId(
+                  id,
+                );
+
+                setSelectedNode(null);
+
+                localStorage.setItem(
+                  'proxpilot-network-infrastructure',
+                  String(id),
+                );
+              }}
+              allowDeselect={false}
+              w={300}
+            />
+
+            <Select
+              label="Node"
+              data={nodeOptions}
+              value={effectiveNode}
+              onChange={setSelectedNode}
+              allowDeselect={false}
+              w={220}
+            />
+          </Group>
+        </Group>
+
+        <Alert
+          color="red"
+          icon={
+            <IconAlertCircle size={20} />
+          }
+          title="Node disconnected"
+        >
+          {effectiveNode} is currently unreachable.
+          Network information is unavailable until
+          the node reconnects.
+        </Alert>
+      </Stack>
+    );
+  }
+
   if (network.isError) {
     const message =
       network.error instanceof Error
@@ -383,6 +518,24 @@ export function NetworkPage() {
             <Select
               label="Infrastructure"
               data={infrastructureOptions}
+              renderOption={({ option }) => {
+                const infrastructure =
+                  infrastructureOptions.find(
+                    (item) =>
+                      item.value ===
+                      option.value,
+                  );
+
+                return (
+                  <InfrastructureSelectOption
+                    label={option.label}
+                    health={
+                      infrastructure?.health ??
+                      'disconnected'
+                    }
+                  />
+                );
+              }}
               value={
                 effectiveInfrastructureId !==
                 null
@@ -469,6 +622,24 @@ export function NetworkPage() {
           <Select
             label="Infrastructure"
             data={infrastructureOptions}
+            renderOption={({ option }) => {
+              const infrastructure =
+                infrastructureOptions.find(
+                  (item) =>
+                    item.value ===
+                    option.value,
+                );
+
+              return (
+                <InfrastructureSelectOption
+                  label={option.label}
+                  health={
+                    infrastructure?.health ??
+                    'disconnected'
+                  }
+                />
+              );
+            }}
             value={
               effectiveInfrastructureId !==
               null
