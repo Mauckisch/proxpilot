@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [1.7.1] - 2026-08-09
+
+### Fixed
+
+- Fixed scheduled snapshot deletion failing because the Task Scheduler called a non-existent Proxmox client method instead of the existing snapshot listing method.
+
 ## [1.7.0] - 2026-08-09
 
 ### Added

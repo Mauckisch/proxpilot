@@ -754,7 +754,7 @@ async def _execute_guest_action(
             )
         ).strip()
 
-        snapshots = await task_client.list_snapshots(
+        snapshots = await task_client.snapshots(
             node,
             guest_type,
             vmid,
