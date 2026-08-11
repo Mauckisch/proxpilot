@@ -328,25 +328,55 @@ def _send_task_notification(
                 or ""
             )
 
+            operation = str(
+                task.result.get(
+                    "operation",
+                    "create",
+                )
+                or "create"
+            )
+
+            operation_label = (
+                "Delete"
+                if operation == "delete"
+                else "Create"
+            )
+
+            operation_text = (
+                "deleted"
+                if operation == "delete"
+                else "created"
+            )
+
             if task.state == "success":
                 send_notification_event(
                     EVENT_SNAPSHOT_SUCCESS,
-                    "ProxPilot - Snapshot completed",
                     (
-                        "✅ ProxPilot · Snapshot operation completed\n\n"
+                        "ProxPilot - Snapshot "
+                        f"{operation_text}"
+                    ),
+                    (
+                        "✅ ProxPilot · Snapshot "
+                        f"{operation_text}\n\n"
                         f"Infrastructure: {infrastructure_name}\n"
                         f"Node: {task.node}\n"
+                        f"Operation: {operation_label}\n"
                         f"Snapshot: {snapshot_name or task.title}"
                     ),
                 )
             else:
                 send_notification_event(
                     EVENT_SNAPSHOT_FAILED,
-                    "ProxPilot - Snapshot failed",
                     (
-                        "❌ ProxPilot · Snapshot operation failed\n\n"
+                        "ProxPilot - Snapshot "
+                        f"{operation_label.lower()} failed"
+                    ),
+                    (
+                        "❌ ProxPilot · Snapshot "
+                        f"{operation_label.lower()} failed\n\n"
                         f"Infrastructure: {infrastructure_name}\n"
                         f"Node: {task.node}\n"
+                        f"Operation: {operation_label}\n"
                         f"Snapshot: {snapshot_name or task.title}\n"
                         f"Error: {task.error or 'Unknown error'}"
                     ),
@@ -1706,15 +1736,25 @@ async def track_snapshot_task(
     upid: str,
     infrastructure_id: int,
     source: str = "manual",
+    operation: str = "create",
 ) -> ManagedTask:
+    if operation == "delete":
+        title = (
+            f"Delete snapshot {snapshot_name} "
+            f"from {guest_type.upper()} "
+            f"{vmid}"
+        )
+    else:
+        title = (
+            f"Create snapshot {snapshot_name} "
+            f"on {guest_type.upper()} "
+            f"{vmid}"
+        )
+
     task = manager.create(
         node,
         "snapshot",
-        (
-            f"Snapshot {snapshot_name} "
-            f"auf {guest_type.upper()} "
-            f"{vmid}"
-        ),
+        title,
         infrastructure_id=
             infrastructure_id,
         source=source,
@@ -1727,6 +1767,7 @@ async def track_snapshot_task(
         "guest_type":
             guest_type,
         "vmid": vmid,
+        "operation": operation,
     }
 
     asyncio.create_task(

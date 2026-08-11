@@ -190,14 +190,58 @@ def _scheduled_result_lines(
             )
         )
 
-    elif action == "guest.migrate":
-        target_node = result.get(
-            "target_node"
+    elif action in {
+        "node.maintenance.enable",
+        "node.maintenance.disable",
+    }:
+        lines.append(
+            "Maintenance mode: "
+            + (
+                "Enabled"
+                if action.endswith(".enable")
+                else "Disabled"
+            )
         )
+
+    elif action == "guest.migrate":
+        source_node = task.get(
+            "node"
+        )
+
+        target_node = (
+            result.get(
+                "target_node"
+            )
+            or managed_result.get(
+                "target_node"
+            )
+        )
+
+        guest_type = str(
+            task.get(
+                "guest_type",
+                "",
+            )
+            or ""
+        ).upper()
+
+        vmid = task.get(
+            "vmid"
+        )
+
+        if guest_type and vmid is not None:
+            lines.append(
+                f"Guest: {guest_type} {vmid}"
+            )
+
+        if source_node:
+            lines.append(
+                f"From: {source_node}"
+            )
 
         if target_node:
             lines.append(
-                f"Target node: {target_node}"
+                f"To: {target_node}"
             )
 
     elif action.startswith(
@@ -212,17 +256,56 @@ def _scheduled_result_lines(
             )
         )
 
+        guest_type = str(
+            task.get(
+                "guest_type",
+                "",
+            )
+            or ""
+        ).upper()
+
+        vmid = task.get(
+            "vmid"
+        )
+
+        operation = (
+            "Create"
+            if action == "snapshot.create"
+            else "Delete"
+        )
+
+        if guest_type and vmid is not None:
+            lines.append(
+                f"Guest: {guest_type} {vmid}"
+            )
+
+        lines.append(
+            f"Operation: {operation}"
+        )
+
         if snapshot_name:
             lines.append(
                 f"Snapshot: {snapshot_name}"
             )
 
     elif action == "backup.guest":
+        guest_type = str(
+            task.get(
+                "guest_type",
+                "",
+            )
+            or ""
+        ).upper()
+
         vmid = task.get(
             "vmid"
         )
 
-        if vmid is not None:
+        if guest_type and vmid is not None:
+            lines.append(
+                f"Guest: {guest_type} {vmid}"
+            )
+        elif vmid is not None:
             lines.append(
                 f"VMID: {vmid}"
             )

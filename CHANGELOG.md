@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [2.0.1] - 2026-08-11
+
+### Added
+
+- Added dedicated notification events for successful and failed guest migrations.
+- Added dedicated notification events for successful and failed maintenance mode operations.
+- Added configurable Email and Discord notification preferences for migration and maintenance events.
+
+### Changed
+
+- Improved snapshot notifications to clearly distinguish between snapshot creation and deletion.
+- Snapshot notifications now include the performed operation and snapshot name.
+- Improved migration notifications to show both the source and target node.
+- Improved maintenance mode notifications to clearly indicate whether maintenance mode was enabled or disabled.
+- Improved operation notifications with more contextual information about the affected infrastructure, node, guest, and action.
+
+### Fixed
+
+- Fixed ambiguous snapshot notifications that previously did not indicate whether a snapshot was created or deleted.
+- Fixed missing operation context in maintenance mode notifications.
+- Fixed missing source-node information in migration notifications.
+
 ## [2.0.0] - 2026-08-11
 
 ### Added

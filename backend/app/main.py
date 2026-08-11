@@ -3800,6 +3800,17 @@ async def delete_snapshot(
             request.snapshot_name,
         )
 
+        task = await track_snapshot_task(
+            snapshot_client,
+            request.node,
+            request.guest_type,
+            request.vmid,
+            request.snapshot_name,
+            upid,
+            request.infrastructure_id,
+            operation="delete",
+        )
+
         write_request_audit_event(
             http_request,
             action="snapshot.delete",
@@ -3825,6 +3836,7 @@ async def delete_snapshot(
             "vmid": request.vmid,
             "snapshot_name": request.snapshot_name,
             "upid": upid,
+            "task": task.public(),
         }
 
     except ProxmoxError as exc:
