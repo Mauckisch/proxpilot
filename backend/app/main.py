@@ -8,6 +8,7 @@ import socket
 import sqlite3
 import sys
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 from pathlib import Path
 from typing import Literal
 
@@ -92,6 +93,19 @@ from .infrastructures import (
     update_infrastructure,
 )
 from .update_cache import update_cache
+from .credentials import (
+    ensure_master_key,
+)
+from .notifications import (
+    delete_discord_settings,
+    delete_email_settings,
+    get_notification_settings,
+    send_discord_message,
+    send_email_message,
+    update_discord_settings,
+    update_email_settings,
+    update_event_preferences,
+)
 from .ssh_keys import (
     SshKeyError,
     ensure_ssh_keypair,
@@ -105,6 +119,7 @@ from .tasks import (
     start_power_action,
     start_update_check,
     start_update_install,
+    start_node_batch_action,
 )
 from .scheduler_worker import (
     start_manual_scheduled_task,
@@ -246,6 +261,10 @@ class ScheduledTaskPayload(BaseModel):
     node: str | None = Field(
         default=None,
         max_length=128,
+    )
+    nodes: list[str] = Field(
+        default_factory=list,
+        max_length=100,
     )
     guest_type: Literal[
         "qemu",
@@ -469,6 +488,8 @@ async def initialize_application() -> None:
     settings = get_settings()
 
     initialize_database()
+
+    ensure_master_key()
 
     ensure_ssh_keypair()
 
@@ -710,6 +731,157 @@ class NodeAction(BaseModel):
     ]
     confirmed: bool = False
     acknowledge_no_maintenance: bool = False
+
+
+class NodeBatchAction(BaseModel):
+    infrastructure_id: int = Field(gt=0)
+
+    nodes: list[str] = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    action: Literal[
+        "check-updates",
+        "install-updates",
+        "package-cleanup",
+    ]
+
+    confirmed: bool = False
+
+
+class TimezoneSettingsUpdate(
+    BaseModel
+):
+    timezone: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+
+
+class NotificationDiscordSettingsUpdate(
+    BaseModel
+):
+    enabled: bool = False
+    webhook_url: str | None = Field(
+        default=None,
+        max_length=2048,
+    )
+
+
+class NotificationEmailSettingsUpdate(
+    BaseModel
+):
+    enabled: bool = False
+
+    smtp_host: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    smtp_port: int = Field(
+        default=587,
+        ge=1,
+        le=65535,
+    )
+
+    smtp_security: Literal[
+        "none",
+        "starttls",
+        "tls",
+    ] = "starttls"
+
+    smtp_username: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    # None keeps the currently stored password.
+    smtp_password: str | None = Field(
+        default=None,
+        max_length=4096,
+    )
+
+    email_from: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    email_recipients: list[str] = Field(
+        default_factory=list,
+    )
+
+
+class NotificationEventPreferenceUpdate(
+    BaseModel
+):
+    event_key: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    email_enabled: bool = False
+    discord_enabled: bool = False
+
+
+class NotificationEventsUpdate(
+    BaseModel
+):
+    events: list[
+        NotificationEventPreferenceUpdate
+    ] = Field(
+        default_factory=list,
+    )
+
+
+class NotificationTestRequest(
+    BaseModel
+):
+    channel: Literal[
+        "email",
+        "discord",
+    ]
+
+    # Optional temporary Discord configuration.
+    webhook_url: str | None = Field(
+        default=None,
+        max_length=2048,
+    )
+
+    # Optional temporary SMTP configuration.
+    smtp_host: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    smtp_port: int | None = Field(
+        default=None,
+        ge=1,
+        le=65535,
+    )
+
+    smtp_security: Literal[
+        "none",
+        "starttls",
+        "tls",
+    ] | None = None
+
+    smtp_username: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    smtp_password: str | None = Field(
+        default=None,
+        max_length=4096,
+    )
+
+    email_from: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    email_recipients: list[str] | None = None
 
 
 @app.get("/")
@@ -2196,7 +2368,7 @@ async def infrastructure_discover(
     payload: InfrastructureDiscoverPayload,
     request: Request,
 ):
-    require_operator_or_admin(request)
+    require_admin(request)
 
     try:
         return await discover_infrastructure(
@@ -2218,7 +2390,7 @@ async def infrastructure_create(
     payload: InfrastructureCreatePayload,
     request: Request,
 ):
-    require_operator_or_admin(request)
+    require_admin(request)
 
     try:
         return create_infrastructure(
@@ -2255,7 +2427,7 @@ async def infrastructure_update(
     payload: InfrastructureUpdatePayload,
     request: Request,
 ):
-    require_operator_or_admin(request)
+    require_admin(request)
 
     try:
         return update_infrastructure(
@@ -2287,7 +2459,7 @@ async def infrastructure_node_delete(
     node_id: int,
     request: Request,
 ):
-    require_operator_or_admin(request)
+    require_admin(request)
 
     try:
         deleted = delete_infrastructure_node(
@@ -2317,7 +2489,7 @@ async def infrastructure_delete(
     infrastructure_id: int,
     request: Request,
 ):
-    require_operator_or_admin(request)
+    require_admin(request)
 
     try:
         deleted = delete_infrastructure(
@@ -2339,12 +2511,246 @@ async def infrastructure_delete(
         ) from exc
 
 
+@app.get("/api/notifications/settings")
+async def notification_settings_get(
+    request: Request,
+):
+    require_admin(request)
+
+    return get_notification_settings()
+
+
+@app.patch("/api/notifications/settings/discord")
+async def notification_discord_settings_update(
+    payload: NotificationDiscordSettingsUpdate,
+    request: Request,
+):
+    require_admin(request)
+
+    try:
+        return update_discord_settings(
+            enabled=payload.enabled,
+            webhook_url=payload.webhook_url,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+
+@app.delete("/api/notifications/settings/discord")
+async def notification_discord_settings_delete(
+    request: Request,
+):
+    require_admin(request)
+
+    return delete_discord_settings()
+
+
+@app.patch("/api/notifications/settings/email")
+async def notification_email_settings_update(
+    payload: NotificationEmailSettingsUpdate,
+    request: Request,
+):
+    require_admin(request)
+
+    try:
+        return update_email_settings(
+            enabled=payload.enabled,
+            smtp_host=payload.smtp_host,
+            smtp_port=payload.smtp_port,
+            smtp_security=payload.smtp_security,
+            smtp_username=payload.smtp_username,
+            smtp_password=payload.smtp_password,
+            email_from=payload.email_from,
+            email_recipients=(
+                payload.email_recipients
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+
+@app.delete("/api/notifications/settings/email")
+async def notification_email_settings_delete(
+    request: Request,
+):
+    require_admin(request)
+
+    return delete_email_settings()
+
+
+@app.patch("/api/notifications/settings/events")
+async def notification_events_update(
+    payload: NotificationEventsUpdate,
+    request: Request,
+):
+    require_admin(request)
+
+    try:
+        events = [
+            item.model_dump()
+            for item in payload.events
+        ]
+
+        return update_event_preferences(
+            events
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/api/notifications/test")
+async def notification_test(
+    payload: NotificationTestRequest,
+    request: Request,
+):
+    require_admin(request)
+
+    try:
+        if payload.channel == "discord":
+            send_discord_message(
+                (
+                    "🔔 **ProxPilot**\n\n"
+                    "Discord notifications are configured "
+                    "correctly.\n\n"
+                    "This is a test notification from "
+                    "ProxPilot."
+                ),
+                webhook_url=payload.webhook_url,
+            )
+
+            return {
+                "channel": "discord",
+                "success": True,
+            }
+
+        send_email_message(
+            "ProxPilot - Test Notification",
+            (
+                "ProxPilot\n\n"
+                "Email notifications are configured "
+                "correctly.\n\n"
+                "This is a test notification from "
+                "ProxPilot."
+            ),
+            smtp_host=payload.smtp_host,
+            smtp_port=payload.smtp_port,
+            smtp_security=payload.smtp_security,
+            smtp_username=payload.smtp_username,
+            smtp_password=payload.smtp_password,
+            email_from=payload.email_from,
+            email_recipients=(
+                payload.email_recipients
+            ),
+        )
+
+        return {
+            "channel": "email",
+            "success": True,
+        }
+
+    except (
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+
+@app.get("/api/settings/regional")
+async def regional_settings_get(
+    request: Request,
+):
+    require_admin(request)
+
+    timezone_name = (
+        get_setting(
+            "app.timezone",
+            "UTC",
+        )
+        or "UTC"
+    )
+
+    return {
+        "timezone": timezone_name,
+        "timezones": sorted(
+            available_timezones()
+        ),
+    }
+
+
+@app.put("/api/settings/regional")
+async def regional_settings_update(
+    payload: TimezoneSettingsUpdate,
+    request: Request,
+):
+    require_admin(request)
+
+    timezone_name = (
+        payload.timezone.strip()
+    )
+
+    try:
+        ZoneInfo(
+            timezone_name
+        )
+    except ZoneInfoNotFoundError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Unknown timezone: "
+                f"{timezone_name}"
+            ),
+        ) from exc
+
+    set_setting(
+        "app.timezone",
+        timezone_name,
+    )
+
+    write_request_audit_event(
+        request,
+        action="settings.regional.update",
+        result="success",
+        severity="info",
+        target_type="settings",
+        target="regional",
+        details={
+            "timezone": timezone_name,
+        },
+    )
+
+    return {
+        "timezone": timezone_name,
+    }
+
+
 @app.get("/api/config")
 async def config():
     settings = get_settings()
 
     return {
-        "refresh_interval": settings.refresh_interval,
+        "refresh_interval":
+            settings.refresh_interval,
+        "timezone":
+            get_setting(
+                "app.timezone",
+                "UTC",
+            )
+            or "UTC",
     }
 
 
@@ -3909,6 +4315,60 @@ async def maintenance(
         ) from exc
 
 
+@app.post("/api/node/batch-action")
+async def node_batch_action(
+    request: NodeBatchAction,
+    http_request: Request,
+):
+    require_operator_or_admin(
+        http_request
+    )
+
+    if (
+        request.action in {
+            "install-updates",
+            "package-cleanup",
+        }
+        and not request.confirmed
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This batch action must be "
+                "explicitly confirmed."
+            ),
+        )
+
+    session = http_request.state.session
+
+    try:
+        task = await start_node_batch_action(
+            request.nodes,
+            request.action,
+            request.infrastructure_id,
+            user_id=int(
+                session.user_id
+            ),
+            username=session.username,
+            role=session.role,
+            auth_source=session.source,
+            ip_address=get_client_ip(
+                http_request
+            ),
+        )
+
+        return {
+            "ok": True,
+            "task": task.public(),
+        }
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+
 @app.post("/api/node/action")
 async def node_action(
     request: NodeAction,
@@ -4145,7 +4605,10 @@ async def scheduler_create_task(
             node=payload.node,
             guest_type=payload.guest_type,
             vmid=payload.vmid,
-            payload=payload.payload,
+            payload={
+                **payload.payload,
+                "nodes": payload.nodes,
+            },
             repeat_enabled=payload.repeat_enabled,
             interval_value=payload.interval_value,
             interval_unit=payload.interval_unit,
@@ -4226,7 +4689,10 @@ async def scheduler_update_task(
             node=payload.node,
             guest_type=payload.guest_type,
             vmid=payload.vmid,
-            payload=payload.payload,
+            payload={
+                **payload.payload,
+                "nodes": payload.nodes,
+            },
             repeat_enabled=payload.repeat_enabled,
             interval_value=payload.interval_value,
             interval_unit=payload.interval_unit,

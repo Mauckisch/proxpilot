@@ -429,41 +429,62 @@ export function NodeCard({
               ) : null}
             </SimpleGrid>
 
-            <Group justify="space-between">
-              <div>
-                <Text size="xs" c="dimmed">
+            <Stack gap={8}>
+              <Group justify="space-between" wrap="nowrap">
+                <Text size="sm" c="dimmed">
                   Memory
                 </Text>
 
-                <Text size="sm" fw={600}>
+                <Text
+                  size="sm"
+                  fw={600}
+                  ta="right"
+                  style={{
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
                   {formatBytes(node.mem)} of{' '}
                   {formatBytes(node.maxmem)}
                 </Text>
-              </div>
+              </Group>
 
-              <div>
-                <Text size="xs" c="dimmed">
+              <Group justify="space-between" wrap="nowrap">
+                <Text size="sm" c="dimmed">
                   CPU cores
                 </Text>
 
-                <Text size="sm" fw={600}>
+                <Text
+                  size="sm"
+                  fw={600}
+                  ta="right"
+                  style={{
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
                   {node.maxcpu ?? 'Unknown'}
                 </Text>
-              </div>
-            </Group>
-
-            {node.maxdisk ? (
-              <Group justify="space-between">
-                <Text size="sm" c="dimmed">
-                  Storage
-                </Text>
-
-                <Text size="sm" fw={600}>
-                  {formatBytes(node.disk)} of{' '}
-                  {formatBytes(node.maxdisk)}
-                </Text>
               </Group>
-            ) : null}
+
+              {node.maxdisk ? (
+                <Group justify="space-between" wrap="nowrap">
+                  <Text size="sm" c="dimmed">
+                    Storage
+                  </Text>
+
+                  <Text
+                    size="sm"
+                    fw={600}
+                    ta="right"
+                    style={{
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {formatBytes(node.disk)} of{' '}
+                    {formatBytes(node.maxdisk)}
+                  </Text>
+                </Group>
+              ) : null}
+            </Stack>
           </>
         )}
 
@@ -587,7 +608,7 @@ export function NodeCard({
               <Group grow>
                 <OperatorButton
                   variant="light"
-                  color="orange"
+                  color="blue"
                   leftSection={<IconRefresh size={16} />}
                   disabled={actionRunning || !online}
                   permissionTooltip="Operator or administrator permissions required to reboot nodes."
@@ -600,7 +621,7 @@ export function NodeCard({
 
                 <OperatorButton
                   variant="light"
-                  color="red"
+                  color="orange"
                   leftSection={<IconPower size={16} />}
                   disabled={actionRunning || !online}
                   permissionTooltip="Operator or administrator permissions required to shut down nodes."

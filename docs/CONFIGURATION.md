@@ -1,6 +1,6 @@
 # ProxPilot Configuration Guide
 
-This document describes the configuration model for **ProxPilot 1.7.2**.
+This document describes the configuration model for **ProxPilot 2.0.0**.
 
 ProxPilot configuration is divided into two areas:
 
@@ -37,7 +37,7 @@ The `.env` file contains only global ProxPilot application settings.
 
 # Global Application Settings
 
-A typical ProxPilot 1.7.2 environment file contains:
+A typical ProxPilot 2.0.0 environment file contains:
 
 ```dotenv
 TZ=Europe/Berlin
@@ -759,6 +759,170 @@ This change is required for multi-infrastructure support because every environme
 
 ---
 
+# Regional Settings
+
+Starting with **ProxPilot 2.0.0**, global regional settings are configured through:
+
+```text
+Settings
+→ Regional
+```
+
+Regional settings are restricted to **Administrator** users.
+
+## Timezone
+
+The application timezone is selected from the available timezone list instead of being entered manually.
+
+Example:
+
+```text
+Europe/Berlin
+```
+
+The selected timezone controls ProxPilot's regional time handling. It does not change the operating-system timezone of managed Proxmox nodes.
+
+---
+
+# Notifications
+
+Starting with **ProxPilot 2.0.0**, ProxPilot can deliver operational notifications through:
+
+- Discord webhooks
+- Email via SMTP
+
+Notification settings are configured through:
+
+```text
+Settings
+→ Notifications
+```
+
+Notification configuration is application-wide and restricted to **Administrator** users.
+
+## Notification Channels
+
+Discord and Email can be enabled or disabled independently.
+
+The channel enable/disable switches are saved immediately. Changing the detailed Discord or SMTP configuration still requires the corresponding Save action.
+
+For an operational event to be delivered through a channel, both conditions must be met:
+
+1. the notification channel is globally enabled
+2. the event is enabled for that channel
+
+A successful channel test verifies the configured delivery method, but does not by itself enable operational event notifications.
+
+## Discord
+
+Discord delivery uses a webhook URL.
+
+Configure the webhook URL and save the Discord settings. Use **Send test** to verify that ProxPilot can deliver a message through the configured webhook.
+
+If a webhook is already stored, the secret value is not exposed again in the configuration field. Leaving the field empty while saving other Discord settings preserves the existing webhook.
+
+The stored Discord webhook should be treated as a secret.
+
+## Email / SMTP
+
+Email delivery uses an SMTP server.
+
+The configuration includes:
+
+```text
+SMTP server
+SMTP port
+Security
+SMTP username
+SMTP password
+Sender
+Recipients
+```
+
+Supported security modes are:
+
+```text
+None
+STARTTLS
+TLS
+```
+
+The correct port and security mode depend on the SMTP provider. For example, providers commonly use port `587` with STARTTLS or port `465` with TLS.
+
+Multiple recipients can be separated by commas, semicolons or line breaks.
+
+Use **Send test** to verify the configured SMTP connection and delivery.
+
+If an SMTP password is already stored, leaving the password field empty while saving other email settings preserves the existing password.
+
+## Event Routing
+
+Notification delivery is configured per event. Email and Discord can therefore be selected independently for the same event.
+
+ProxPilot 2.0.0 notification events cover operational states and results including node availability, available updates, update installation, package cleanup, reboot requirements, guest backups, snapshots and Task Scheduler execution results.
+
+Example:
+
+```text
+Email: Enabled
+Discord: Enabled
+
+Update event:
+  Email: Enabled
+  Discord: Enabled
+```
+
+In this example the event is delivered through both configured channels.
+
+## Notification Content
+
+Notifications include contextual information relevant to the operation. Depending on the event, this can include:
+
+- infrastructure
+- node or nodes
+- guest
+- action
+- scheduled task
+- available or remaining updates
+- reboot-required state
+- success or failure result
+
+Multi-node results use natural node ordering, so names such as `pve`, `pve2` and `pve3` are presented in the expected order.
+
+## Multi-Node Notifications
+
+The following node operations support multi-node execution:
+
+- update checks
+- update installation
+- package cleanup
+
+For these operations ProxPilot can produce an aggregated cluster result containing the individual node results rather than treating every node as an unrelated top-level operation.
+
+Task Scheduler targets also retain the complete configured node list for these multi-node operations.
+
+For safety, multi-node execution is not permitted for:
+
+- node reboot
+- node shutdown
+- maintenance mode enable
+- maintenance mode disable
+
+These restrictions are enforced by backend validation and are not only frontend restrictions.
+
+## Notification Security
+
+Treat the following notification values as secrets:
+
+- Discord webhook URLs
+- SMTP passwords
+
+Do not publish them in Git repositories, screenshots, documentation, issue reports or log excerpts.
+
+Notification configuration is stored persistently by ProxPilot and is not configured through the legacy Proxmox `PVE_*` environment variables.
+
+---
+
 # LDAP
 
 LDAP configuration remains managed through the web interface.
@@ -920,7 +1084,7 @@ for the complete reverse-proxy configuration.
 
 # Example Global .env
 
-A normal ProxPilot 1.7.2 `.env` can look like:
+A normal ProxPilot 2.0.0 `.env` can look like:
 
 ```dotenv
 # ============================================================
@@ -1168,6 +1332,8 @@ Treat the following as secrets:
 - session secret
 - local passwords
 - LDAP bind password
+- Discord webhook URLs
+- SMTP passwords
 - Proxmox API token secrets
 - SSH private keys
 - SQLite database

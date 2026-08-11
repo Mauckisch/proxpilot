@@ -90,6 +90,7 @@ def _validate_scheduled_action(
     *,
     action: str,
     target_type: str,
+    node: str | None,
     guest_type: str | None,
     vmid: int | None,
     payload: dict[str, Any] | None,
@@ -148,6 +149,96 @@ def _validate_scheduled_action(
             raise SchedulerError(
                 "Node actions require target_type 'node'."
             )
+
+        configured_nodes_raw = (
+            values.get("nodes", [])
+        )
+
+        if (
+            configured_nodes_raw is not None
+            and not isinstance(
+                configured_nodes_raw,
+                list,
+            )
+        ):
+            raise SchedulerError(
+                "Node action payload field 'nodes' "
+                "must be a list."
+            )
+
+        configured_nodes = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in (
+                    configured_nodes_raw
+                    if isinstance(
+                        configured_nodes_raw,
+                        list,
+                    )
+                    else []
+                )
+                if str(value).strip()
+            )
+        )
+
+        clean_node = (
+            node.strip()
+            if node
+            else None
+        )
+
+        multi_node_actions = {
+            "node.check_updates",
+            "node.install_updates",
+            "node.package_cleanup",
+        }
+
+        single_node_actions = {
+            "node.reboot",
+            "node.shutdown",
+            "node.maintenance.enable",
+            "node.maintenance.disable",
+        }
+
+        if action in multi_node_actions:
+            effective_nodes = (
+                configured_nodes
+                if configured_nodes
+                else (
+                    [clean_node]
+                    if clean_node
+                    else []
+                )
+            )
+
+            if not effective_nodes:
+                raise SchedulerError(
+                    "Node action requires at least one node."
+                )
+
+        if action in single_node_actions:
+            effective_nodes = list(
+                dict.fromkeys(
+                    [
+                        *configured_nodes,
+                        *(
+                            [clean_node]
+                            if clean_node
+                            else []
+                        ),
+                    ]
+                )
+            )
+
+            if len(effective_nodes) != 1:
+                raise SchedulerError(
+                    (
+                        "This node action requires exactly "
+                        "one node. Multiple-node execution "
+                        "is allowed only for update checks, "
+                        "update installation and package cleanup."
+                    )
+                )
 
     if action in {
         "snapshot.create",
@@ -469,6 +560,7 @@ def create_scheduled_task(
     _validate_scheduled_action(
         action=clean_action,
         target_type=clean_target_type,
+        node=node,
         guest_type=guest_type,
         vmid=vmid,
         payload=payload,
@@ -689,6 +781,7 @@ def update_scheduled_task(
     _validate_scheduled_action(
         action=action.strip(),
         target_type=target_type.strip(),
+        node=node,
         guest_type=guest_type,
         vmid=vmid,
         payload=payload,

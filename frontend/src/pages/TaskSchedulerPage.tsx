@@ -4,8 +4,10 @@ import {
   Button,
   Group,
   Modal,
+  MultiSelect,
   NumberInput,
   Paper,
+  ScrollArea,
   Select,
   Stack,
   Switch,
@@ -164,6 +166,16 @@ function actionIsNode(action: string) {
   return action.startsWith('node.');
 }
 
+function actionAllowsMultipleNodes(
+  action: string,
+): boolean {
+  return [
+    'node.check_updates',
+    'node.install_updates',
+    'node.package_cleanup',
+  ].includes(action);
+}
+
 type TaskSchedulerPageProps = {
   timeFormat: '12h' | '24h';
 };
@@ -208,8 +220,10 @@ export function TaskSchedulerPage({
     useState('');
   const [action, setAction] =
     useState('');
-  const [node, setNode] =
-    useState<string | null>(null);
+
+  const [nodes, setNodes] =
+    useState<string[]>([]);
+
   const [guestKey, setGuestKey] =
     useState<string | null>(null);
   const [startAt, setStartAt] =
@@ -334,6 +348,16 @@ export function TaskSchedulerPage({
             value: entry.node,
             label: entry.node,
           }),
+        )
+        .sort((a, b) =>
+          a.label.localeCompare(
+            b.label,
+            undefined,
+            {
+              numeric: true,
+              sensitivity: 'base',
+            },
+          ),
         ),
     [
       dashboard.data?.nodes,
@@ -486,7 +510,7 @@ export function TaskSchedulerPage({
     setName('');
     setDescription('');
     setAction('');
-    setNode(null);
+    setNodes([]);
     setGuestKey(null);
     setStartAt(toLocalInputValue());
     setRepeatEnabled(false);
@@ -527,7 +551,26 @@ export function TaskSchedulerPage({
       task.description ?? '',
     );
     setAction(task.action);
-    setNode(task.node ?? null);
+
+    const storedNodes =
+      Array.isArray(
+        task.payload?.nodes,
+      )
+        ? task.payload.nodes.filter(
+            (
+              value,
+            ): value is string =>
+              typeof value === 'string',
+          )
+        : [];
+
+    setNodes(
+      storedNodes.length > 0
+        ? storedNodes
+        : task.node
+          ? [task.node]
+          : [],
+    );
 
     if (
       task.node &&
@@ -634,19 +677,44 @@ export function TaskSchedulerPage({
     }
 
     if (actionIsNode(action)) {
-      if (!node) {
+      if (nodes.length === 0) {
         setFormError(
-          'Select a node.',
+          'Select at least one node.',
+        );
+        return;
+      }
+
+      if (
+        !actionAllowsMultipleNodes(action) &&
+        nodes.length > 1
+      ) {
+        setFormError(
+          'This action can only target one node.',
         );
         return;
       }
 
       targetType = 'node';
-      targetNode = node;
+
+      targetNode =
+        actionAllowsMultipleNodes(action)
+          ? (
+              nodes.length === 1
+                ? nodes[0]
+                : null
+            )
+          : nodes[0];
     }
 
     const payload:
       Record<string, unknown> = {};
+
+    if (
+      actionIsNode(action) &&
+      actionAllowsMultipleNodes(action)
+    ) {
+      payload.nodes = nodes;
+    }
 
     if (action === 'snapshot.create') {
       if (!snapshotCreateName.trim()) {
@@ -736,6 +804,10 @@ export function TaskSchedulerPage({
       action,
       target_type: targetType,
       node: targetNode,
+      nodes:
+        actionIsNode(action)
+          ? nodes
+          : [],
       guest_type: guestType,
       vmid,
       payload,
@@ -876,11 +948,16 @@ export function TaskSchedulerPage({
             </Text>
           </Stack>
         ) : (
-          <Table
-            striped
-            highlightOnHover
-            withTableBorder
+          <ScrollArea
+            type="auto"
+            offsetScrollbars
           >
+            <Table
+              striped
+              highlightOnHover
+              withTableBorder
+              miw={1100}
+            >
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
@@ -949,9 +1026,43 @@ export function TaskSchedulerPage({
 
                     <Table.Td>
                       {task.target_type ===
-                      'guest'
-                        ? `${task.guest_type?.toUpperCase()} ${task.vmid} · ${task.node}`
-                        : task.node ?? '—'}
+                      'guest' ? (
+                        `${task.guest_type?.toUpperCase()} ${task.vmid} · ${task.node}`
+                      ) : (
+                        Array.isArray(
+                          task.payload?.nodes,
+                        ) &&
+                        task.payload.nodes.length > 0
+                      ) ? (
+                        <Stack gap={2}>
+                          {[...task.payload.nodes]
+                            .map((targetNode) =>
+                              String(targetNode),
+                            )
+                            .sort((a, b) =>
+                              a.localeCompare(
+                                b,
+                                undefined,
+                                {
+                                  numeric: true,
+                                  sensitivity: 'base',
+                                },
+                              ),
+                            )
+                            .map(
+                              (targetNode) => (
+                                <Text
+                                  key={targetNode}
+                                  size="sm"
+                                >
+                                  {targetNode}
+                                </Text>
+                              ),
+                            )}
+                        </Stack>
+                      ) : (
+                        task.node ?? '—'
+                      )}
                     </Table.Td>
 
                     <Table.Td>
@@ -1103,7 +1214,8 @@ export function TaskSchedulerPage({
                 ),
               )}
             </Table.Tbody>
-          </Table>
+            </Table>
+          </ScrollArea>
         )}
       </Paper>
 
@@ -1199,7 +1311,7 @@ export function TaskSchedulerPage({
                   : null,
               );
 
-              setNode(null);
+                        setNodes([]);
               setGuestKey(null);
               setSnapshotName(null);
               setSnapshotCreateName('');
@@ -1219,7 +1331,7 @@ export function TaskSchedulerPage({
             }
             onChange={(value) => {
               setAction(value ?? '');
-              setNode(null);
+                        setNodes([]);
               setGuestKey(null);
               setSnapshotName(null);
               setSnapshotCreateName('');
@@ -1242,13 +1354,49 @@ export function TaskSchedulerPage({
             )}
 
           {action &&
-            actionIsNode(action) && (
+            actionIsNode(action) &&
+            actionAllowsMultipleNodes(
+              action,
+            ) && (
+              <MultiSelect
+                label="Nodes"
+                required
+                searchable
+                clearable
+                data={nodeOptions}
+                value={nodes}
+                onChange={setNodes}
+                placeholder="Select one or more nodes"
+                description={
+                  nodes.length > 1
+                    ? `${nodes.length} nodes will run as one batch task.`
+                    : 'Select one or more nodes.'
+                }
+              />
+            )}
+
+          {action &&
+            actionIsNode(action) &&
+            !actionAllowsMultipleNodes(
+              action,
+            ) && (
               <Select
                 label="Node"
                 required
+                searchable
                 data={nodeOptions}
-                value={node}
-                onChange={setNode}
+                value={
+                  nodes[0] ?? null
+                }
+                onChange={(value) =>
+                  setNodes(
+                    value
+                      ? [value]
+                      : [],
+                  )
+                }
+                placeholder="Select one node"
+                description="This action can only target one node."
               />
             )}
 

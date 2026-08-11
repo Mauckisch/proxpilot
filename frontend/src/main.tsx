@@ -18,7 +18,21 @@ import './index.css';
 import { AuthGate } from './components/AuthGate';
 
 const theme = createTheme({
-  primaryColor: 'blue',
+  primaryColor: 'proxpilotBlue',
+  colors: {
+    proxpilotBlue: [
+      '#eef6ff',
+      '#d9eaff',
+      '#badcff',
+      '#8cc5ff',
+      '#5aa9ff',
+      '#3b82f6',
+      '#2563eb',
+      '#1d4ed8',
+      '#1e40af',
+      '#172554',
+    ],
+  },
   defaultRadius: 'md',
   fontFamily:
     'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',

@@ -51,6 +51,13 @@ function getStateConfiguration(state: TaskState) {
         icon: <IconCheck size={16} />,
       };
 
+    case 'partial':
+      return {
+        label: 'Partial',
+        color: 'yellow',
+        icon: <IconAlertCircle size={16} />,
+      };
+
     case 'error':
       return {
         label: 'Failed',

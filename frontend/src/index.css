@@ -9,8 +9,13 @@ body {
   background:
     radial-gradient(
       circle at top left,
-      rgba(34, 139, 230, 0.08),
-      transparent 35%
+      rgba(59, 130, 246, 0.10),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at bottom right,
+      rgba(37, 99, 235, 0.05),
+      transparent 28%
     ),
     var(--mantine-color-body);
 }
@@ -24,5 +29,987 @@ a {
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
-    opacity 120ms ease;
+    color 120ms ease,
+    opacity 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+
+/*
+ * ProxPilot 2.0
+ * Dark interface with blue corporate accent.
+ */
+
+[data-mantine-color-scheme='dark'] {
+  --proxpilot-blue: #3b82f6;
+  --proxpilot-blue-hover: #2563eb;
+  --proxpilot-blue-light: #60a5fa;
+
+  --proxpilot-bg: #101214;
+  --proxpilot-surface: #17191c;
+  --proxpilot-surface-raised: #1c1f23;
+  --proxpilot-surface-hover: #22252a;
+
+  --proxpilot-border:
+    rgba(255, 255, 255, 0.09);
+
+  --proxpilot-border-strong:
+    rgba(255, 255, 255, 0.14);
+
+  --proxpilot-blue-border:
+    rgba(59, 130, 246, 0.22);
+
+  --proxpilot-blue-soft:
+    rgba(59, 130, 246, 0.11);
+
+  --proxpilot-blue-hover-soft:
+    rgba(59, 130, 246, 0.16);
+}
+
+
+/*
+ * Header
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-AppShell-header {
+  background:
+    rgba(16, 18, 20, 0.96);
+
+  border-bottom:
+    1px solid
+    var(--proxpilot-blue-border);
+
+  backdrop-filter:
+    blur(14px);
+}
+
+
+/*
+ * Main navigation
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-AppShell-navbar {
+  background:
+    rgba(14, 16, 18, 0.98);
+
+  border-right:
+    1px solid
+    var(--proxpilot-blue-border);
+}
+
+
+/*
+ * Activity sidebar
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-AppShell-aside {
+  background:
+    rgba(14, 16, 18, 0.98);
+
+  border-left:
+    1px solid
+    var(--proxpilot-blue-border);
+}
+
+
+/*
+ * Navigation entries
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-NavLink-root {
+  border-radius:
+    var(--mantine-radius-md);
+
+  margin-bottom: 2px;
+
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-NavLink-root[data-active] {
+  color:
+    var(--proxpilot-blue-light);
+
+  background:
+    var(--proxpilot-blue-soft);
+
+  box-shadow:
+    inset 3px 0 0
+    var(--proxpilot-blue);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-NavLink-root[data-active]:hover {
+  background:
+    var(--proxpilot-blue-hover-soft);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-NavLink-root:not([data-active]):hover {
+  background:
+    rgba(255, 255, 255, 0.045);
+}
+
+
+/*
+ * Cards / surfaces
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Card-root,
+[data-mantine-color-scheme='dark']
+.mantine-Paper-root {
+  background:
+    var(--proxpilot-surface);
+
+  border-color:
+    var(--proxpilot-border);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Card-root:hover {
+  border-color:
+    var(--proxpilot-border-strong);
+}
+
+
+/*
+ * Inputs / Selects / Textareas
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Input-input,
+[data-mantine-color-scheme='dark']
+.mantine-Select-input,
+[data-mantine-color-scheme='dark']
+.mantine-Textarea-input,
+[data-mantine-color-scheme='dark']
+.mantine-TextInput-input,
+[data-mantine-color-scheme='dark']
+.mantine-PasswordInput-input {
+  background:
+    #121518;
+
+  border-color:
+    var(--proxpilot-border);
+
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Input-input:hover,
+[data-mantine-color-scheme='dark']
+.mantine-Select-input:hover,
+[data-mantine-color-scheme='dark']
+.mantine-Textarea-input:hover,
+[data-mantine-color-scheme='dark']
+.mantine-TextInput-input:hover,
+[data-mantine-color-scheme='dark']
+.mantine-PasswordInput-input:hover {
+  border-color:
+    var(--proxpilot-border-strong);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Input-input:focus,
+[data-mantine-color-scheme='dark']
+.mantine-Select-input:focus,
+[data-mantine-color-scheme='dark']
+.mantine-Textarea-input:focus,
+[data-mantine-color-scheme='dark']
+.mantine-TextInput-input:focus,
+[data-mantine-color-scheme='dark']
+.mantine-PasswordInput-input:focus,
+[data-mantine-color-scheme='dark']
+.mantine-Input-input:focus-within {
+  border-color:
+    var(--proxpilot-blue);
+
+  box-shadow:
+    0 0 0 1px
+    rgba(59, 130, 246, 0.22);
+}
+
+
+/*
+ * Dropdowns / menus
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Popover-dropdown,
+[data-mantine-color-scheme='dark']
+.mantine-Select-dropdown,
+[data-mantine-color-scheme='dark']
+.mantine-Menu-dropdown {
+  background:
+    var(--proxpilot-surface-raised);
+
+  border:
+    1px solid
+    var(--proxpilot-border);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Select-option[data-combobox-selected] {
+  background:
+    var(--proxpilot-blue-soft);
+
+  color:
+    var(--proxpilot-blue-light);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Select-option:hover {
+  background:
+    var(--proxpilot-surface-hover);
+}
+
+
+/*
+ * Buttons
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Button-root {
+  font-weight: 600;
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Button-root[data-variant='filled'] {
+  box-shadow:
+    0 1px 2px
+    rgba(0, 0, 0, 0.28);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Button-root[data-variant='default'] {
+  background:
+    var(--proxpilot-surface-raised);
+
+  border-color:
+    var(--proxpilot-border);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Button-root[data-variant='default']:hover {
+  background:
+    var(--proxpilot-surface-hover);
+
+  border-color:
+    var(--proxpilot-blue-border);
+}
+
+
+/*
+ * Action icons
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-ActionIcon-root[data-variant='default'] {
+  background:
+    var(--proxpilot-surface-raised);
+
+  border-color:
+    var(--proxpilot-border);
+}
+
+
+/*
+ * Badges
+ *
+ * Status badges keep their semantic colors.
+ * Neutral/blue badges use the corporate accent.
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Badge-root[data-variant='outline'] {
+  border-color:
+    var(--proxpilot-border-strong);
+}
+
+
+/*
+ * Tabs
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Tabs-list {
+  border-color:
+    var(--proxpilot-border);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Tabs-tab {
+  color:
+    var(--mantine-color-dimmed);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Tabs-tab:hover {
+  background:
+    var(--proxpilot-blue-soft);
+
+  color:
+    var(--proxpilot-blue-light);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Tabs-tab[data-active] {
+  color:
+    var(--proxpilot-blue-light);
+
+  border-color:
+    var(--proxpilot-blue);
+}
+
+
+/*
+ * Tables
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Table-table {
+  border-color:
+    var(--proxpilot-border);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Table-th {
+  color:
+    var(--mantine-color-dimmed);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Table-tr {
+  border-color:
+    var(--proxpilot-border);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Table-tbody
+.mantine-Table-tr:hover {
+  background:
+    rgba(59, 130, 246, 0.045);
+}
+
+
+/*
+ * Checkbox
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Checkbox-input {
+  background:
+    #121518;
+
+  border-color:
+    var(--proxpilot-border-strong);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Checkbox-input:checked {
+  background:
+    var(--proxpilot-blue);
+
+  border-color:
+    var(--proxpilot-blue);
+}
+
+
+/*
+ * Switch
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Switch-track {
+  border-color:
+    var(--proxpilot-border);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Switch-input:checked
++ .mantine-Switch-track {
+  background:
+    var(--proxpilot-blue);
+
+  border-color:
+    var(--proxpilot-blue);
+}
+
+
+/*
+ * Progress bars
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Progress-root {
+  background:
+    rgba(255, 255, 255, 0.07);
+}
+
+
+/*
+ * Modal / Drawer
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Modal-content,
+[data-mantine-color-scheme='dark']
+.mantine-Drawer-content {
+  background:
+    var(--proxpilot-surface);
+
+  border:
+    1px solid
+    var(--proxpilot-border);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Modal-header,
+[data-mantine-color-scheme='dark']
+.mantine-Drawer-header {
+  background:
+    var(--proxpilot-surface);
+
+  border-bottom:
+    1px solid
+    var(--proxpilot-border);
+}
+
+
+/*
+ * Divider
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Divider-root {
+  border-color:
+    var(--proxpilot-border);
+}
+
+
+/*
+ * Tooltips
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Tooltip-tooltip {
+  background:
+    #24272c;
+
+  border:
+    1px solid
+    var(--proxpilot-border);
+}
+
+
+/*
+ * Scrollbars
+ */
+
+[data-mantine-color-scheme='dark']
+* {
+  scrollbar-color:
+    rgba(59, 130, 246, 0.30)
+    transparent;
+}
+
+
+/*
+ * ProxPilot 2.0
+ * Main application workspace
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-AppShell-main {
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(59, 130, 246, 0.055),
+      transparent 38%
+    ),
+    linear-gradient(
+      180deg,
+      #12161b 0%,
+      #101419 100%
+    );
+}
+
+
+/*
+ * ProxPilot 2.0
+ * Unified dark workspace
+ *
+ * Keep the complete application shell visually homogeneous.
+ * Separation is created through subtle borders and surfaces
+ * instead of different large-area background colors.
+ */
+
+[data-mantine-color-scheme='dark'] {
+  --proxpilot-app-bg: #0d1116;
+  --proxpilot-panel-bg: #11161b;
+  --proxpilot-card-bg: #151a1f;
+
+  --proxpilot-border:
+    rgba(148, 163, 184, 0.12);
+
+  --proxpilot-blue-border:
+    rgba(59, 130, 246, 0.18);
+}
+
+
+/*
+ * Entire application background
+ */
+
+[data-mantine-color-scheme='dark'] body,
+[data-mantine-color-scheme='dark'] #root {
+  background:
+    var(--proxpilot-app-bg);
+}
+
+
+/*
+ * Header
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-AppShell-header {
+  background:
+    var(--proxpilot-app-bg);
+
+  border-bottom:
+    1px solid
+    var(--proxpilot-blue-border);
+
+  backdrop-filter: none;
+}
+
+
+/*
+ * Left navigation
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-AppShell-navbar {
+  background:
+    var(--proxpilot-app-bg);
+
+  border-right:
+    1px solid
+    var(--proxpilot-blue-border);
+}
+
+
+/*
+ * Main workspace
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-AppShell-main {
+  background:
+    var(--proxpilot-app-bg);
+}
+
+
+/*
+ * Activity sidebar
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-AppShell-aside {
+  background:
+    var(--proxpilot-app-bg);
+
+  border-left:
+    1px solid
+    var(--proxpilot-blue-border);
+}
+
+
+/*
+ * Cards and raised surfaces
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Card-root,
+[data-mantine-color-scheme='dark']
+.mantine-Paper-root {
+  background:
+    var(--proxpilot-card-bg);
+
+  border-color:
+    var(--proxpilot-border);
+}
+
+
+/*
+ * Inputs stay slightly darker than cards.
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Input-input,
+[data-mantine-color-scheme='dark']
+.mantine-Select-input,
+[data-mantine-color-scheme='dark']
+.mantine-Textarea-input,
+[data-mantine-color-scheme='dark']
+.mantine-TextInput-input,
+[data-mantine-color-scheme='dark']
+.mantine-PasswordInput-input {
+  background:
+    var(--proxpilot-app-bg);
+
+  border-color:
+    var(--proxpilot-border);
+}
+
+
+/*
+ * Dropdown / floating surfaces
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Popover-dropdown,
+[data-mantine-color-scheme='dark']
+.mantine-Select-dropdown,
+[data-mantine-color-scheme='dark']
+.mantine-Menu-dropdown {
+  background:
+    var(--proxpilot-card-bg);
+
+  border-color:
+    var(--proxpilot-border);
+}
+
+
+/*
+ * Modals and drawers
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Modal-content,
+[data-mantine-color-scheme='dark']
+.mantine-Modal-header,
+[data-mantine-color-scheme='dark']
+.mantine-Drawer-content,
+[data-mantine-color-scheme='dark']
+.mantine-Drawer-header {
+  background:
+    var(--proxpilot-panel-bg);
+}
+
+
+/*
+ * Navigation
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-NavLink-root[data-active] {
+  background:
+    rgba(59, 130, 246, 0.13);
+
+  color:
+    #60a5fa;
+
+  box-shadow:
+    inset 3px 0 0
+    #3b82f6;
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-NavLink-root:not([data-active]):hover {
+  background:
+    rgba(255, 255, 255, 0.035);
+}
+
+
+/*
+ * Remove the previous global blue radial background.
+ */
+
+[data-mantine-color-scheme='dark'] body {
+  background-image: none;
+}
+
+
+/*
+ * ProxPilot 2.0
+ * Corporate blue interactive controls
+ */
+
+
+/*
+ * Neutral/default buttons
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Button-root[data-variant='default'] {
+  background:
+    #151a1f;
+
+  border-color:
+    rgba(148, 163, 184, 0.14);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Button-root[data-variant='default']:hover {
+  background:
+    #192028;
+
+  border-color:
+    rgba(59, 130, 246, 0.32);
+}
+
+
+/*
+ * Subtle action icons
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-ActionIcon-root[data-variant='subtle']:not([data-disabled]):hover {
+  background:
+    rgba(59, 130, 246, 0.13);
+}
+
+
+/*
+ * Select / Combobox options
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Combobox-option:hover {
+  background:
+    rgba(59, 130, 246, 0.09);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Combobox-option[data-combobox-selected] {
+  background:
+    rgba(59, 130, 246, 0.15);
+
+  color:
+    #60a5fa;
+}
+
+
+/*
+ * Links
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Anchor-root {
+  color:
+    #60a5fa;
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Anchor-root:hover {
+  color:
+    #93c5fd;
+}
+
+
+/*
+ * Focus states
+ */
+
+[data-mantine-color-scheme='dark']
+:focus-visible {
+  outline-color:
+    rgba(59, 130, 246, 0.75);
+}
+
+
+/*
+ * Selected checkbox / radio
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Checkbox-input:checked,
+[data-mantine-color-scheme='dark']
+.mantine-Radio-radio:checked {
+  background:
+    #3b82f6;
+
+  border-color:
+    #3b82f6;
+}
+
+
+/*
+ * Switch
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Switch-input:checked
++ .mantine-Switch-track {
+  background:
+    #3b82f6;
+
+  border-color:
+    #3b82f6;
+}
+
+
+/*
+ * ============================================================
+ * ProxPilot 2.0
+ * Surfaces, cards, modals and drawers
+ * ============================================================
+ */
+
+
+/*
+ * Standard cards
+ *
+ * Keep cards clearly separated from the application background,
+ * but add a very subtle ProxPilot blue tint.
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Card-root {
+  background:
+    linear-gradient(
+      145deg,
+      rgba(59, 130, 246, 0.025),
+      rgba(59, 130, 246, 0.008)
+    ),
+    var(--proxpilot-card-bg);
+
+  border-color:
+    rgba(148, 163, 184, 0.16);
+}
+
+
+/*
+ * Standard Paper surfaces
+ *
+ * Paper is used throughout details, settings, storage,
+ * network, backups and other secondary content.
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Paper-root {
+  background:
+    linear-gradient(
+      145deg,
+      rgba(59, 130, 246, 0.020),
+      transparent 55%
+    ),
+    var(--proxpilot-card-bg);
+
+  border-color:
+    rgba(148, 163, 184, 0.14);
+}
+
+
+/*
+ * Modal surfaces
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Modal-content {
+  background:
+    linear-gradient(
+      145deg,
+      rgba(59, 130, 246, 0.035),
+      transparent 45%
+    ),
+    var(--proxpilot-panel-bg);
+
+  border:
+    1px solid rgba(59, 130, 246, 0.16);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Modal-header {
+  background:
+    rgba(17, 22, 27, 0.96);
+
+  border-bottom:
+    1px solid rgba(148, 163, 184, 0.12);
+}
+
+
+/*
+ * Drawer surfaces
+ *
+ * Used by guest details and task information.
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Drawer-content {
+  background:
+    linear-gradient(
+      160deg,
+      rgba(59, 130, 246, 0.030),
+      transparent 40%
+    ),
+    var(--proxpilot-panel-bg);
+
+  border-left:
+    1px solid rgba(59, 130, 246, 0.14);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Drawer-header {
+  background:
+    rgba(17, 22, 27, 0.96);
+
+  border-bottom:
+    1px solid rgba(148, 163, 184, 0.12);
+}
+
+
+/*
+ * Inputs and selectors
+ *
+ * Slightly separate interactive form fields from cards without
+ * turning them into visibly blue boxes.
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Input-input {
+  background:
+    rgba(10, 14, 18, 0.72);
+
+  border-color:
+    rgba(148, 163, 184, 0.16);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Input-input:hover {
+  border-color:
+    rgba(59, 130, 246, 0.30);
+}
+
+[data-mantine-color-scheme='dark']
+.mantine-Input-input:focus,
+[data-mantine-color-scheme='dark']
+.mantine-Input-input:focus-within {
+  border-color:
+    rgba(59, 130, 246, 0.72);
+}
+
+
+/*
+ * Dividers
+ */
+
+[data-mantine-color-scheme='dark']
+.mantine-Divider-root {
+  border-color:
+    rgba(148, 163, 184, 0.12);
 }

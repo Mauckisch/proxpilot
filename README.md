@@ -23,7 +23,7 @@ A modern, lightweight web interface for monitoring and managing multiple Proxmox
 
 ProxPilot is an open-source management interface for **Proxmox VE**.
 
-The current 1.7.2 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
+The current 2.0.0 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
 
 It complements the native Proxmox interface by providing a clean dashboard, simplified daily administration, integrated monitoring and commonly used management actions across multiple independent Proxmox infrastructures.
 
@@ -52,6 +52,10 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 - Improved task monitoring
 - UPS monitoring through Network UPS Tools (NUT)
 - Task Scheduler
+- Multi-node update checks, update installation and package cleanup
+- Email and Discord notifications
+- Per-event notification routing
+- Regional settings with configurable timezone
 
 ---
 
@@ -150,7 +154,6 @@ Once sensors are available, ProxPilot will automatically display CPU, motherboar
 # Roadmap
 
 - Historical statistics
-- Notifications
 - Additional charts
 - RBAC improvements
 
@@ -169,6 +172,7 @@ ProxPilot focuses on these everyday operations and presents them in a clean, mod
 - Fast access to common operations
 - Clean, responsive interface
 - Safe administration
+- Safe multi-node operations with enforced backend restrictions
 - Easy deployment with Docker
 - Works with multiple independent clusters and standalone Proxmox hosts
 - Modern authentication
@@ -590,7 +594,7 @@ Local authentication works without LDAP.
 
 ### Does ProxPilot support multiple Proxmox clusters?
 
-Yes. ProxPilot 1.7.2 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
+Yes. ProxPilot 2.0.0 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
 
 ### Where are Proxmox connections configured?
 
@@ -611,18 +615,6 @@ Local users are stored inside:
 ```text
 ./data/proxpilot.db
 ```
-
----
-
-# Roadmap
-
-Planned improvements include:
-
-- Better charts
-- Historical statistics
-- Notifications
-- Additional storage information
-- RBAC improvements
 
 ---
 

@@ -34,6 +34,7 @@ import {
 } from 'react';
 
 import { api } from '../api';
+import { useAuth } from '../auth';
 
 
 type InfrastructureNode = {
@@ -132,6 +133,10 @@ function extractErrorMessage(
 
 
 export function InfrastructureSettingsCard() {
+  const {
+    isAdmin,
+  } = useAuth();
+
   const [
     infrastructures,
     setInfrastructures,
@@ -764,16 +769,18 @@ export function InfrastructureSettingsCard() {
               </div>
             </Group>
 
-            <Button
-              leftSection={
-                <IconPlus size={16} />
-              }
-              onClick={
-                openCreateModal
-              }
-            >
-              Add Infrastructure
-            </Button>
+            {isAdmin && (
+              <Button
+                leftSection={
+                  <IconPlus size={16} />
+                }
+                onClick={
+                  openCreateModal
+                }
+              >
+                Add Infrastructure
+              </Button>
+            )}
           </Group>
 
           <Divider />
@@ -951,8 +958,9 @@ export function InfrastructureSettingsCard() {
                                   </Text>
                                 </div>
 
-                                {item.type ===
-                                  'cluster' && (
+                                {isAdmin &&
+                                  item.type ===
+                                    'cluster' && (
                                   <Button
                                     size="compact-xs"
                                     variant="subtle"
@@ -993,50 +1001,54 @@ export function InfrastructureSettingsCard() {
                             '—'}
                         </Text>
 
-                        <Divider />
+                        {isAdmin && (
+                          <>
+                            <Divider />
 
-                        <Group
-                          justify="flex-end"
-                        >
-                          <Button
-                            size="xs"
-                            variant="subtle"
-                            leftSection={
-                              <IconEdit
-                                size={14}
-                              />
-                            }
-                            onClick={() =>
-                              openRename(
-                                item,
-                              )
-                            }
-                          >
-                            Rename
-                          </Button>
+                            <Group
+                              justify="flex-end"
+                            >
+                              <Button
+                                size="xs"
+                                variant="subtle"
+                                leftSection={
+                                  <IconEdit
+                                    size={14}
+                                  />
+                                }
+                                onClick={() =>
+                                  openRename(
+                                    item,
+                                  )
+                                }
+                              >
+                                Rename
+                              </Button>
 
-                          <Button
-                            size="xs"
-                            variant="subtle"
-                            color="red"
-                            leftSection={
-                              <IconTrash
-                                size={14}
-                              />
-                            }
-                            loading={
-                              deletingId ===
-                              `infrastructure-${item.id}`
-                            }
-                            onClick={() =>
-                              void deleteInfrastructure(
-                                item,
-                              )
-                            }
-                          >
-                            Delete Infrastructure
-                          </Button>
-                        </Group>
+                              <Button
+                                size="xs"
+                                variant="subtle"
+                                color="red"
+                                leftSection={
+                                  <IconTrash
+                                    size={14}
+                                  />
+                                }
+                                loading={
+                                  deletingId ===
+                                  `infrastructure-${item.id}`
+                                }
+                                onClick={() =>
+                                  void deleteInfrastructure(
+                                    item,
+                                  )
+                                }
+                              >
+                                Delete Infrastructure
+                              </Button>
+                            </Group>
+                          </>
+                        )}
                       </Stack>
                     </Card>
                   ),
@@ -1046,8 +1058,9 @@ export function InfrastructureSettingsCard() {
         </Stack>
       </Card>
 
-      <Modal
-        opened={renameOpened}
+      {isAdmin && (
+        <Modal
+          opened={renameOpened}
         onClose={() => {
           renameModal.close();
           setRenameInfrastructure(null);
@@ -1112,10 +1125,12 @@ export function InfrastructureSettingsCard() {
             </Button>
           </Group>
         </Stack>
-      </Modal>
+        </Modal>
+      )}
 
-      <Modal
-        opened={modalOpened}
+      {isAdmin && (
+        <Modal
+          opened={modalOpened}
         onClose={() => {
           modal.close();
           resetForm();
@@ -1577,7 +1592,8 @@ export function InfrastructureSettingsCard() {
             </>
           )}
         </Stack>
-      </Modal>
+        </Modal>
+      )}
     </>
   );
 }

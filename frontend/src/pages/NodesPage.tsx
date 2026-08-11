@@ -35,6 +35,12 @@ import {
 import { useUpdates } from '../hooks/useUpdates';
 import { sortNodes } from '../utils/sort';
 
+type BatchAction =
+  | 'check-updates'
+  | 'install-updates'
+  | 'package-cleanup';
+
+
 type ConfirmState =
   | {
       kind: 'maintenance';
@@ -164,6 +170,16 @@ export function NodesPage({
   const [actionRunning, setActionRunning] =
     useState(false);
 
+  const [
+    batchConfirmAction,
+    setBatchConfirmAction,
+  ] = useState<BatchAction | null>(null);
+
+  const [
+    batchStarting,
+    setBatchStarting,
+  ] = useState(false);
+
   async function runMaintenanceAction(
     node: ClusterNode,
     action: MaintenanceAction,
@@ -253,6 +269,58 @@ export function NodesPage({
       setConfirmState(null);
     }
   }
+
+  async function runBatchAction(
+    action: BatchAction,
+  ) {
+    if (
+      !selectedInfrastructure ||
+      selectedNodes.length === 0
+    ) {
+      return;
+    }
+
+    setBatchStarting(true);
+
+    try {
+      const response = await api.post(
+        '/node/batch-action',
+        {
+          infrastructure_id:
+            selectedInfrastructure.id,
+          nodes: selectedNodes.map(
+            (node) => node.node,
+          ),
+          action,
+          confirmed:
+            action !== 'check-updates',
+        },
+      );
+
+      notifications.show({
+        title: 'Batch task started',
+        message:
+          response.data?.task?.title ??
+          `${selectedNodes.length} nodes queued.`,
+        color: 'blue',
+      });
+
+      await dashboard.refetch();
+    } catch (error) {
+      notifications.show({
+        title: 'Batch task failed to start',
+        message: getApiErrorMessage(
+          error,
+          'The batch task could not be started.',
+        ),
+        color: 'red',
+      });
+    } finally {
+      setBatchStarting(false);
+      setBatchConfirmAction(null);
+    }
+  }
+
 
   async function confirmAction() {
     if (!confirmState) {
@@ -705,6 +773,56 @@ export function NodesPage({
                   {onlineNodes} online
                 </Text>
               </div>
+
+              <Group gap="xs">
+                <Button
+                  size="xs"
+                  variant="light"
+                  disabled={
+                    selectedNodes.length === 0 ||
+                    batchStarting
+                  }
+                  onClick={() =>
+                    setBatchConfirmAction(
+                      'check-updates',
+                    )
+                  }
+                >
+                  Check all updates
+                </Button>
+
+                <Button
+                  size="xs"
+                  variant="light"
+                  disabled={
+                    selectedNodes.length === 0 ||
+                    batchStarting
+                  }
+                  onClick={() =>
+                    setBatchConfirmAction(
+                      'install-updates',
+                    )
+                  }
+                >
+                  Install all updates
+                </Button>
+
+                <Button
+                  size="xs"
+                  variant="light"
+                  disabled={
+                    selectedNodes.length === 0 ||
+                    batchStarting
+                  }
+                  onClick={() =>
+                    setBatchConfirmAction(
+                      'package-cleanup',
+                    )
+                  }
+                >
+                  Cleanup all
+                </Button>
+              </Group>
             </Group>
 
             <SimpleGrid
@@ -809,6 +927,79 @@ export function NodesPage({
           });
         }}
       />
+
+      <Modal
+        opened={batchConfirmAction !== null}
+        onClose={() => {
+          if (!batchStarting) {
+            setBatchConfirmAction(null);
+          }
+        }}
+        title={
+          batchConfirmAction === 'check-updates'
+            ? 'Check updates on all nodes'
+            : batchConfirmAction === 'install-updates'
+              ? 'Install updates on all nodes'
+              : 'Run cleanup on all nodes'
+        }
+        centered
+        closeOnClickOutside={!batchStarting}
+        closeOnEscape={!batchStarting}
+      >
+        <Stack>
+          <Text>
+            {batchConfirmAction === 'check-updates'
+              ? `Check available package updates on all ${selectedNodes.length} nodes of ${selectedInfrastructure?.name ?? 'this infrastructure'}?`
+              : batchConfirmAction === 'install-updates'
+                ? `Install all available package updates on all ${selectedNodes.length} nodes of ${selectedInfrastructure?.name ?? 'this infrastructure'}? No automatic reboot will be performed.`
+                : `Remove unused packages and clean the package cache on all ${selectedNodes.length} nodes of ${selectedInfrastructure?.name ?? 'this infrastructure'}?`}
+          </Text>
+
+          {selectedNodes.length !== onlineNodes && (
+            <Alert
+              color="yellow"
+              icon={
+                <IconAlertCircle
+                  size={18}
+                />
+              }
+              title="Not all nodes are online"
+            >
+              {onlineNodes} of{' '}
+              {selectedNodes.length} nodes are
+              currently online. Unreachable nodes
+              will be reported as failed in the
+              batch result.
+            </Alert>
+          )}
+
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              disabled={batchStarting}
+              onClick={() =>
+                setBatchConfirmAction(null)
+              }
+            >
+              Cancel
+            </Button>
+
+            <Button
+              loading={batchStarting}
+              onClick={() => {
+                if (batchConfirmAction) {
+                  void runBatchAction(
+                    batchConfirmAction,
+                  );
+                }
+              }}
+            >
+              Confirm
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
 
       <Modal
         opened={confirmState !== null}

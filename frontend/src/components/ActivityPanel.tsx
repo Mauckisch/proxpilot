@@ -99,6 +99,10 @@ function getTaskDescription(
     parts.push('Completed successfully');
   }
 
+  if (task.state === 'partial') {
+    parts.push('Completed with partial failures');
+  }
+
   if (task.state === 'error') {
     parts.push(
       task.error ?? 'Task failed',
@@ -133,6 +137,12 @@ function getTaskAppearance(
       return {
         color: 'green',
         icon: <IconCheck size={16} />,
+      };
+
+    case 'partial':
+      return {
+        color: 'yellow',
+        icon: <IconAlertCircle size={16} />,
       };
 
     case 'error':

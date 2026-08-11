@@ -2,7 +2,7 @@
 
 This document collects common ProxPilot problems and practical troubleshooting steps.
 
-The examples in this guide reflect the ProxPilot 1.7.2 configuration model. Proxmox VE environments are configured as **Infrastructures** in the ProxPilot web interface. Proxmox API credentials, TLS settings, node addresses and SSH settings are therefore no longer expected as global `PVE_*` variables in `.env`.
+The examples in this guide reflect the ProxPilot 2.0.0 configuration model. Proxmox VE environments are configured as **Infrastructures** in the ProxPilot web interface. Proxmox API credentials, TLS settings, node addresses and SSH settings are therefore no longer expected as global `PVE_*` variables in `.env`.
 
 ---
 
@@ -480,7 +480,7 @@ docker compose logs --tail=100 backend
 
 ## SSH key files are missing
 
-ProxPilot 1.7.2 manages the default Ed25519 key pair automatically.
+ProxPilot 2.0.0 manages the default Ed25519 key pair automatically.
 
 Expected persistent files:
 
@@ -633,6 +633,400 @@ Backend:
 
 ```bash
 docker compose logs --tail=200 backend
+```
+
+---
+
+# Regional Settings
+
+## Timezone appears wrong
+
+Regional settings are configured under:
+
+```text
+Settings
+→ Regional
+```
+
+Only an Administrator can change these settings.
+
+Verify that the configured timezone is the intended ProxPilot application timezone.
+
+The Regional setting does not change the operating-system timezone of the Proxmox nodes.
+
+If the displayed time still appears wrong, also verify the browser and client system time because some frontend date and time values are rendered by the browser.
+
+---
+
+## Regional settings return 401 or 403
+
+A `401 Unauthorized` response means that the request does not have a valid authenticated ProxPilot session.
+
+A `403 Forbidden` response means that the authenticated account does not have sufficient permission for the requested setting.
+
+Regional configuration is Administrator-only.
+
+Verify:
+
+- the current ProxPilot session is still valid
+- the account is an Administrator
+- the browser is sending the current session cookie
+- HTTPS and secure-cookie settings are correct when HTTPS is enabled
+
+Backend logs can help distinguish authentication and authorization failures:
+
+```bash
+docker compose logs --tail=200 backend
+```
+
+---
+
+# Notifications
+
+## Test notification works but operational notifications do not
+
+A successful Discord or email test confirms that the channel configuration itself works.
+
+It does **not** automatically enable delivery for operational events.
+
+For an operational event to be delivered, both conditions must be true:
+
+1. the notification channel is globally enabled
+2. the corresponding event is enabled for that channel
+
+Check:
+
+```text
+Settings
+→ Notifications
+```
+
+Verify the global state of:
+
+```text
+Discord
+Email
+```
+
+Then verify the per-event routing below the channel configuration.
+
+For example, receiving an update notification through Discord requires:
+
+```text
+Discord channel: Enabled
+Updates available → Discord: Enabled
+```
+
+The same logic applies independently to Email.
+
+---
+
+## Channel was enabled in the interface but notifications are still disabled
+
+In ProxPilot 2.0.0, the global Email and Discord enable/disable switches are persisted immediately.
+
+If the visible state and actual behavior do not match, reload the Settings page and verify the switch again.
+
+Also check the backend log for errors while toggling the channel:
+
+```bash
+docker compose logs -f backend
+```
+
+If necessary, inspect recent notification-related requests:
+
+```bash
+docker compose logs backend 2>&1 \
+  | grep -Ei 'notification|discord|smtp|email' \
+  | tail -100
+```
+
+---
+
+## Discord test fails
+
+Verify:
+
+- a Discord webhook is configured
+- the webhook has not been deleted or regenerated in Discord
+- the ProxPilot backend has outbound HTTPS access
+- DNS resolution works from the Docker host and backend container
+- the Discord channel is configured correctly
+
+Use **Send test** from:
+
+```text
+Settings
+→ Notifications
+→ Discord
+```
+
+Check the backend logs while sending the test:
+
+```bash
+docker compose logs -f backend
+```
+
+Treat the webhook URL as a secret. Do not publish it in screenshots, logs or issue reports.
+
+---
+
+## Discord test works but an event is not sent
+
+If **Send test** works, the Discord webhook itself is normally functional.
+
+Check:
+
+- Discord is globally enabled
+- Discord is enabled for the affected event
+- the operation actually produced the expected event
+- the operation reached a completed or failed state
+- the backend remained running while the task completed
+
+For task-related events, also inspect the task output and Activity view.
+
+The task output can contain notification delivery information for notification-enabled operations.
+
+---
+
+## Email test fails
+
+Verify the SMTP configuration under:
+
+```text
+Settings
+→ Notifications
+→ Email
+```
+
+Check:
+
+- SMTP server
+- SMTP port
+- security mode
+- SMTP username
+- SMTP password
+- sender address
+- recipient addresses
+
+Supported security modes are:
+
+```text
+None
+STARTTLS
+TLS
+```
+
+Common combinations include:
+
+```text
+587 → STARTTLS
+465 → TLS
+```
+
+The correct settings depend on the SMTP provider.
+
+Use **Send test** while following the backend logs:
+
+```bash
+docker compose logs -f backend
+```
+
+A connection failure, TLS error or SMTP authentication error should be investigated according to the mail provider's required settings.
+
+---
+
+## Email test works but event email is not sent
+
+A successful test email proves that the SMTP channel can deliver mail.
+
+It does not prove that event routing is enabled.
+
+Verify:
+
+```text
+Email channel: Enabled
+Affected event → Email: Enabled
+```
+
+Reload the Notifications settings page after changing the global Email switch and verify that it still shows **Enabled**.
+
+Also confirm that the event itself completed after Email was enabled.
+
+---
+
+## SMTP password is already configured
+
+When an SMTP password has already been stored, ProxPilot does not expose the stored secret again.
+
+Leaving the password field empty while saving unrelated email settings preserves the existing stored password.
+
+Do not replace the password unless the SMTP credential itself has changed.
+
+---
+
+## Notification settings return 401 or 403
+
+Notification configuration is Administrator-only.
+
+A response such as:
+
+```text
+401 Unauthorized
+```
+
+means that authentication is missing or the session is no longer valid.
+
+A response such as:
+
+```text
+403 Forbidden
+```
+
+means that the authenticated account does not have the required permission.
+
+Log in with an Administrator account and retry.
+
+---
+
+## Multi-node notification contains unexpected node order
+
+Multi-node update checks, update installations and package cleanup use natural node ordering.
+
+Expected ordering for names such as these is:
+
+```text
+pve
+pve2
+pve3
+```
+
+If a different order is displayed, verify that the current frontend and backend both belong to the same ProxPilot release and rebuild the development installation if required.
+
+For a source checkout:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  up -d --build
+```
+
+---
+
+# Task Scheduler
+
+## Multi-node selection is not available for an action
+
+This is intentional for safety.
+
+Multiple nodes can only be selected for:
+
+- Check updates
+- Install updates
+- Package cleanup
+
+The following node actions are restricted to exactly one node:
+
+- Reboot
+- Shutdown
+- Maintenance enable
+- Maintenance disable
+
+These restrictions are enforced by the backend and cannot be bypassed by crafting a direct API request.
+
+---
+
+## Scheduled multi-node task shows only one or an unknown target
+
+For supported multi-node actions, the scheduler stores the configured node list and should display all selected nodes as the target.
+
+Expected example:
+
+```text
+pve
+pve2
+pve3
+```
+
+or, in notification text:
+
+```text
+Target: pve, pve2, pve3
+```
+
+If the target appears as `Unknown node`, verify that the task was created or edited with ProxPilot 2.0.0 and recreate an older task if necessary.
+
+---
+
+## Scheduled task completes but no scheduler notification is received
+
+Check the Notification settings first.
+
+For scheduler completion notifications, verify the corresponding routing:
+
+```text
+Scheduled task succeeded
+Scheduled task failed
+```
+
+The desired Email or Discord channel must be enabled for those events.
+
+Also check whether the underlying operation itself generated its own notification. Multi-node update operations can produce an aggregated operation notification in addition to the Task Scheduler completion notification.
+
+Follow the backend logs while using **Run now**:
+
+```bash
+docker compose logs -f backend
+```
+
+To focus on scheduler and notification messages:
+
+```bash
+docker compose logs backend 2>&1 \
+  | grep -Ei 'scheduler|scheduled task|notification|discord|smtp|email' \
+  | tail -150
+```
+
+---
+
+## Multi-node task is marked partial
+
+The `partial` state means that a multi-node operation completed successfully on at least one node but failed on at least one other node.
+
+Inspect the task details and output to identify the affected nodes.
+
+Then troubleshoot the failed nodes independently.
+
+Typical causes include:
+
+- one node is offline
+- SSH access fails for one node
+- one node has a package-management error
+- one node has different repository or package state
+- network connectivity differs between nodes
+
+A partial result should not be treated as a complete cluster-wide success.
+
+---
+
+## Task Scheduler table is clipped on a smaller display
+
+ProxPilot 2.0.0 provides horizontal scrolling for the Task Scheduler table.
+
+If columns or action buttons still appear clipped:
+
+- perform a hard browser refresh
+- verify that the frontend container is running the current build
+- rebuild the frontend when using a source checkout
+
+For development:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  up -d --build
 ```
 
 ---
@@ -940,6 +1334,8 @@ Before sharing logs publicly, remove:
 - passwords
 - LDAP credentials
 - session data
+- SMTP credentials
+- Discord webhook URLs
 - private IP addresses if they should remain confidential
 - SSH key material
 
@@ -979,6 +1375,8 @@ Do not include:
 - API token secrets
 - passwords
 - LDAP bind passwords
+- SMTP passwords
+- Discord webhook URLs
 - SSH private keys
 - session secrets
 - SQLite databases

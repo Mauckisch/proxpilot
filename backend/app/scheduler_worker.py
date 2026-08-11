@@ -3,12 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 from .audit import write_audit_event
 from .database import get_connection
 from .maintenance import set_maintenance
+from .notifications import (
+    EVENT_SCHEDULED_TASK_FAILED,
+    EVENT_SCHEDULED_TASK_SUCCESS,
+    send_notification_event,
+)
 from .proxmox import ProxmoxClient
 from .scheduler import (
     SchedulerError,
@@ -23,6 +29,7 @@ from .tasks import (
     start_power_action,
     start_update_check,
     start_update_install,
+    start_node_batch_action,
 )
 
 
@@ -60,6 +67,341 @@ def _execution_label(
         if trigger == "manual"
         else "Scheduled"
     )
+
+
+def _scheduled_action_label(
+    action: str,
+) -> str:
+    labels = {
+        "node.check_updates":
+            "Check updates",
+        "node.install_updates":
+            "Install updates",
+        "node.package_cleanup":
+            "Package cleanup",
+        "node.reboot":
+            "Reboot node",
+        "node.shutdown":
+            "Shutdown node",
+        "node.maintenance.enable":
+            "Enable maintenance",
+        "node.maintenance.disable":
+            "Disable maintenance",
+        "guest.start":
+            "Start guest",
+        "guest.stop":
+            "Stop guest",
+        "guest.shutdown":
+            "Shutdown guest",
+        "guest.reboot":
+            "Reboot guest",
+        "guest.reset":
+            "Reset guest",
+        "guest.suspend":
+            "Suspend guest",
+        "guest.resume":
+            "Resume guest",
+        "guest.migrate":
+            "Migrate guest",
+        "snapshot.create":
+            "Create snapshot",
+        "snapshot.delete":
+            "Delete snapshot",
+        "backup.guest":
+            "Guest backup",
+    }
+
+    return labels.get(
+        action,
+        action.replace(
+            ".",
+            " ",
+        ).replace(
+            "_",
+            " ",
+        ).title(),
+    )
+
+
+def _scheduled_result_lines(
+    task: dict[str, Any],
+    result: dict[str, Any] | None,
+) -> list[str]:
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return []
+
+    managed_result = result.get(
+        "result"
+    )
+
+    if not isinstance(
+        managed_result,
+        dict,
+    ):
+        managed_result = result
+
+    lines: list[str] = []
+
+    action = str(
+        task.get(
+            "action",
+            "",
+        )
+    )
+
+    if action == "node.check_updates":
+        updates = managed_result.get(
+            "updates"
+        )
+
+        if updates is not None:
+            lines.append(
+                f"Available updates: {updates}"
+            )
+
+        if managed_result.get(
+            "reboot_required"
+        ):
+            lines.append(
+                "Reboot required: Yes"
+            )
+
+    elif action == "node.install_updates":
+        remaining = managed_result.get(
+            "updates"
+        )
+
+        if remaining is not None:
+            lines.append(
+                f"Remaining updates: {remaining}"
+            )
+
+        lines.append(
+            "Reboot required: "
+            + (
+                "Yes"
+                if managed_result.get(
+                    "reboot_required"
+                )
+                else "No"
+            )
+        )
+
+    elif action == "guest.migrate":
+        target_node = result.get(
+            "target_node"
+        )
+
+        if target_node:
+            lines.append(
+                f"Target node: {target_node}"
+            )
+
+    elif action.startswith(
+        "snapshot."
+    ):
+        snapshot_name = (
+            result.get(
+                "snapshot_name"
+            )
+            or managed_result.get(
+                "snapshot_name"
+            )
+        )
+
+        if snapshot_name:
+            lines.append(
+                f"Snapshot: {snapshot_name}"
+            )
+
+    elif action == "backup.guest":
+        vmid = task.get(
+            "vmid"
+        )
+
+        if vmid is not None:
+            lines.append(
+                f"VMID: {vmid}"
+            )
+
+    return lines
+
+
+def _send_scheduled_task_notification(
+    task: dict[str, Any],
+    *,
+    trigger: str,
+    success: bool,
+    result: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> None:
+    try:
+        schedule_name = str(
+            task.get(
+                "name",
+                "Scheduled task",
+            )
+        )
+
+        action = str(
+            task.get(
+                "action",
+                "",
+            )
+        )
+
+        action_label = (
+            _scheduled_action_label(
+                action
+            )
+        )
+
+        payload = task.get(
+            "payload",
+            {},
+        )
+
+        scheduled_nodes = (
+            payload.get("nodes", [])
+            if isinstance(
+                payload,
+                dict,
+            )
+            else []
+        )
+
+        scheduled_nodes = [
+            str(value).strip()
+            for value in scheduled_nodes
+            if (
+                isinstance(value, str)
+                and value.strip()
+            )
+        ]
+
+        if scheduled_nodes:
+            scheduled_nodes = sorted(
+                scheduled_nodes,
+                key=lambda value: [
+                    int(part)
+                    if part.isdigit()
+                    else part.lower()
+                    for part in re.split(
+                        r"(\d+)",
+                        value,
+                    )
+                ],
+            )
+
+            target = ", ".join(
+                scheduled_nodes
+            )
+        else:
+            target = (
+                get_scheduled_task_target(
+                    task
+                )
+            )
+
+        execution_label = (
+            "Manual run"
+            if trigger == "manual"
+            else "Scheduled run"
+        )
+
+        if success:
+            event_key = (
+                EVENT_SCHEDULED_TASK_SUCCESS
+            )
+
+            subject = (
+                "ProxPilot - Scheduled task "
+                f"completed: {schedule_name}"
+            )
+
+            heading = (
+                "✅ ProxPilot · Scheduled task completed"
+            )
+        else:
+            event_key = (
+                EVENT_SCHEDULED_TASK_FAILED
+            )
+
+            subject = (
+                "ProxPilot - Scheduled task "
+                f"failed: {schedule_name}"
+            )
+
+            heading = (
+                "❌ ProxPilot · Scheduled task failed"
+            )
+
+        lines = [
+            heading,
+            "",
+            f"Task: {schedule_name}",
+            f"Execution: {execution_label}",
+            f"Action: {action_label}",
+            f"Target: {target}",
+        ]
+
+        node = task.get(
+            "node"
+        )
+
+        if node:
+            lines.append(
+                f"Node: {node}"
+            )
+
+        lines.extend(
+            _scheduled_result_lines(
+                task,
+                result,
+            )
+        )
+
+        if error:
+            lines.append(
+                f"Error: {error}"
+            )
+
+        lines.append(
+            "Result: "
+            + (
+                "Success"
+                if success
+                else "Failed"
+            )
+        )
+
+        delivery = (
+            send_notification_event(
+                event_key,
+                subject,
+                "\n".join(lines),
+            )
+        )
+
+        logger.info(
+            (
+                "Scheduled task notification "
+                "%s: email=%s discord=%s"
+            ),
+            event_key,
+            delivery["email"],
+            delivery["discord"],
+        )
+
+    except Exception:
+        # Notification delivery must never
+        # change the actual scheduled-task result.
+        logger.exception(
+            "Scheduled task notification delivery failed."
+        )
 
 
 def _decode_payload(
@@ -410,6 +752,120 @@ async def _execute_node_action(
     task: dict[str, Any],
     trigger: str = "scheduled",
 ) -> dict[str, Any]:
+    payload = task.get(
+        "payload",
+        {},
+    )
+
+    configured_nodes = (
+        payload.get("nodes", [])
+        if isinstance(payload, dict)
+        else []
+    )
+
+    nodes = [
+        str(node).strip()
+        for node in configured_nodes
+        if str(node).strip()
+    ]
+
+    action = task["action"]
+
+    multi_node_actions = {
+        "node.check_updates",
+        "node.install_updates",
+        "node.package_cleanup",
+    }
+
+    single_node_actions = {
+        "node.reboot",
+        "node.shutdown",
+        "node.maintenance.enable",
+        "node.maintenance.disable",
+    }
+
+    task_node = (
+        str(task.get("node")).strip()
+        if task.get("node")
+        else None
+    )
+
+    effective_nodes = list(
+        dict.fromkeys(
+            [
+                *nodes,
+                *(
+                    [task_node]
+                    if task_node
+                    else []
+                ),
+            ]
+        )
+    )
+
+    if (
+        action in single_node_actions
+        and len(effective_nodes) != 1
+    ):
+        raise RuntimeError(
+            (
+                "Unsafe scheduled node target: "
+                "this action requires exactly one node. "
+                "Multiple-node execution is allowed only "
+                "for update checks, update installation "
+                "and package cleanup."
+            )
+        )
+
+    if (
+        len(nodes) > 1
+        and action in multi_node_actions
+    ):
+        infrastructure_id = task.get(
+            "infrastructure_id"
+        )
+
+        if (
+            not isinstance(
+                infrastructure_id,
+                int,
+            )
+            or infrastructure_id <= 0
+        ):
+            raise RuntimeError(
+                "Scheduled task has no valid infrastructure."
+            )
+
+        batch_action = {
+            "node.check_updates":
+                "check-updates",
+            "node.install_updates":
+                "install-updates",
+            "node.package_cleanup":
+                "package-cleanup",
+        }[action]
+
+        managed = await start_node_batch_action(
+            nodes,
+            batch_action,
+            infrastructure_id,
+            user_id=None,
+            username="System",
+            role="scheduler",
+            auth_source="scheduler",
+            ip_address=None,
+        )
+
+        manager.append(
+            managed,
+            _execution_message(trigger),
+        )
+
+        return await _wait_for_managed_task(
+            managed,
+            timeout_seconds=7200,
+        )
+
     node = task.get("node")
     action = task["action"]
     infrastructure_id = task.get(
@@ -1087,6 +1543,13 @@ async def execute_scheduled_task(
             result,
         )
 
+        _send_scheduled_task_notification(
+            task,
+            trigger="scheduled",
+            success=True,
+            result=result,
+        )
+
         write_audit_event(
             action=action,
             result="success",
@@ -1121,6 +1584,13 @@ async def execute_scheduled_task(
         _finish_run_failed(
             task,
             error,
+        )
+
+        _send_scheduled_task_notification(
+            task,
+            trigger="scheduled",
+            success=False,
+            error=error,
         )
 
         write_audit_event(
@@ -1223,6 +1693,13 @@ async def _execute_manual_scheduled_task(
 
             connection.commit()
 
+        _send_scheduled_task_notification(
+            task,
+            trigger="manual",
+            success=True,
+            result=result,
+        )
+
         write_audit_event(
             action="schedule.run_now",
             result="success",
@@ -1272,6 +1749,13 @@ async def _execute_manual_scheduled_task(
             )
 
             connection.commit()
+
+        _send_scheduled_task_notification(
+            task,
+            trigger="manual",
+            success=False,
+            error=error,
+        )
 
         write_audit_event(
             action="schedule.run_now",

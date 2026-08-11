@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [2.0.0] - 2026-08-11
+
+### Added
+
+- Added configurable notification delivery through Discord webhooks and email/SMTP.
+- Added per-event notification routing so administrators can choose independently which events are sent through email and Discord.
+- Added notification events for node availability, available updates, update installation results, package cleanup results, reboot requirements, guest backups, snapshots and Task Scheduler execution results.
+- Added task-aware notification summaries with meaningful operational content instead of generic success messages.
+- Added aggregated cluster notifications for multi-node update checks, update installations and package cleanup.
+- Added delivery status information to task output for notification-enabled operations.
+- Added global Regional settings with selectable timezone configuration.
+- Added multi-node scheduled tasks for update checks, update installation and package cleanup.
+- Added a partial task state for multi-node operations where only some nodes complete successfully.
+- Added aggregate audit entries for multi-node node operations.
+- Added horizontal scrolling to the Task Scheduler table for smaller displays.
+
+### Changed
+
+- Regional settings are now restricted to administrators.
+- Infrastructure configuration is now administrator-only while Viewer accounts retain read-only visibility.
+- Notification configuration is administrator-only.
+- Notification channel enable/disable switches now save immediately instead of requiring an additional Save action.
+- Task Scheduler node selection now supports multiple nodes only for update checks, update installation and package cleanup.
+- Reboot, shutdown and maintenance operations are restricted to a single node and cannot be configured as multi-node scheduled actions.
+- Multi-node tasks are now represented as one logical task instead of separate top-level tasks for every node.
+- Multi-node task notifications now show individual nodes and results in natural node order.
+- Scheduled-task notifications now display all configured node targets instead of an unknown or single-node placeholder.
+- Task and Activity views now recognize and display partial task completion.
+- Node ordering now uses natural sorting so names such as `pve`, `pve2` and `pve3` appear in the expected order.
+- Application version updated to 2.0.0.
+
+### Fixed
+
+- Fixed notification events not being delivered because the configured channel enable state had not been persisted.
+- Fixed scheduled-task notifications not being emitted correctly after manual `Run now` executions.
+- Fixed duplicate per-node notifications during aggregate multi-node scheduler operations.
+- Fixed multi-node scheduled tasks displaying `Unknown node` as their target.
+- Fixed Task Scheduler tables being clipped without horizontal scrolling.
+- Fixed frontend task-state handling after introducing the partial state.
+- Fixed TypeScript build errors caused by incomplete partial-state handling.
+- Fixed stale single-node state references after converting scheduler node selection to multi-select.
+
+### Security
+
+- Added backend validation to prevent unsafe multi-node node actions from being created through direct API requests.
+- Multi-node execution is explicitly limited to update checks, update installation and package cleanup.
+- Power and maintenance actions remain single-node operations even if a crafted request attempts to supply multiple targets.
+
 ## [1.7.2] - 2026-08-10
 
 ### Added

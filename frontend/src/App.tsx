@@ -49,7 +49,6 @@ import { StoragePage } from './pages/StoragePage';
 import { ReplicationsPage } from './pages/ReplicationsPage';
 import { BackupsPage } from './pages/BackupsPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { UsersPage } from './pages/UsersPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { TaskSchedulerPage } from './pages/TaskSchedulerPage';
 import { NetworkPage } from './pages/NetworkPage';
@@ -77,7 +76,6 @@ const navigationItems: NavigationItem[] = [
   { label: 'Tasks', icon: IconActivity },
   { label: 'Task Scheduler', icon: IconCalendarTime },
   { label: 'Audit Log', icon: IconClipboardList },
-  { label: 'Users', icon: IconUsers },
   { label: 'Settings', icon: IconSettings },
 ];
 
@@ -437,9 +435,6 @@ export default function App() {
         >
           <Stack gap={4}>
             {navigationItems
-              .filter((item) =>
-                item.label !== 'Users' || isAdmin
-              )
               .map((item) => {
               const Icon = item.icon;
 
@@ -585,10 +580,6 @@ export default function App() {
           <AuditLogPage />
         )}
 
-        {activeNavigation === 'Users' && isAdmin && (
-          <UsersPage />
-        )}
-
         {activeNavigation === 'Settings' && (
           <SettingsPage
             colorScheme={colorScheme}
@@ -605,6 +596,7 @@ export default function App() {
             onTimeFormatChange={
               setTimeFormat
             }
+            isAdmin={isAdmin}
           />
         )}
 
@@ -620,7 +612,6 @@ export default function App() {
           'Task Scheduler',
           'Network',
           'Audit Log',
-          'Users',
           'Settings',
         ].includes(activeNavigation) && (
           <Stack>

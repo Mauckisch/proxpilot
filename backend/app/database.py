@@ -3,7 +3,7 @@ import sqlite3
 
 
 DATABASE_PATH = Path("/app/data/proxpilot.db")
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 
 def get_connection() -> sqlite3.Connection:
@@ -639,6 +639,110 @@ def _migrate_to_version_7(
 
 
 
+def _migrate_to_version_8(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE notification_settings (
+            id INTEGER PRIMARY KEY
+                CHECK (id = 1),
+
+            email_enabled INTEGER NOT NULL DEFAULT 0
+                CHECK (email_enabled IN (0, 1)),
+
+            smtp_host TEXT,
+
+            smtp_port INTEGER NOT NULL DEFAULT 587
+                CHECK (
+                    smtp_port >= 1
+                    AND smtp_port <= 65535
+                ),
+
+            smtp_security TEXT NOT NULL DEFAULT 'starttls'
+                CHECK (
+                    smtp_security IN (
+                        'none',
+                        'starttls',
+                        'tls'
+                    )
+                ),
+
+            smtp_username TEXT,
+
+            smtp_password_nonce BLOB,
+            smtp_password_ciphertext BLOB,
+
+            email_from TEXT,
+            email_recipients TEXT,
+
+            discord_enabled INTEGER NOT NULL DEFAULT 0
+                CHECK (discord_enabled IN (0, 1)),
+
+            discord_webhook_nonce BLOB,
+            discord_webhook_ciphertext BLOB
+        )
+        """
+    )
+
+    connection.execute(
+        """
+        INSERT INTO notification_settings (
+            id
+        )
+        VALUES (1)
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE TABLE notification_event_preferences (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            event_key TEXT NOT NULL UNIQUE,
+
+            email_enabled INTEGER NOT NULL DEFAULT 0
+                CHECK (
+                    email_enabled IN (0, 1)
+                ),
+
+            discord_enabled INTEGER NOT NULL DEFAULT 0
+                CHECK (
+                    discord_enabled IN (0, 1)
+                )
+        )
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX
+        idx_notification_event_preferences_event_key
+        ON notification_event_preferences(event_key)
+        """
+    )
+
+    connection.execute(
+        """
+        INSERT INTO settings (
+            key,
+            value
+        )
+        VALUES (
+            'app.timezone',
+            'UTC'
+        )
+        ON CONFLICT(key) DO NOTHING
+        """
+    )
+
+    _set_schema_version(
+        connection,
+        8,
+    )
+
+
+
 def initialize_database() -> None:
     with get_connection() as connection:
         _create_settings_table(connection)
@@ -680,5 +784,9 @@ def initialize_database() -> None:
         if schema_version < 7:
             _migrate_to_version_7(connection)
             schema_version = 7
+
+        if schema_version < 8:
+            _migrate_to_version_8(connection)
+            schema_version = 8
 
         connection.commit()

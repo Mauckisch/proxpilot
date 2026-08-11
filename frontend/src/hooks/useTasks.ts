@@ -6,6 +6,7 @@ export type TaskState =
   | 'queued'
   | 'running'
   | 'success'
+  | 'partial'
   | 'error';
 
 export type TaskSource =

@@ -23,6 +23,7 @@ export interface ScheduledTask {
   action: string;
   target_type: string;
   node?: string | null;
+  nodes?: string[];
   guest_type?: 'qemu' | 'lxc' | null;
   vmid?: number | null;
   payload: Record<string, unknown>;
@@ -49,6 +50,7 @@ export interface ScheduledTaskInput {
   action: string;
   target_type: string;
   node?: string | null;
+  nodes?: string[];
   guest_type?: 'qemu' | 'lxc' | null;
   vmid?: number | null;
   payload: Record<string, unknown>;

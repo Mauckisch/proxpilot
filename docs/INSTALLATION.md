@@ -1,8 +1,8 @@
 # ProxPilot Installation Guide
 
-This guide explains how to install and configure **ProxPilot 1.7.2** for one or more Proxmox VE environments.
+This guide explains how to install and configure **ProxPilot 2.0.0** for one or more Proxmox VE environments.
 
-ProxPilot 1.7.2 supports multiple independent Proxmox infrastructures. An infrastructure can be either:
+ProxPilot 2.0.0 supports multiple independent Proxmox infrastructures. An infrastructure can be either:
 
 - a Proxmox VE cluster
 - a standalone Proxmox VE host
@@ -223,7 +223,7 @@ Proxmox displays the generated token secret only once.
 
 Store this value immediately.
 
-It will later be entered into the ProxPilot `.env` file.
+It will later be entered in the ProxPilot web interface under **Settings → Infrastructure**.
 
 List all configured tokens:
 
@@ -1241,6 +1241,51 @@ docs/AUTHENTICATION.md
 
 ---
 
+# ProxPilot 2.0.0 Settings
+
+After the first infrastructure is configured, review the application-wide settings available in the web interface.
+
+## Regional Settings
+
+Regional settings are configured under **Settings → Regional** and are restricted to administrators.
+
+ProxPilot 2.0.0 provides a selectable timezone setting so administrators do not need to enter timezone identifiers manually. The selected timezone is used by application features that require the configured regional timezone.
+
+The `TZ` environment variable remains the container-level default timezone setting.
+
+## Notifications
+
+ProxPilot 2.0.0 supports notification delivery through:
+
+- Discord webhooks
+- email through SMTP
+
+Notification configuration is administrator-only.
+
+Administrators can enable or disable the individual notification channels and configure per-event routing so that each supported event can be sent through email, Discord, both channels or neither channel. Channel enable/disable changes are saved immediately.
+
+Supported notification events include node availability, available package updates, update installation results, package cleanup results, reboot requirements, guest backups, snapshots and Task Scheduler execution results.
+
+For multi-node update checks, update installations and package cleanup, ProxPilot aggregates the result into one notification and includes the individual node results.
+
+SMTP credentials and Discord webhook URLs are sensitive configuration and must not be published in screenshots, logs, issue reports or Git repositories.
+
+## Task Scheduler in 2.0.0
+
+The Task Scheduler supports multiple node targets for these node operations:
+
+- update checks
+- update installation
+- package cleanup
+
+These operations are represented as one logical scheduled task even when several nodes are selected.
+
+For safety, reboot, shutdown and maintenance operations remain restricted to a single node. The backend enforces this restriction independently of the frontend, so a crafted API request cannot turn these actions into multi-node operations.
+
+A multi-node execution can finish with a partial result when only some selected nodes complete successfully. Task and Activity views expose this partial state.
+
+---
+
 # Updating ProxPilot
 
 ## Published Docker Images
@@ -1474,6 +1519,8 @@ Never expose:
 - local or LDAP passwords
 - SSH private keys
 - session secrets
+- SMTP credentials
+- Discord webhook URLs
 - the ProxPilot SQLite database
 
 Use a dedicated Proxmox API account rather than `root@pam`.
@@ -1579,6 +1626,9 @@ Before considering the installation complete, verify:
 - snapshots and backups work where permitted
 - browser console works
 - HTTPS is configured for production
+- Regional settings use the intended timezone
+- notification channels and per-event routing are configured if notifications are required
+- multi-node scheduled actions are limited to update checks, update installation and package cleanup
 - persistent `data/` and SSH material are backed up
 
 ---

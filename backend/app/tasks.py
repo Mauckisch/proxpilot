@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 import uuid
 from collections import deque
@@ -11,11 +12,31 @@ from typing import Literal
 
 import paramiko
 
+from .audit import write_audit_event
 from .infrastructures import get_infrastructure
+from .notifications import (
+    EVENT_GUEST_BACKUP_FAILED,
+    EVENT_GUEST_BACKUP_SUCCESS,
+    EVENT_PACKAGE_CLEANUP_FAILED,
+    EVENT_PACKAGE_CLEANUP_SUCCESS,
+    EVENT_REBOOT_REQUIRED,
+    EVENT_SNAPSHOT_FAILED,
+    EVENT_SNAPSHOT_SUCCESS,
+    EVENT_UPDATE_INSTALL_FAILED,
+    EVENT_UPDATE_INSTALL_SUCCESS,
+    EVENT_UPDATES_AVAILABLE,
+    send_notification_event,
+)
 from .update_cache import NodeUpdateStatus, update_cache
 from .update_parser import parse_packages
 
-TaskState = Literal["queued", "running", "success", "error"]
+TaskState = Literal[
+    "queued",
+    "running",
+    "success",
+    "partial",
+    "error",
+]
 
 
 @dataclass
@@ -33,11 +54,601 @@ class ManagedTask:
     output: list[str] = field(default_factory=list)
     result: dict = field(default_factory=dict)
     error: str | None = None
+    notifications_enabled: bool = True
 
     def public(self) -> dict:
         data = asdict(self)
         data["output"] = data["output"][-500:]
         return data
+
+
+def _task_infrastructure_name(
+    task: ManagedTask,
+) -> str:
+    infrastructure = get_infrastructure(
+        task.infrastructure_id
+    )
+
+    if infrastructure is None:
+        return str(
+            task.infrastructure_id
+        )
+
+    return str(
+        infrastructure.get(
+            "name",
+            task.infrastructure_id,
+        )
+    )
+
+
+def _send_task_notification(
+    task: ManagedTask,
+) -> None:
+    # Scheduled executions are summarized by
+    # scheduler_worker.py after the complete
+    # scheduled run has finished. This prevents
+    # duplicate notifications for the internal
+    # managed task and the schedule itself.
+    if task.source == "scheduler":
+        return
+
+    try:
+        infrastructure_name = (
+            _task_infrastructure_name(
+                task
+            )
+        )
+
+        if task.kind in {
+            "batch-update-check",
+            "batch-update-install",
+            "batch-package-cleanup",
+        }:
+            _send_batch_notification(
+                task
+            )
+            return
+
+        if task.kind == "update-check":
+            if task.state != "success":
+                return
+
+            updates = int(
+                task.result.get(
+                    "updates",
+                    0,
+                )
+                or 0
+            )
+
+            reboot_required = bool(
+                task.result.get(
+                    "reboot_required",
+                    False,
+                )
+            )
+
+            if updates > 0:
+                message = (
+                    "📦 ProxPilot · Updates available\n\n"
+                    f"Infrastructure: {infrastructure_name}\n"
+                    f"Node: {task.node}\n"
+                    f"Available updates: {updates}\n"
+                    "Reboot required: "
+                    f"{'Yes' if reboot_required else 'No'}"
+                )
+
+                delivery = send_notification_event(
+                    EVENT_UPDATES_AVAILABLE,
+                    (
+                        "ProxPilot - Updates available "
+                        f"on {task.node}"
+                    ),
+                    message,
+                )
+
+                manager.append(
+                    task,
+                    (
+                        "[notification] UPDATES_AVAILABLE "
+                        f"email={delivery['email']} "
+                        f"discord={delivery['discord']}"
+                    ),
+                )
+
+            if reboot_required:
+                delivery = send_notification_event(
+                    EVENT_REBOOT_REQUIRED,
+                    (
+                        "ProxPilot - Reboot required "
+                        f"on {task.node}"
+                    ),
+                    (
+                        "🔄 ProxPilot · Reboot required\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        "A reboot is required to complete "
+                        "installed system or kernel updates."
+                    ),
+                )
+
+                manager.append(
+                    task,
+                    (
+                        "[notification] REBOOT_REQUIRED "
+                        f"email={delivery['email']} "
+                        f"discord={delivery['discord']}"
+                    ),
+                )
+
+            return
+
+        if task.kind == "update-install":
+            if task.state == "success":
+                remaining = int(
+                    task.result.get(
+                        "updates",
+                        0,
+                    )
+                    or 0
+                )
+
+                reboot_required = bool(
+                    task.result.get(
+                        "reboot_required",
+                        False,
+                    )
+                )
+
+                send_notification_event(
+                    EVENT_UPDATE_INSTALL_SUCCESS,
+                    (
+                        "ProxPilot - Updates installed "
+                        f"on {task.node}"
+                    ),
+                    (
+                        "✅ ProxPilot · Update installation completed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Remaining updates: {remaining}\n"
+                        "Reboot required: "
+                        f"{'Yes' if reboot_required else 'No'}"
+                    ),
+                )
+
+                if reboot_required:
+                    send_notification_event(
+                        EVENT_REBOOT_REQUIRED,
+                        (
+                            "ProxPilot - Reboot required "
+                            f"on {task.node}"
+                        ),
+                        (
+                            "🔄 ProxPilot · Reboot required\n\n"
+                            f"Infrastructure: {infrastructure_name}\n"
+                            f"Node: {task.node}\n"
+                            "The update installation completed, "
+                            "but a reboot is required."
+                        ),
+                    )
+
+            else:
+                send_notification_event(
+                    EVENT_UPDATE_INSTALL_FAILED,
+                    (
+                        "ProxPilot - Update installation failed "
+                        f"on {task.node}"
+                    ),
+                    (
+                        "❌ ProxPilot · Update installation failed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Error: {task.error or 'Unknown error'}"
+                    ),
+                )
+
+            return
+
+        if task.kind == "package-cleanup":
+            if task.state == "success":
+                send_notification_event(
+                    EVENT_PACKAGE_CLEANUP_SUCCESS,
+                    (
+                        "ProxPilot - Cleanup completed "
+                        f"on {task.node}"
+                    ),
+                    (
+                        "✅ ProxPilot · Package cleanup completed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}"
+                    ),
+                )
+            else:
+                send_notification_event(
+                    EVENT_PACKAGE_CLEANUP_FAILED,
+                    (
+                        "ProxPilot - Cleanup failed "
+                        f"on {task.node}"
+                    ),
+                    (
+                        "❌ ProxPilot · Package cleanup failed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Error: {task.error or 'Unknown error'}"
+                    ),
+                )
+
+            return
+
+        if task.kind == "backup":
+            job_id = str(
+                task.result.get(
+                    "job_id",
+                    "",
+                )
+                or ""
+            )
+
+            if task.state == "success":
+                send_notification_event(
+                    EVENT_GUEST_BACKUP_SUCCESS,
+                    "ProxPilot - Backup completed",
+                    (
+                        "✅ ProxPilot · Backup completed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Job: {job_id or task.title}"
+                    ),
+                )
+            else:
+                send_notification_event(
+                    EVENT_GUEST_BACKUP_FAILED,
+                    "ProxPilot - Backup failed",
+                    (
+                        "❌ ProxPilot · Backup failed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Job: {job_id or task.title}\n"
+                        f"Error: {task.error or 'Unknown error'}"
+                    ),
+                )
+
+            return
+
+        if task.kind in {
+            "snapshot",
+            "scheduled-snapshot",
+        }:
+            snapshot_name = str(
+                task.result.get(
+                    "snapshot_name",
+                    "",
+                )
+                or ""
+            )
+
+            if task.state == "success":
+                send_notification_event(
+                    EVENT_SNAPSHOT_SUCCESS,
+                    "ProxPilot - Snapshot completed",
+                    (
+                        "✅ ProxPilot · Snapshot operation completed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Snapshot: {snapshot_name or task.title}"
+                    ),
+                )
+            else:
+                send_notification_event(
+                    EVENT_SNAPSHOT_FAILED,
+                    "ProxPilot - Snapshot failed",
+                    (
+                        "❌ ProxPilot · Snapshot operation failed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Snapshot: {snapshot_name or task.title}\n"
+                        f"Error: {task.error or 'Unknown error'}"
+                    ),
+                )
+
+    except Exception as exc:
+        # Notification delivery must never change
+        # the actual task result.
+        manager.append(
+            task,
+            (
+                "[notification] Delivery failed: "
+                f"{exc}"
+            ),
+        )
+
+
+def _natural_node_sort_key(
+    value: str,
+) -> list[object]:
+    return [
+        int(part)
+        if part.isdigit()
+        else part.lower()
+        for part in re.split(
+            r"(\d+)",
+            value,
+        )
+    ]
+
+
+def _send_batch_notification(
+    task: ManagedTask,
+) -> None:
+    result = task.result or {}
+
+    items = (
+        result.get("nodes", [])
+        if isinstance(
+            result.get("nodes", []),
+            list,
+        )
+        else []
+    )
+
+    items = sorted(
+        items,
+        key=lambda item:
+            _natural_node_sort_key(
+                str(
+                    item.get(
+                        "node",
+                        "",
+                    )
+                )
+            )
+        if isinstance(item, dict)
+        else [],
+    )
+
+    infrastructure_name = (
+        _task_infrastructure_name(task)
+    )
+
+    total = int(
+        result.get("total", len(items))
+        or len(items)
+    )
+
+    successful = int(
+        result.get("successful", 0)
+        or 0
+    )
+
+    failed = int(
+        result.get("failed", 0)
+        or 0
+    )
+
+    lines = []
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        node = str(
+            item.get("node", "unknown")
+        )
+
+        if item.get("state") == "success":
+            suffix = ""
+
+            node_result = item.get("result")
+
+            if isinstance(node_result, dict):
+                if task.kind == "batch-update-check":
+                    updates = int(
+                        node_result.get(
+                            "updates",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    suffix = (
+                        f" · {updates} update"
+                        f"{'' if updates == 1 else 's'}"
+                    )
+
+                    if node_result.get(
+                        "reboot_required"
+                    ):
+                        suffix += (
+                            " · reboot required"
+                        )
+
+                elif task.kind == "batch-update-install":
+                    remaining = int(
+                        node_result.get(
+                            "updates",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    suffix = (
+                        f" · {remaining} remaining"
+                    )
+
+                    if node_result.get(
+                        "reboot_required"
+                    ):
+                        suffix += (
+                            " · reboot required"
+                        )
+
+            lines.append(
+                f"✅ {node}{suffix}"
+            )
+
+        else:
+            lines.append(
+                (
+                    f"❌ {node} · "
+                    f"{item.get('error') or 'Unknown error'}"
+                )
+            )
+
+    result_label = (
+        "Success"
+        if failed == 0
+        else (
+            "Partial failure"
+            if successful > 0
+            else "Failed"
+        )
+    )
+
+    reboot_nodes = [
+        str(item.get("node"))
+        for item in items
+        if (
+            isinstance(item, dict)
+            and item.get("state") == "success"
+            and isinstance(
+                item.get("result"),
+                dict,
+            )
+            and bool(
+                item["result"].get(
+                    "reboot_required",
+                    False,
+                )
+            )
+        )
+    ]
+
+    reboot_summary = (
+        "\nReboot required: "
+        + ", ".join(reboot_nodes)
+        if reboot_nodes
+        else ""
+    )
+
+    if task.kind == "batch-update-check":
+        total_updates = sum(
+            int(
+                (
+                    item.get("result") or {}
+                ).get(
+                    "updates",
+                    0,
+                )
+                or 0
+            )
+            for item in items
+            if (
+                isinstance(item, dict)
+                and item.get("state")
+                == "success"
+                and isinstance(
+                    item.get("result"),
+                    dict,
+                )
+            )
+        )
+
+        # "Updates available" should only fire when
+        # updates actually exist.
+        if total_updates <= 0:
+            return
+
+        event_key = EVENT_UPDATES_AVAILABLE
+        subject = (
+            "ProxPilot - Updates available "
+            f"on {total} nodes"
+        )
+        heading = (
+            "📦 ProxPilot · Cluster update check"
+        )
+
+        summary_extra = (
+            f"\nAvailable updates: {total_updates}"
+        )
+
+    elif task.kind == "batch-update-install":
+        event_key = (
+            EVENT_UPDATE_INSTALL_SUCCESS
+            if failed == 0
+            else EVENT_UPDATE_INSTALL_FAILED
+        )
+
+        subject = (
+            "ProxPilot - Cluster update "
+            + (
+                "completed"
+                if failed == 0
+                else "partially failed"
+            )
+        )
+
+        heading = (
+            "✅ ProxPilot · Cluster update installation"
+            if failed == 0
+            else "⚠️ ProxPilot · Cluster update installation"
+        )
+
+        summary_extra = ""
+
+    elif task.kind == "batch-package-cleanup":
+        event_key = (
+            EVENT_PACKAGE_CLEANUP_SUCCESS
+            if failed == 0
+            else EVENT_PACKAGE_CLEANUP_FAILED
+        )
+
+        subject = (
+            "ProxPilot - Cluster cleanup "
+            + (
+                "completed"
+                if failed == 0
+                else "partially failed"
+            )
+        )
+
+        heading = (
+            "✅ ProxPilot · Cluster package cleanup"
+            if failed == 0
+            else "⚠️ ProxPilot · Cluster package cleanup"
+        )
+
+        summary_extra = ""
+
+    else:
+        return
+
+    message = (
+        f"{heading}\n\n"
+        f"Infrastructure: {infrastructure_name}\n"
+        f"Nodes: {total}\n"
+        f"Successful: {successful}\n"
+        f"Failed: {failed}"
+        f"{summary_extra}"
+        f"{reboot_summary}\n\n"
+        + "\n".join(lines)
+        + f"\n\nResult: {result_label}"
+    )
+
+    delivery = send_notification_event(
+        event_key,
+        subject,
+        message,
+    )
+
+    manager.append(
+        task,
+        (
+            f"[notification] {event_key} "
+            f"email={delivery['email']} "
+            f"discord={delivery['discord']}"
+        ),
+    )
 
 
 class TaskManager:
@@ -62,6 +673,9 @@ class TaskManager:
         title: str,
         infrastructure_id: int,
         source: str = "manual",
+        *,
+        visible: bool = True,
+        notifications_enabled: bool = True,
     ) -> ManagedTask:
         task = ManagedTask(
             id=str(uuid.uuid4()),
@@ -70,10 +684,15 @@ class TaskManager:
             title=title,
             source=source,
             infrastructure_id=infrastructure_id,
+            notifications_enabled=
+                notifications_enabled,
         )
-        with self._lock:
-            self._tasks[task.id] = task
-            self._order.append(task.id)
+
+        if visible:
+            with self._lock:
+                self._tasks[task.id] = task
+                self._order.append(task.id)
+
         return task
 
     def append(self, task: ManagedTask, line: str) -> None:
@@ -99,13 +718,47 @@ class TaskManager:
                 (task.infrastructure_id, task.node)
             )
 
-    def fail(self, task: ManagedTask, error: str) -> None:
+        if task.notifications_enabled:
+            _send_task_notification(
+                task
+            )
+
+    def fail(
+        self,
+        task: ManagedTask,
+        error: str,
+        result: dict | None = None,
+    ) -> None:
         with self._lock:
             task.state = "error"
             task.finished_at = datetime.now(timezone.utc).isoformat()
             task.error = error
+
+            if result is not None:
+                task.result = result
+
             self._node_update_locks.discard(
                 (task.infrastructure_id, task.node)
+            )
+
+        if task.notifications_enabled:
+            _send_task_notification(
+                task
+            )
+
+    def partial(
+        self,
+        task: ManagedTask,
+        result: dict,
+    ) -> None:
+        with self._lock:
+            task.state = "partial"
+            task.finished_at = datetime.now(timezone.utc).isoformat()
+            task.result = result
+
+        if task.notifications_enabled:
+            _send_task_notification(
+                task
             )
 
     def reserve_update(
@@ -478,6 +1131,298 @@ def _execute_power(task: ManagedTask, action: str) -> None:
         manager.finish(task, {"scheduled": True})
     except Exception as exc:
         manager.fail(task, str(exc))
+
+
+async def _execute_batch_node_action(
+    task: ManagedTask,
+    nodes: list[str],
+    action: str,
+    *,
+    user_id: int | None,
+    username: str,
+    role: str,
+    auth_source: str,
+    ip_address: str | None,
+) -> None:
+    manager.start(task)
+
+    results: list[dict] = []
+
+    async def execute_node(
+        node: str,
+    ) -> dict:
+        if not manager.reserve_update(
+            node,
+            task.infrastructure_id,
+        ):
+            return {
+                "node": node,
+                "state": "error",
+                "error":
+                    "An update action is already running on this node.",
+            }
+
+        kind_map = {
+            "check-updates":
+                "update-check",
+            "install-updates":
+                "update-install",
+            "package-cleanup":
+                "package-cleanup",
+        }
+
+        child = manager.create(
+            node,
+            kind_map[action],
+            f"Internal batch action on {node}",
+            infrastructure_id=
+                task.infrastructure_id,
+            source="batch",
+            visible=False,
+            notifications_enabled=False,
+        )
+
+        try:
+            if action == "check-updates":
+                await asyncio.to_thread(
+                    _execute_update_check,
+                    child,
+                )
+
+            elif action == "install-updates":
+                await asyncio.to_thread(
+                    _execute_update_install,
+                    child,
+                )
+
+            elif action == "package-cleanup":
+                await asyncio.to_thread(
+                    _execute_package_cleanup,
+                    child,
+                )
+
+            else:
+                raise RuntimeError(
+                    f"Unsupported batch action: {action}"
+                )
+
+            if child.state == "success":
+                return {
+                    "node": node,
+                    "state": "success",
+                    "result": child.result,
+                }
+
+            return {
+                "node": node,
+                "state": "error",
+                "error":
+                    child.error
+                    or "Node action failed.",
+            }
+
+        except Exception as exc:
+            manager.fail(
+                child,
+                str(exc),
+            )
+
+            return {
+                "node": node,
+                "state": "error",
+                "error": str(exc),
+            }
+
+    try:
+        results = list(
+            await asyncio.gather(
+                *[
+                    execute_node(node)
+                    for node in nodes
+                ]
+            )
+        )
+
+        successful = sum(
+            1
+            for item in results
+            if item["state"] == "success"
+        )
+
+        failed = (
+            len(results)
+            - successful
+        )
+
+        summary = {
+            "action": action,
+            "total": len(results),
+            "successful": successful,
+            "failed": failed,
+            "nodes": results,
+        }
+
+        for item in results:
+            if item["state"] == "success":
+                manager.append(
+                    task,
+                    (
+                        f"[success] "
+                        f"{item['node']}"
+                    ),
+                )
+            else:
+                manager.append(
+                    task,
+                    (
+                        f"[failed] "
+                        f"{item['node']}: "
+                        f"{item.get('error')}"
+                    ),
+                )
+
+        if failed == 0:
+            manager.finish(
+                task,
+                summary,
+            )
+            audit_result = "success"
+            severity = "info"
+
+        elif successful > 0:
+            manager.partial(
+                task,
+                summary,
+            )
+            audit_result = "partial"
+            severity = "warning"
+
+        else:
+            manager.fail(
+                task,
+                "All node actions failed.",
+                summary,
+            )
+            audit_result = "failed"
+            severity = "error"
+
+        infrastructure_name = (
+            _task_infrastructure_name(
+                task
+            )
+        )
+
+        write_audit_event(
+            action=(
+                "node.batch."
+                + action.replace(
+                    "-",
+                    ".",
+                )
+            ),
+            result=audit_result,
+            severity=severity,
+            user_id=user_id,
+            username=username,
+            role=role,
+            source=auth_source,
+            ip_address=ip_address,
+            target_type="infrastructure",
+            target=infrastructure_name,
+            node=None,
+            infrastructure_id=
+                task.infrastructure_id,
+            details={
+                "batch_task_id":
+                    task.id,
+                **summary,
+            },
+        )
+
+    except Exception as exc:
+        if task.state in {
+            "queued",
+            "running",
+        }:
+            manager.fail(
+                task,
+                str(exc),
+            )
+
+
+async def start_node_batch_action(
+    nodes: list[str],
+    action: str,
+    infrastructure_id: int,
+    *,
+    user_id: int | None,
+    username: str,
+    role: str,
+    auth_source: str,
+    ip_address: str | None,
+) -> ManagedTask:
+    unique_nodes = list(
+        dict.fromkeys(
+            node.strip()
+            for node in nodes
+            if node.strip()
+        )
+    )
+
+    if not unique_nodes:
+        raise RuntimeError(
+            "At least one node is required."
+        )
+
+    kind_map = {
+        "check-updates":
+            "batch-update-check",
+        "install-updates":
+            "batch-update-install",
+        "package-cleanup":
+            "batch-package-cleanup",
+    }
+
+    title_map = {
+        "check-updates":
+            "Check updates",
+        "install-updates":
+            "Install updates",
+        "package-cleanup":
+            "Package cleanup",
+    }
+
+    if action not in kind_map:
+        raise RuntimeError(
+            f"Unsupported batch action: {action}"
+        )
+
+    task = manager.create(
+        "batch",
+        kind_map[action],
+        (
+            f"{title_map[action]} on "
+            f"{len(unique_nodes)} nodes"
+        ),
+        infrastructure_id=
+            infrastructure_id,
+        source="manual",
+    )
+
+    asyncio.create_task(
+        _execute_batch_node_action(
+            task,
+            unique_nodes,
+            action,
+            user_id=user_id,
+            username=username,
+            role=role,
+            auth_source=auth_source,
+            ip_address=ip_address,
+        )
+    )
+
+    return task
 
 
 async def start_update_check(
