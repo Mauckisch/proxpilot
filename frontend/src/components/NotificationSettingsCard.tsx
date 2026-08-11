@@ -2,7 +2,6 @@ import {
   Alert,
   Button,
   Card,
-  Checkbox,
   Divider,
   Group,
   NumberInput,
@@ -327,38 +326,6 @@ export function NotificationSettingsCard() {
   }
 
 
-  function updateEvent(
-    eventKey: string,
-    channel: 'email' | 'discord',
-    enabled: boolean,
-  ) {
-    setSettings((current) => {
-      if (!current) {
-        return current;
-      }
-
-      return {
-        ...current,
-        events: current.events.map(
-          (event) =>
-            event.event_key === eventKey
-              ? {
-                  ...event,
-                  [
-                    channel === 'email'
-                      ? 'email_enabled'
-                      : 'discord_enabled'
-                  ]: enabled,
-                }
-              : event,
-        ),
-      };
-    });
-
-    clearMessages();
-  }
-
-
   function parsedRecipients(): string[] {
     return recipients
       .split(/[\n,;]/)
@@ -614,10 +581,36 @@ export function NotificationSettingsCard() {
   }
 
 
-  async function saveEvents() {
+  async function saveEventToggle(
+    eventKey: string,
+    channel: 'email' | 'discord',
+    enabled: boolean,
+  ) {
     if (!settings) {
       return;
     }
+
+    const previousSettings = settings;
+
+    const nextEvents =
+      settings.events.map(
+        (event) =>
+          event.event_key === eventKey
+            ? {
+                ...event,
+                [
+                  channel === 'email'
+                    ? 'email_enabled'
+                    : 'discord_enabled'
+                ]: enabled,
+              }
+            : event,
+      );
+
+    setSettings({
+      ...settings,
+      events: nextEvents,
+    });
 
     setSavingEvents(true);
     clearMessages();
@@ -627,16 +620,14 @@ export function NotificationSettingsCard() {
         await api.patch<NotificationSettings>(
           '/notifications/settings/events',
           {
-            events: settings.events,
+            events: nextEvents,
           },
         );
 
       setSettings(response.data);
-
-      setSuccessMessage(
-        'Notification events saved successfully.',
-      );
     } catch (error) {
+      setSettings(previousSettings);
+
       setErrorMessage(
         getErrorMessage(error),
       );
@@ -1293,50 +1284,77 @@ export function NotificationSettingsCard() {
                             </Text>
                           </div>
 
-                          <Group>
-                            <Checkbox
-                              label="Email"
-                              checked={
-                                event
-                                  .email_enabled
-                              }
-                              disabled={
-                                savingEvents
-                              }
-                              onChange={(
-                                changeEvent,
-                              ) =>
-                                updateEvent(
-                                  event.event_key,
-                                  'email',
-                                  changeEvent
-                                    .currentTarget
-                                    .checked,
-                                )
-                              }
-                            />
+                          <Group
+                            justify="flex-end"
+                            gap="lg"
+                          >
+                            <Stack
+                              gap={4}
+                              align="center"
+                            >
+                              <Text
+                                size="xs"
+                                fw={600}
+                                c="dimmed"
+                              >
+                                Email
+                              </Text>
 
-                            <Checkbox
-                              label="Discord"
-                              checked={
-                                event
-                                  .discord_enabled
-                              }
-                              disabled={
-                                savingEvents
-                              }
-                              onChange={(
-                                changeEvent,
-                              ) =>
-                                updateEvent(
-                                  event.event_key,
-                                  'discord',
-                                  changeEvent
-                                    .currentTarget
-                                    .checked,
-                                )
-                              }
-                            />
+                              <Switch
+                                checked={
+                                  event
+                                    .email_enabled
+                                }
+                                disabled={
+                                  savingEvents
+                                }
+                                onChange={(
+                                  changeEvent,
+                                ) =>
+                                  void saveEventToggle(
+                                    event.event_key,
+                                    'email',
+                                    changeEvent
+                                      .currentTarget
+                                      .checked,
+                                  )
+                                }
+                              />
+                            </Stack>
+
+                            <Stack
+                              gap={4}
+                              align="center"
+                            >
+                              <Text
+                                size="xs"
+                                fw={600}
+                                c="dimmed"
+                              >
+                                Discord
+                              </Text>
+
+                              <Switch
+                                checked={
+                                  event
+                                    .discord_enabled
+                                }
+                                disabled={
+                                  savingEvents
+                                }
+                                onChange={(
+                                  changeEvent,
+                                ) =>
+                                  void saveEventToggle(
+                                    event.event_key,
+                                    'discord',
+                                    changeEvent
+                                      .currentTarget
+                                      .checked,
+                                  )
+                                }
+                              />
+                            </Stack>
                           </Group>
                         </Stack>
                       </Card>
@@ -1345,21 +1363,6 @@ export function NotificationSettingsCard() {
                 )}
               </SimpleGrid>
 
-              <Group justify="flex-start">
-                <Button
-                  leftSection={
-                    <IconDeviceFloppy
-                      size={17}
-                    />
-                  }
-                  loading={savingEvents}
-                  onClick={() =>
-                    void saveEvents()
-                  }
-                >
-                  Save event settings
-                </Button>
-              </Group>
             </Stack>
           </Card>
         </>

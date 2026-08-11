@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [2.0.2] - 2026-08-11
+
+### Changed
+
+- Notification event preferences now use toggle switches with immediate autosave instead of checkboxes and a separate save action.
+- The desktop navigation is now permanently expanded and the obsolete navigation-collapse setting has been removed.
+- Improved the application header layout with a full-height separator aligned with the navigation sidebar.
+- Header and navigation separators now consistently use the ProxPilot border color.
+- Updated the application subtitle from `Proxmox Homelab Control` to `Proxmox Infrastructure Management` to better reflect support for both homelab and professional Proxmox environments.
+
+### Fixed
+
+- Fixed inconsistent notification event controls and removed the redundant manual event-settings save step.
+- Fixed header/sidebar separator alignment and coloring.
+
 ## [2.0.1] - 2026-08-11
 
 ### Added

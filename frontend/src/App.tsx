@@ -88,9 +88,7 @@ export default function App() {
 
   const [aboutOpened, aboutHandlers] = useDisclosure(false);
 
-  const [navbarCollapsed, setNavbarCollapsed] = useState(() => {
-    return localStorage.getItem('proxpilot-navbar-collapsed') === 'true';
-  });
+  const navbarCollapsed = false;
 
   const [showActivityPanel, setShowActivityPanel] = useState(() => {
     return localStorage.getItem('proxpilot-activity-panel') !== 'false';
@@ -164,13 +162,6 @@ export default function App() {
     : dashboard.isLoading
       ? 'Connecting to cluster'
       : `${onlineNodeCount} of ${totalNodeCount} nodes online`;
-
-  useEffect(() => {
-    localStorage.setItem(
-      'proxpilot-navbar-collapsed',
-      String(navbarCollapsed),
-    );
-  }, [navbarCollapsed]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -266,7 +257,7 @@ export default function App() {
     <AppShell
       header={{ height: 64 }}
       navbar={{
-        width: navbarCollapsed ? 82 : 240,
+        width: 240,
         breakpoint: 'sm',
         collapsed: { mobile: !mobileOpened },
       }}
@@ -280,22 +271,23 @@ export default function App() {
       }}
       padding="lg"
     >
-      <AppShell.Header px="lg">
+      <AppShell.Header px={0}>
         <Group h="100%" justify="space-between">
-          <Group>
+          <Group
+            h="100%"
+            w={240}
+            px="lg"
+            wrap="nowrap"
+            style={{
+              borderRight:
+                '1px solid var(--proxpilot-blue-border)',
+              flexShrink: 0,
+            }}
+          >
             <Burger
               opened={mobileOpened}
               onClick={mobileHandlers.toggle}
               hiddenFrom="sm"
-              size="sm"
-            />
-
-            <Burger
-              opened={!navbarCollapsed}
-              onClick={() =>
-                setNavbarCollapsed((value) => !value)
-              }
-              visibleFrom="sm"
               size="sm"
             />
 
@@ -321,7 +313,7 @@ export default function App() {
                 </Title>
 
                 <Text size="xs" c="dimmed">
-                  Proxmox Homelab Control
+                  Proxmox Infrastructure Management
                 </Text>
               </div>
             </Group>
@@ -476,7 +468,13 @@ export default function App() {
           </Stack>
         </AppShell.Section>
 
-        <AppShell.Section>
+        <AppShell.Section
+          pt="md"
+          style={{
+            borderTop:
+              '1px solid var(--proxpilot-blue-border)',
+          }}
+        >
           {!navbarCollapsed && (
             <Stack gap={4}>
               <UnstyledButton
@@ -587,10 +585,6 @@ export default function App() {
             showActivityPanel={showActivityPanel}
             onShowActivityPanelChange={
               setShowActivityPanel
-            }
-            navbarCollapsed={navbarCollapsed}
-            onNavbarCollapsedChange={
-              setNavbarCollapsed
             }
             timeFormat={timeFormat}
             onTimeFormatChange={

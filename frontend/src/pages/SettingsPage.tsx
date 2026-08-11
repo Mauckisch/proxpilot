@@ -74,10 +74,6 @@ type SettingsPageProps = {
   onShowActivityPanelChange: (
     value: boolean,
   ) => void;
-  navbarCollapsed: boolean;
-  onNavbarCollapsedChange: (
-    value: boolean,
-  ) => void;
   timeFormat: '12h' | '24h';
   onTimeFormatChange: (
     value: '12h' | '24h',
@@ -145,8 +141,6 @@ export function SettingsPage({
   onColorSchemeChange,
   showActivityPanel,
   onShowActivityPanelChange,
-  navbarCollapsed,
-  onNavbarCollapsedChange,
   timeFormat,
   onTimeFormatChange,
   isAdmin,
@@ -730,29 +724,6 @@ export function SettingsPage({
                       </Text>
                     </div>
                   </Group>
-
-                  <Switch
-                    checked={
-                      !navbarCollapsed
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      onNavbarCollapsedChange(
-                        !event
-                          .currentTarget
-                          .checked,
-                      )
-                    }
-                    label={
-                      'Show expanded ' +
-                      'navigation'
-                    }
-                    description={
-                      'Shows module names in addition ' +
-                      'to navigation icons.'
-                    }
-                  />
 
                   <Switch
                     checked={
