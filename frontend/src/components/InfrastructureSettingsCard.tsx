@@ -1473,17 +1473,20 @@ export function InfrastructureSettingsCard() {
                   size="sm"
                   fw={500}
                 >
-                  ProxPilot SSH public key
+                  ProxPilot SSH setup command
                 </Text>
 
                 <Text
                   size="xs"
                   c="dimmed"
                 >
-                  Add this key to the SSH user's
-                  ~/.ssh/authorized_keys file on every
-                  Proxmox node managed by this
-                  infrastructure.
+                  Copy and run this command as the
+                  configured SSH user on every Proxmox
+                  node managed by this infrastructure.
+                  The command creates the SSH directory
+                  if necessary and adds the ProxPilot
+                  public key only when it is not already
+                  present.
                 </Text>
 
                 {sshPublicKeyError ? (
@@ -1503,15 +1506,38 @@ export function InfrastructureSettingsCard() {
                     wrap="nowrap"
                   >
                     <TextInput
-                      value={sshPublicKey}
+                      value={
+                        sshPublicKey
+                          ? [
+                              'mkdir -p ~/.ssh',
+                              'chmod 700 ~/.ssh',
+                              'touch ~/.ssh/authorized_keys',
+                              (
+                                "grep -qxF '"
+                                + sshPublicKey.replace(
+                                  /'/g,
+                                  "'\\\"'\\\"'",
+                                )
+                                + "' ~/.ssh/authorized_keys"
+                                + " || printf '%s\\n' '"
+                                + sshPublicKey.replace(
+                                  /'/g,
+                                  "'\\\"'\\\"'",
+                                )
+                                + "' >> ~/.ssh/authorized_keys"
+                              ),
+                              'chmod 600 ~/.ssh/authorized_keys',
+                            ].join(' && ')
+                          : ''
+                      }
                       readOnly
                       style={{
                         flex: 1,
                       }}
                       placeholder={
                         sshPublicKeyLoading
-                          ? 'Loading public key...'
-                          : 'Public key unavailable'
+                          ? 'Loading SSH setup command...'
+                          : 'SSH setup command unavailable'
                       }
                     />
 
@@ -1539,9 +1565,30 @@ export function InfrastructureSettingsCard() {
                           return;
                         }
 
+                        const escapedKey =
+                          sshPublicKey.replace(
+                            /'/g,
+                            "'\\\"'\\\"'",
+                          );
+
+                        const setupCommand = [
+                          'mkdir -p ~/.ssh',
+                          'chmod 700 ~/.ssh',
+                          'touch ~/.ssh/authorized_keys',
+                          (
+                            "grep -qxF '"
+                            + escapedKey
+                            + "' ~/.ssh/authorized_keys"
+                            + " || printf '%s\\n' '"
+                            + escapedKey
+                            + "' >> ~/.ssh/authorized_keys"
+                          ),
+                          'chmod 600 ~/.ssh/authorized_keys',
+                        ].join(' && ');
+
                         void navigator.clipboard
                           .writeText(
-                            sshPublicKey,
+                            setupCommand,
                           )
                           .then(() => {
                             setSshPublicKeyCopied(
@@ -1560,7 +1607,7 @@ export function InfrastructureSettingsCard() {
                     >
                       {sshPublicKeyCopied
                         ? 'Copied'
-                        : 'Copy'}
+                        : 'Copy command'}
                     </Button>
                   </Group>
                 )}

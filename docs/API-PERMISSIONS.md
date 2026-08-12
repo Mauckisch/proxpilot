@@ -1,6 +1,6 @@
 # ProxPilot Proxmox API Permissions
 
-This document describes the Proxmox VE permissions required by ProxPilot.
+This document describes the Proxmox VE permissions required by **ProxPilot 2.3.0**.
 
 It explains:
 
@@ -176,7 +176,7 @@ VM.PowerMgmt
 | `Sys.Audit` | Reading node, cluster and system information |
 | `VM.Audit` | Reading VM and LXC status and configuration |
 | `VM.Console` | Opening the integrated QEMU noVNC console |
-| `VM.Migrate` | Live and offline guest migration |
+| `VM.Migrate` | Live and offline guest migration, including ProxPilot cross-infrastructure QEMU migration |
 | `VM.PowerMgmt` | Start, shutdown, stop, reboot, suspend and resume |
 
 ### Create the role
@@ -604,7 +604,136 @@ When privilege separation is enabled, both results matter.
 
 ---
 
-## 15. Console permission
+## 15. Cross-infrastructure migration permissions in ProxPilot 2.3.0
+
+ProxPilot 2.3.0 can migrate a **stopped QEMU virtual machine between two independently configured Proxmox infrastructures**.
+
+This operation is different from a normal migration between nodes of the same Proxmox cluster because the source and destination are authenticated separately. Therefore, the required ProxPilot permissions must be configured independently on **both** infrastructures.
+
+The source and destination API accounts should use the same documented ProxPilot role model:
+
+```text
+DashboardManager
+ProxPilotBackup
+ProxPilotSDN   # only when an SDN-managed network resource is used
+```
+
+For the VM itself, the effective permissions must include at least:
+
+```text
+VM.Audit
+VM.Migrate
+```
+
+The `DashboardManager` role defined in this document already provides these privileges.
+
+For storage discovery and capacity checks, the effective permissions must include:
+
+```text
+Datastore.Audit
+```
+
+When ProxPilot needs to allocate or move VM disk data, the relevant storage paths must also provide the storage privileges contained in `ProxPilotBackup`:
+
+```text
+Datastore.Allocate
+Datastore.AllocateSpace
+Datastore.Audit
+```
+
+This applies not only to normal backup and restore storage. For cross-infrastructure migration it also applies to every storage that ProxPilot is allowed to use as:
+
+- destination storage on the target infrastructure
+- temporary staging storage on the source infrastructure
+- original source storage when a staged disk is moved back after migration cleanup
+
+Assign `ProxPilotBackup` to the required storage paths for **both the API user and API token**.
+
+Example for a migration target storage:
+
+```bash
+pveum acl modify /storage/YOUR-MIGRATION-TARGET-STORAGE \
+  --users dashboard@pve \
+  --roles ProxPilotBackup \
+  --propagate 1
+
+pveum acl modify /storage/YOUR-MIGRATION-TARGET-STORAGE \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotBackup \
+  --propagate 1
+```
+
+Example for a source-side staging storage:
+
+```bash
+pveum acl modify /storage/YOUR-STAGING-STORAGE \
+  --users dashboard@pve \
+  --roles ProxPilotBackup \
+  --propagate 1
+
+pveum acl modify /storage/YOUR-STAGING-STORAGE \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotBackup \
+  --propagate 1
+```
+
+Verify the effective token permissions on the VM path:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /vms/100
+```
+
+Verify each storage that can participate in the migration:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /storage/YOUR-MIGRATION-TARGET-STORAGE
+
+pveum user token permissions dashboard@pve dashboard \
+  --path /storage/YOUR-STAGING-STORAGE
+```
+
+For an SDN-managed destination network, the corresponding SDN path must additionally provide:
+
+```text
+SDN.Use
+```
+
+through the `ProxPilotSDN` role, exactly as documented elsewhere in this file.
+
+### Source and destination infrastructure accounts
+
+Cross-infrastructure migration uses the API credentials stored for each Infrastructure in ProxPilot.
+
+The source infrastructure account must be able to:
+
+- read the source VM configuration
+- read storage and node information
+- start the migration
+- access any source-side staging storage used by ProxPilot
+
+The destination infrastructure account must be able to:
+
+- read destination node and storage information
+- validate available capacity
+- use the selected destination storage
+- use the selected destination network resource when applicable
+- accept the migrated QEMU VM under the selected target VMID
+
+Do not assume that permissions configured on the source cluster also apply to the destination cluster. Independent Proxmox infrastructures have independent users, tokens, roles and ACLs.
+
+### Staged storage migration
+
+Some source and destination storage combinations cannot be transferred directly by the remote-migration path.
+
+In that case ProxPilot can temporarily move the source VM disk to compatible staging storage before starting the remote migration. After a successful remote migration, ProxPilot restores the retained source VM disk to its original storage when the source VM is configured to remain.
+
+The staging and cleanup workflow does **not** justify assigning Administrator permissions. Grant the documented ProxPilot storage permissions only to the storage paths that may actually participate in the operation.
+
+---
+
+## 16. Console permission
 
 The integrated noVNC console requires:
 
@@ -640,7 +769,7 @@ VM.Console
 
 ---
 
-## 16. Typical permission errors
+## 17. Typical permission errors
 
 ### `VM.PowerMgmt`
 
@@ -698,6 +827,55 @@ Fix:
 pveum role modify DashboardManager \
   --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
 ```
+
+---
+
+### Cross-infrastructure migration
+
+Typical symptoms:
+
+- remote migration preflight reports missing effective permissions
+- the destination storage cannot be selected or validated
+- storage staging cannot be started
+- the remote migration fails with a Proxmox permission error
+- an SDN-managed target bridge cannot be used
+
+Check the effective VM permissions on both infrastructures:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /vms/100
+```
+
+The effective VM permissions must include `VM.Audit` and `VM.Migrate`.
+
+Check every storage involved in the operation:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /storage/YOUR-MIGRATION-STORAGE
+```
+
+The storage permissions required by the documented ProxPilot storage role include:
+
+```text
+Datastore.Allocate
+Datastore.AllocateSpace
+Datastore.Audit
+```
+
+If ProxPilot reports that a staging path is required, verify the staging storage separately as well.
+
+For an SDN-managed target network, verify the exact SDN ACL path:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /sdn/zones/YOUR-ZONE/YOUR-NETWORK
+```
+
+The effective permissions must include `SDN.Use`.
+
+Remember that the source and destination infrastructures have separate API users and tokens. A correct source-side ACL configuration does not prove that the destination side is configured correctly.
 
 ---
 
@@ -862,7 +1040,7 @@ The effective permissions must include `SDN.Use`.
 
 ---
 
-## 17. Complete example
+## 18. Complete example
 
 This example uses:
 
@@ -950,6 +1128,40 @@ pveum acl modify /storage/local-lvm \
   --propagate 1
 ```
 
+### Assign migration target and staging storage ACLs
+
+When cross-infrastructure migration will be used, assign `ProxPilotBackup` to every storage that may participate as a migration target or temporary staging storage.
+
+Example target storage:
+
+```bash
+pveum acl modify /storage/migration-target \
+  --users dashboard@pve \
+  --roles ProxPilotBackup \
+  --propagate 1
+
+pveum acl modify /storage/migration-target \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotBackup \
+  --propagate 1
+```
+
+Example staging storage:
+
+```bash
+pveum acl modify /storage/migration-staging \
+  --users dashboard@pve \
+  --roles ProxPilotBackup \
+  --propagate 1
+
+pveum acl modify /storage/migration-staging \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotBackup \
+  --propagate 1
+```
+
+Configure the equivalent required ACLs independently on the destination infrastructure.
+
 ### Assign SDN ACLs
 
 Only when the SDN resource is required:
@@ -982,7 +1194,7 @@ pveum user token permissions dashboard@pve dashboard \
 
 ---
 
-## 18. Permission checklist
+## 19. Permission checklist
 
 Before starting ProxPilot, confirm:
 
@@ -998,6 +1210,9 @@ Before starting ProxPilot, confirm:
 - [ ] `/vms` ACLs are assigned to user and token
 - [ ] Backup storage ACL is assigned to user and token
 - [ ] Every allowed restore target storage has `ProxPilotBackup` assigned to user and token
+- [ ] Every cross-infrastructure migration target storage has `ProxPilotBackup` assigned to user and token
+- [ ] Every storage that can be used for migration staging has `ProxPilotBackup` assigned to user and token
+- [ ] Source and destination infrastructures were verified independently for cross-infrastructure migration
 - [ ] Every required SDN ACL path has `ProxPilotSDN` assigned to user and token
 - [ ] Propagation is enabled
 - [ ] Effective permissions were verified
@@ -1005,7 +1220,7 @@ Before starting ProxPilot, confirm:
 
 ---
 
-## 19. Related documentation
+## 20. Related documentation
 
 - [Installation](INSTALLATION.md)
 - [Configuration](CONFIGURATION.md)

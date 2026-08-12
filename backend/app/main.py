@@ -121,6 +121,8 @@ from .tasks import (
     start_update_install,
     start_node_batch_action,
     track_proxmox_activity,
+    create_managed_proxmox_activity,
+    monitor_managed_proxmox_activity,
     start_guest_restore_task,
 )
 from .scheduler_worker import (
@@ -628,6 +630,10 @@ class GuestAction(BaseModel):
 
 class GuestMigration(BaseModel):
     infrastructure_id: int = Field(gt=0)
+    target_infrastructure_id: int | None = Field(
+        default=None,
+        gt=0,
+    )
     node: str = Field(
         min_length=1,
         max_length=64,
@@ -635,6 +641,10 @@ class GuestMigration(BaseModel):
     )
     guest_type: Literal["qemu", "lxc"]
     vmid: int = Field(gt=0)
+    target_vmid: int | None = Field(
+        default=None,
+        gt=0,
+    )
     target: str = Field(
         min_length=1,
         max_length=64,
@@ -647,6 +657,11 @@ class GuestMigration(BaseModel):
         default=None,
         max_length=128,
     )
+    target_bridge: str | None = Field(
+        default=None,
+        max_length=128,
+    )
+    delete_source: bool = False
     confirmed: bool = False
 
 
@@ -4308,6 +4323,1244 @@ async def guest_details(
         ) from exc
 
 
+
+@app.post("/api/guest/migrate/preflight")
+async def migrate_guest_preflight(
+    request: GuestMigration,
+    http_request: Request,
+):
+    require_operator_or_admin(http_request)
+
+    source_infrastructure_id = (
+        request.infrastructure_id
+    )
+
+    target_infrastructure_id = (
+        request.target_infrastructure_id
+        or request.infrastructure_id
+    )
+
+    cross_infrastructure = (
+        target_infrastructure_id
+        != source_infrastructure_id
+    )
+
+    checks: list[dict] = []
+    warnings: list[dict] = []
+
+    def add_check(
+        name: str,
+        ok: bool,
+        message: str,
+        *,
+        details: dict | None = None,
+    ):
+        checks.append(
+            {
+                "name": name,
+                "ok": bool(ok),
+                "message": message,
+                "details": details or {},
+            }
+        )
+
+    def add_warning(
+        name: str,
+        message: str,
+        *,
+        details: dict | None = None,
+    ):
+        warnings.append(
+            {
+                "name": name,
+                "message": message,
+                "details": details or {},
+            }
+        )
+
+    source_infrastructure = (
+        get_infrastructure(
+            source_infrastructure_id
+        )
+    )
+
+    if source_infrastructure is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Source infrastructure not found.",
+        )
+
+    target_infrastructure = (
+        get_infrastructure(
+            target_infrastructure_id
+        )
+    )
+
+    if target_infrastructure is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Target infrastructure not found.",
+        )
+
+    if not target_infrastructure.get(
+        "enabled"
+    ):
+        add_check(
+            "target_infrastructure",
+            False,
+            "Target infrastructure is disabled.",
+        )
+    else:
+        add_check(
+            "target_infrastructure",
+            True,
+            "Target infrastructure is enabled.",
+        )
+
+    try:
+        source_client = ProxmoxClient(
+            infrastructure_id=
+                source_infrastructure_id
+        )
+
+        target_client = ProxmoxClient(
+            infrastructure_id=
+                target_infrastructure_id
+        )
+
+        guest_status = (
+            await source_client.guest_status(
+                request.node,
+                request.guest_type,
+                request.vmid,
+            )
+        )
+
+        guest_config = (
+            await source_client.request_node(
+                request.node,
+                "GET",
+                (
+                    f"/nodes/{request.node}/"
+                    f"{request.guest_type}/"
+                    f"{request.vmid}/config"
+                ),
+            )
+        )
+
+        if not isinstance(
+            guest_config,
+            dict,
+        ):
+            raise ProxmoxError(
+                "Proxmox returned an invalid "
+                "guest configuration."
+            )
+
+        source_status = str(
+            guest_status.get(
+                "status",
+                "",
+            )
+        ).lower()
+
+        if cross_infrastructure:
+            add_check(
+                "guest_stopped",
+                source_status == "stopped",
+                (
+                    "Guest is stopped and can be "
+                    "prepared for remote migration."
+                    if source_status == "stopped"
+                    else (
+                        "Guest must be stopped before "
+                        "cross-infrastructure migration."
+                    )
+                ),
+                details={
+                    "status": source_status,
+                },
+            )
+
+        target_dashboard = (
+            await target_client.dashboard()
+        )
+
+        target_nodes = (
+            target_dashboard.get(
+                "nodes",
+                [],
+            )
+            or []
+        )
+
+        target_node_data = next(
+            (
+                node
+                for node in target_nodes
+                if str(
+                    node.get(
+                        "node",
+                        "",
+                    )
+                )
+                == request.target
+            ),
+            None,
+        )
+
+        target_node_online = (
+            isinstance(
+                target_node_data,
+                dict,
+            )
+            and str(
+                target_node_data.get(
+                    "status",
+                    "",
+                )
+            ).lower()
+            == "online"
+        )
+
+        add_check(
+            "target_node",
+            target_node_online,
+            (
+                "Target node is online."
+                if target_node_online
+                else (
+                    "Target node was not found "
+                    "or is not online."
+                )
+            ),
+            details={
+                "target_node":
+                    request.target,
+            },
+        )
+
+        target_guests = (
+            target_dashboard.get(
+                "guests",
+                [],
+            )
+            or []
+        )
+
+        target_vmid = (
+            request.target_vmid
+            if cross_infrastructure
+            and request.target_vmid is not None
+            else request.vmid
+        )
+
+        conflicting_guest = next(
+            (
+                guest
+                for guest in target_guests
+                if int(
+                    guest.get(
+                        "vmid",
+                        0,
+                    )
+                    or 0
+                )
+                == target_vmid
+            ),
+            None,
+        )
+
+        add_check(
+            "target_vmid",
+            conflicting_guest is None,
+            (
+                f"VMID {target_vmid} is available "
+                "on the target infrastructure."
+                if conflicting_guest is None
+                else (
+                    f"VMID {target_vmid} already exists "
+                    "on the target infrastructure."
+                )
+            ),
+            details={
+                "source_vmid":
+                    request.vmid,
+                "target_vmid":
+                    target_vmid,
+                "conflict":
+                    conflicting_guest,
+            },
+        )
+
+        if cross_infrastructure:
+            source_host = (
+                await asyncio.to_thread(
+                    collect_host_details,
+                    request.node,
+                    source_infrastructure_id,
+                )
+            )
+
+            target_host = (
+                await asyncio.to_thread(
+                    collect_host_details,
+                    request.target,
+                    target_infrastructure_id,
+                )
+            )
+
+            source_architecture = str(
+                (
+                    source_host.get(
+                        "overview",
+                        {},
+                    )
+                    or {}
+                ).get(
+                    "architecture",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            target_architecture = str(
+                (
+                    target_host.get(
+                        "overview",
+                        {},
+                    )
+                    or {}
+                ).get(
+                    "architecture",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            architecture_ok = (
+                bool(
+                    source_architecture
+                )
+                and bool(
+                    target_architecture
+                )
+                and source_architecture
+                    == target_architecture
+            )
+
+            add_check(
+                "architecture",
+                architecture_ok,
+                (
+                    "Source and target use the same "
+                    f"architecture ({source_architecture})."
+                    if architecture_ok
+                    else (
+                        "Source and target architecture "
+                        "do not match."
+                    )
+                ),
+                details={
+                    "source":
+                        source_architecture,
+                    "target":
+                        target_architecture,
+                },
+            )
+
+        try:
+            configured_memory_mib = int(
+                guest_config.get(
+                    "memory",
+                    0,
+                )
+                or 0
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            configured_memory_mib = 0
+
+        guest_memory_bytes = (
+            configured_memory_mib
+            * 1024
+            * 1024
+        )
+
+        if guest_memory_bytes <= 0:
+            try:
+                guest_memory_bytes = int(
+                    guest_status.get(
+                        "maxmem",
+                        0,
+                    )
+                    or 0
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                guest_memory_bytes = 0
+
+        try:
+            target_maxmem = int(
+                (
+                    target_node_data
+                    or {}
+                ).get(
+                    "maxmem",
+                    0,
+                )
+                or 0
+            )
+
+            target_mem = int(
+                (
+                    target_node_data
+                    or {}
+                ).get(
+                    "mem",
+                    0,
+                )
+                or 0
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            target_maxmem = 0
+            target_mem = 0
+
+        target_free_memory = max(
+            0,
+            target_maxmem
+            - target_mem,
+        )
+
+        memory_ok = (
+            guest_memory_bytes > 0
+            and target_free_memory
+                >= guest_memory_bytes
+        )
+
+        add_check(
+            "memory",
+            memory_ok,
+            (
+                "Target node has sufficient "
+                "currently free memory."
+                if memory_ok
+                else (
+                    "Target node does not have "
+                    "sufficient currently free memory."
+                )
+            ),
+            details={
+                "guest_required_bytes":
+                    guest_memory_bytes,
+                "target_free_bytes":
+                    target_free_memory,
+                "target_total_bytes":
+                    target_maxmem,
+                "target_used_bytes":
+                    target_mem,
+            },
+        )
+
+        if cross_infrastructure:
+            target_storage = (
+                request.target_storage
+                or ""
+            ).strip()
+
+            if not target_storage:
+                add_check(
+                    "target_storage",
+                    False,
+                    (
+                        "A target storage must be "
+                        "selected for remote migration."
+                    ),
+                )
+
+            else:
+                target_node_storages = (
+                    await target_client.request_node(
+                        request.target,
+                        "GET",
+                        f"/nodes/{request.target}/storage",
+                    )
+                    or []
+                )
+
+                if not isinstance(
+                    target_node_storages,
+                    list,
+                ):
+                    target_node_storages = []
+
+                storage_data = next(
+                    (
+                        storage
+                        for storage
+                        in target_node_storages
+                        if (
+                            isinstance(
+                                storage,
+                                dict,
+                            )
+                            and str(
+                                storage.get(
+                                    "storage",
+                                    "",
+                                )
+                            )
+                            == target_storage
+                        )
+                    ),
+                    None,
+                )
+
+                required_content = (
+                    "images"
+                    if request.guest_type
+                        == "qemu"
+                    else "rootdir"
+                )
+
+                storage_active = bool(
+                    (
+                        storage_data
+                        or {}
+                    ).get(
+                        "active",
+                        0,
+                    )
+                )
+
+                storage_enabled = bool(
+                    (
+                        storage_data
+                        or {}
+                    ).get(
+                        "enabled",
+                        1,
+                    )
+                )
+
+                storage_content = {
+                    item.strip().lower()
+                    for item in str(
+                        (
+                            storage_data
+                            or {}
+                        ).get(
+                            "content",
+                            "",
+                        )
+                    ).split(",")
+                    if item.strip()
+                }
+
+                storage_valid = (
+                    isinstance(
+                        storage_data,
+                        dict,
+                    )
+                    and storage_active
+                    and storage_enabled
+                    and required_content
+                        in storage_content
+                )
+
+                try:
+                    storage_total = int(
+                        (
+                            storage_data
+                            or {}
+                        ).get(
+                            "total",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    storage_used = int(
+                        (
+                            storage_data
+                            or {}
+                        ).get(
+                            "used",
+                            0,
+                        )
+                        or 0
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    storage_total = 0
+                    storage_used = 0
+
+                storage_free = max(
+                    0,
+                    storage_total
+                    - storage_used,
+                )
+
+                try:
+                    guest_disk_bytes = int(
+                        guest_status.get(
+                            "maxdisk",
+                            0,
+                        )
+                        or 0
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    guest_disk_bytes = 0
+
+                storage_space_ok = (
+                    storage_valid
+                    and guest_disk_bytes > 0
+                    and storage_free
+                        >= guest_disk_bytes
+                )
+
+                source_storage_names = set()
+
+                for key, raw_value in guest_config.items():
+                    if request.guest_type == "qemu":
+                        is_guest_disk = (
+                            bool(
+                                __import__("re").match(
+                                    r"^(?:scsi|sata|ide|virtio)\d+$",
+                                    str(key),
+                                )
+                            )
+                            or bool(
+                                __import__("re").match(
+                                    r"^(?:efidisk|tpmstate)\d+$",
+                                    str(key),
+                                )
+                            )
+                        )
+                    else:
+                        is_guest_disk = (
+                            key == "rootfs"
+                            or bool(
+                                __import__("re").match(
+                                    r"^mp\d+$",
+                                    str(key),
+                                )
+                            )
+                        )
+
+                    if not is_guest_disk:
+                        continue
+
+                    if not isinstance(raw_value, str):
+                        continue
+
+                    volume = (
+                        raw_value
+                        .split(",", 1)[0]
+                        .strip()
+                    )
+
+                    if ":" not in volume:
+                        continue
+
+                    source_storage_name = (
+                        volume
+                        .split(":", 1)[0]
+                        .strip()
+                    )
+
+                    if source_storage_name:
+                        source_storage_names.add(
+                            source_storage_name
+                        )
+
+                source_node_storages = (
+                    await source_client.request_node(
+                        request.node,
+                        "GET",
+                        f"/nodes/{request.node}/storage",
+                    )
+                    or []
+                )
+
+                if not isinstance(
+                    source_node_storages,
+                    list,
+                ):
+                    source_node_storages = []
+
+                source_storage_types = {}
+
+                for source_storage_name in source_storage_names:
+                    source_storage_data = next(
+                        (
+                            storage
+                            for storage
+                            in source_node_storages
+                            if (
+                                isinstance(
+                                    storage,
+                                    dict,
+                                )
+                                and str(
+                                    storage.get(
+                                        "storage",
+                                        "",
+                                    )
+                                )
+                                == source_storage_name
+                            )
+                        ),
+                        None,
+                    )
+
+                    if isinstance(
+                        source_storage_data,
+                        dict,
+                    ):
+                        source_storage_types[
+                            source_storage_name
+                        ] = str(
+                            source_storage_data.get(
+                                "type",
+                                "",
+                            )
+                            or ""
+                        ).strip().lower()
+
+                target_storage_type = str(
+                    (
+                        storage_data
+                        or {}
+                    ).get(
+                        "type",
+                        "",
+                    )
+                    or ""
+                ).strip().lower()
+
+                incompatible_storage_pairs = {
+                    (
+                        "zfspool",
+                        "lvmthin",
+                    ),
+                }
+
+                incompatible_sources = [
+                    {
+                        "storage":
+                            source_storage_name,
+                        "type":
+                            source_storage_type,
+                    }
+                    for (
+                        source_storage_name,
+                        source_storage_type,
+                    )
+                    in source_storage_types.items()
+                    if (
+                        source_storage_type,
+                        target_storage_type,
+                    )
+                    in incompatible_storage_pairs
+                ]
+
+                direct_storage_transfer_ok = (
+                    storage_valid
+                    and not incompatible_sources
+                )
+
+                staging_storage = None
+
+                if (
+                    storage_valid
+                    and incompatible_sources
+                    and request.guest_type == "qemu"
+                ):
+                    for candidate in (
+                        source_node_storages
+                    ):
+                        if not isinstance(
+                            candidate,
+                            dict,
+                        ):
+                            continue
+
+                        candidate_node = str(
+                            candidate.get(
+                                "node",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+
+                        if (
+                            candidate_node
+                            and candidate_node
+                                != request.node
+                        ):
+                            continue
+
+                        candidate_active = bool(
+                            candidate.get(
+                                "active",
+                                0,
+                            )
+                        )
+
+                        candidate_enabled = bool(
+                            candidate.get(
+                                "enabled",
+                                1,
+                            )
+                        )
+
+                        if not (
+                            candidate_active
+                            and candidate_enabled
+                        ):
+                            continue
+
+                        candidate_content = {
+                            item.strip().lower()
+                            for item in str(
+                                candidate.get(
+                                    "content",
+                                    "",
+                                )
+                                or ""
+                            ).split(",")
+                            if item.strip()
+                        }
+
+                        if "images" not in (
+                            candidate_content
+                        ):
+                            continue
+
+                        candidate_type = str(
+                            candidate.get(
+                                "type",
+                                "",
+                            )
+                            or ""
+                        ).strip().lower()
+
+                        candidate_name = str(
+                            candidate.get(
+                                "storage",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+
+                        if not candidate_name:
+                            continue
+
+                        if candidate_name in (
+                            source_storage_names
+                        ):
+                            continue
+
+                        # Currently validated staging path:
+                        #
+                        #   source -> lvmthin -> lvmthin
+                        #
+                        # LVM/LVM-thin use raw+size for the
+                        # remote transfer path.
+                        if not (
+                            candidate_type
+                                == "lvmthin"
+                            and target_storage_type
+                                == "lvmthin"
+                        ):
+                            continue
+
+                        try:
+                            candidate_total = int(
+                                candidate.get(
+                                    "total",
+                                    0,
+                                )
+                                or 0
+                            )
+
+                            candidate_used = int(
+                                candidate.get(
+                                    "used",
+                                    0,
+                                )
+                                or 0
+                            )
+                        except (
+                            TypeError,
+                            ValueError,
+                        ):
+                            continue
+
+                        candidate_free = max(
+                            0,
+                            candidate_total
+                            - candidate_used,
+                        )
+
+                        if (
+                            guest_disk_bytes <= 0
+                            or candidate_free
+                                < guest_disk_bytes
+                        ):
+                            continue
+
+                        staging_storage = {
+                            "storage":
+                                candidate_name,
+                            "type":
+                                candidate_type,
+                            "free_bytes":
+                                candidate_free,
+                            "total_bytes":
+                                candidate_total,
+                            "used_bytes":
+                                candidate_used,
+                        }
+
+                        break
+
+                staged_storage_transfer_ok = (
+                    storage_valid
+                    and bool(
+                        incompatible_sources
+                    )
+                    and staging_storage
+                        is not None
+                )
+
+                storage_transfer_ok = (
+                    direct_storage_transfer_ok
+                    or staged_storage_transfer_ok
+                )
+
+                if incompatible_sources:
+                    incompatible_description = ", ".join(
+                        (
+                            f"{item['storage']} "
+                            f"({item['type']})"
+                        )
+                        for item in incompatible_sources
+                    )
+                else:
+                    incompatible_description = ""
+
+                add_check(
+                    "storage_transfer_compatibility",
+                    storage_transfer_ok,
+                    (
+                        "Source and target storage types are "
+                        "directly compatible with the known "
+                        "remote migration transfer path."
+                        if direct_storage_transfer_ok
+                        else (
+                            "Direct storage transfer is not "
+                            "compatible, but a supported "
+                            "staged transfer path is available."
+                            if staged_storage_transfer_ok
+                            else (
+                                "Remote migration from "
+                                f"{incompatible_description} to "
+                                f"{target_storage} "
+                                f"({target_storage_type}) is not "
+                                "supported and no compatible "
+                                "staging storage was found on "
+                                "the source node."
+                            )
+                        )
+                    ),
+                    details={
+                        "mode":
+                            (
+                                "direct"
+                                if direct_storage_transfer_ok
+                                else (
+                                    "staged"
+                                    if staged_storage_transfer_ok
+                                    else "unsupported"
+                                )
+                            ),
+                        "source_storages":
+                            source_storage_types,
+                        "target_storage":
+                            target_storage,
+                        "target_storage_type":
+                            target_storage_type,
+                        "incompatible_sources":
+                            incompatible_sources,
+                        "staging_storage":
+                            staging_storage,
+                    },
+                )
+
+                if staged_storage_transfer_ok:
+                    add_warning(
+                        "staged_storage_transfer",
+                        (
+                            "Direct remote migration is not "
+                            "possible for the current storage "
+                            "combination. ProxPilot can stage "
+                            "the guest disks on source storage "
+                            f"{staging_storage['storage']} "
+                            f"({staging_storage['type']}) before "
+                            "starting the remote migration. "
+                            "This preparation step can take "
+                            "additional time."
+                        ),
+                        details={
+                            "source_storages":
+                                source_storage_types,
+                            "staging_storage":
+                                staging_storage,
+                            "target_storage":
+                                target_storage,
+                            "target_storage_type":
+                                target_storage_type,
+                        },
+                    )
+
+                add_check(
+                    "target_storage",
+                    storage_valid,
+                    (
+                        "Target storage is available "
+                        "and supports the required "
+                        "guest content type."
+                        if storage_valid
+                        else (
+                            "Target storage is unavailable "
+                            "or does not support the required "
+                            "guest content type."
+                        )
+                    ),
+                    details={
+                        "storage":
+                            target_storage,
+                        "required_content":
+                            required_content,
+                        "content":
+                            sorted(
+                                storage_content
+                            ),
+                        "active":
+                            storage_active,
+                        "enabled":
+                            storage_enabled,
+                    },
+                )
+
+                add_check(
+                    "storage_space",
+                    storage_space_ok,
+                    (
+                        "Target storage has sufficient "
+                        "free capacity."
+                        if storage_space_ok
+                        else (
+                            "Target storage does not have "
+                            "sufficient free capacity."
+                        )
+                    ),
+                    details={
+                        "guest_required_bytes":
+                            guest_disk_bytes,
+                        "target_free_bytes":
+                            storage_free,
+                        "target_total_bytes":
+                            storage_total,
+                        "target_used_bytes":
+                            storage_used,
+                    },
+                )
+
+            target_bridge = (
+                request.target_bridge
+                or ""
+            ).strip()
+
+            if not target_bridge:
+                add_check(
+                    "target_bridge",
+                    False,
+                    (
+                        "A target network bridge must "
+                        "be selected for remote migration."
+                    ),
+                )
+
+            else:
+                target_network = (
+                    await asyncio.to_thread(
+                        collect_node_network,
+                        request.target,
+                        target_infrastructure_id,
+                    )
+                )
+
+                bridge_data = next(
+                    (
+                        interface
+                        for interface
+                        in target_network.get(
+                            "interfaces",
+                            [],
+                        )
+                        or []
+                        if (
+                            str(
+                                interface.get(
+                                    "name",
+                                    "",
+                                )
+                            )
+                            == target_bridge
+                            and str(
+                                interface.get(
+                                    "type",
+                                    "",
+                                )
+                            )
+                            == "bridge"
+                        )
+                    ),
+                    None,
+                )
+
+                bridge_state = str(
+                    (
+                        bridge_data
+                        or {}
+                    ).get(
+                        "state",
+                        "",
+                    )
+                ).lower()
+
+                bridge_ok = (
+                    isinstance(
+                        bridge_data,
+                        dict,
+                    )
+                    and bridge_state
+                        == "up"
+                )
+
+                add_check(
+                    "target_bridge",
+                    bridge_ok,
+                    (
+                        f"Target bridge {target_bridge} "
+                        "is available and up."
+                        if bridge_ok
+                        else (
+                            f"Target bridge {target_bridge} "
+                            "does not exist or is not up."
+                        )
+                    ),
+                    details={
+                        "bridge":
+                            target_bridge,
+                        "state":
+                            bridge_state,
+                    },
+                )
+
+            if (
+                request.guest_type
+                == "qemu"
+            ):
+                cpu_model = str(
+                    guest_config.get(
+                        "cpu",
+                        "kvm64",
+                    )
+                    or "kvm64"
+                )
+
+                add_warning(
+                    "cpu_model",
+                    (
+                        "The configured QEMU CPU model "
+                        f"is '{cpu_model}'. ProxPilot "
+                        "cannot guarantee that this CPU "
+                        "model will start successfully "
+                        "on different target hardware."
+                    ),
+                    details={
+                        "cpu_model":
+                            cpu_model,
+                    },
+                )
+
+        blocking_checks = [
+            check
+            for check in checks
+            if not check["ok"]
+        ]
+
+        result = {
+            "ok":
+                len(
+                    blocking_checks
+                )
+                == 0,
+            "cross_infrastructure":
+                cross_infrastructure,
+            "source_infrastructure_id":
+                source_infrastructure_id,
+            "target_infrastructure_id":
+                target_infrastructure_id,
+            "source_node":
+                request.node,
+            "target_node":
+                request.target,
+            "guest_type":
+                request.guest_type,
+            "vmid":
+                request.vmid,
+            "target_vmid":
+                target_vmid,
+            "checks":
+                checks,
+            "warnings":
+                warnings,
+            "blocking_checks":
+                len(
+                    blocking_checks
+                ),
+        }
+
+        return result
+
+    except (
+        ProxmoxError,
+        HostDetailsError,
+        NetworkError,
+    ) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+
 @app.post("/api/guest/migrate")
 async def migrate_guest(
     request: GuestMigration,
@@ -4318,6 +5571,16 @@ async def migrate_guest(
     audit_target = (
         f"{request.guest_type.upper()} "
         f"{request.vmid}"
+    )
+
+    target_infrastructure_id = (
+        request.target_infrastructure_id
+        or request.infrastructure_id
+    )
+
+    cross_infrastructure = (
+        target_infrastructure_id
+        != request.infrastructure_id
     )
 
     if not request.confirmed:
@@ -4342,7 +5605,10 @@ async def migrate_guest(
             detail="Die Migration muss ausdrücklich bestätigt werden.",
         )
 
-    if request.node == request.target:
+    if (
+        not cross_infrastructure
+        and request.node == request.target
+    ):
         write_request_audit_event(
             http_request,
             action="guest.migrate",
@@ -4362,6 +5628,41 @@ async def migrate_guest(
         raise HTTPException(
             status_code=400,
             detail="Der Ziel-Node muss sich vom Quell-Node unterscheiden.",
+        )
+
+    if (
+        cross_infrastructure
+        and request.guest_type != "qemu"
+    ):
+        write_request_audit_event(
+            http_request,
+            action="guest.migrate",
+            result="failed",
+            severity="warning",
+            target_type=request.guest_type,
+            target=audit_target,
+            node=request.node,
+            infrastructure_id=
+                request.infrastructure_id,
+            details={
+                "vmid":
+                    request.vmid,
+                "target_node":
+                    request.target,
+                "target_infrastructure_id":
+                    target_infrastructure_id,
+                "reason":
+                    "remote_lxc_not_enabled",
+            },
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cross-infrastructure migration "
+                "is currently enabled only for "
+                "QEMU virtual machines."
+            ),
         )
 
     if request.guest_type == "lxc" and request.online:
@@ -4395,16 +5696,898 @@ async def migrate_guest(
                 request.infrastructure_id
         )
 
-        upid = await migration_client.migrate_guest(
-            node=request.node,
-            guest_type=request.guest_type,
-            vmid=request.vmid,
-            target=request.target,
-            online=request.online,
-            restart=request.restart,
-            with_local_disks=request.with_local_disks,
-            target_storage=request.target_storage,
+        guest_display_name = (
+            f"{request.guest_type.upper()} "
+            f"{request.vmid}"
         )
+
+        try:
+            source_guest_config = (
+                await migration_client.request_node(
+                    request.node,
+                    "GET",
+                    (
+                        f"/nodes/{request.node}/"
+                        f"{request.guest_type}/"
+                        f"{request.vmid}/config"
+                    ),
+                )
+            )
+
+            if isinstance(
+                source_guest_config,
+                dict,
+            ):
+                if request.guest_type == "qemu":
+                    configured_guest_name = str(
+                        source_guest_config.get(
+                            "name",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                else:
+                    configured_guest_name = str(
+                        source_guest_config.get(
+                            "hostname",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                if configured_guest_name:
+                    guest_display_name = (
+                        configured_guest_name
+                    )
+
+        except ProxmoxError:
+            # The display name is cosmetic only.
+            # Never prevent a valid migration when
+            # the config cannot be queried here.
+            pass
+
+        if cross_infrastructure:
+            preflight = (
+                await migrate_guest_preflight(
+                    request,
+                    http_request,
+                )
+            )
+
+            if not preflight.get(
+                "ok",
+                False,
+            ):
+                failed_checks = [
+                    str(
+                        check.get(
+                            "message",
+                            check.get(
+                                "name",
+                                "Unknown check",
+                            ),
+                        )
+                    )
+                    for check
+                    in preflight.get(
+                        "checks",
+                        [],
+                    )
+                    if not check.get(
+                        "ok",
+                        False,
+                    )
+                ]
+
+                write_request_audit_event(
+                    http_request,
+                    action="guest.migrate",
+                    result="failed",
+                    severity="warning",
+                    target_type=
+                        request.guest_type,
+                    target=audit_target,
+                    node=request.node,
+                    infrastructure_id=
+                        request.infrastructure_id,
+                    details={
+                        "vmid":
+                            request.vmid,
+                        "target_node":
+                            request.target,
+                        "target_infrastructure_id":
+                            target_infrastructure_id,
+                        "reason":
+                            "preflight_failed",
+                        "failed_checks":
+                            failed_checks,
+                    },
+                )
+
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Remote migration preflight "
+                        "failed: "
+                        + "; ".join(
+                            failed_checks
+                        )
+                    ),
+                )
+
+            storage_transfer_check = next(
+                (
+                    check
+                    for check
+                    in preflight.get(
+                        "checks",
+                        [],
+                    )
+                    if check.get(
+                        "name"
+                    )
+                    == "storage_transfer_compatibility"
+                ),
+                None,
+            )
+
+            storage_transfer_details = (
+                storage_transfer_check.get(
+                    "details",
+                    {},
+                )
+                if isinstance(
+                    storage_transfer_check,
+                    dict,
+                )
+                else {}
+            )
+
+            storage_transfer_mode = str(
+                storage_transfer_details.get(
+                    "mode",
+                    "direct",
+                )
+                or "direct"
+            ).strip().lower()
+
+            task = (
+                await create_managed_proxmox_activity(
+                    request.node,
+                    request.infrastructure_id,
+                    kind="guest-migration",
+                    title=(
+                        f"Migrate "
+                        f"{guest_display_name} · "
+                        f"{request.node} → "
+                        f"{request.target}"
+                    ),
+                    result={
+                        "guest_type":
+                            request.guest_type,
+                        "vmid":
+                            request.vmid,
+                        "source_node":
+                            request.node,
+                        "target_node":
+                            request.target,
+                        "online":
+                            False,
+                        "restart":
+                            False,
+                        "with_local_disks":
+                            True,
+                        "target_storage":
+                            request.target_storage,
+                        "target_bridge":
+                            request.target_bridge,
+                        "target_infrastructure_id":
+                            target_infrastructure_id,
+                        "cross_infrastructure":
+                            True,
+                        "delete_source":
+                            request.delete_source,
+                        "storage_transfer_mode":
+                            storage_transfer_mode,
+                        "phase":
+                            "preparing",
+                    },
+                    notifications_enabled=True,
+                )
+            )
+
+            manager.append(
+                task,
+                (
+                    "[migration] Remote migration "
+                    "preflight completed."
+                ),
+            )
+
+            manager.append(
+                task,
+                (
+                    "[migration] Storage transfer mode: "
+                    f"{storage_transfer_mode}."
+                ),
+            )
+
+            async def run_remote_migration():
+                try:
+                    staging_restore_plan: list[
+                        dict[str, str]
+                    ] = []
+
+                    if storage_transfer_mode == "staged":
+                        staging_storage_data = (
+                            storage_transfer_details.get(
+                                "staging_storage"
+                            )
+                            or {}
+                        )
+
+                        staging_storage = str(
+                            staging_storage_data.get(
+                                "storage",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+
+                        if not staging_storage:
+                            raise ProxmoxError(
+                                "Remote migration requires "
+                                "staging, but no staging "
+                                "storage was returned by "
+                                "the preflight check."
+                            )
+
+                        source_config_before = (
+                            await migration_client
+                            .request_node(
+                                request.node,
+                                "GET",
+                                (
+                                    f"/nodes/{request.node}/qemu/"
+                                    f"{request.vmid}/config"
+                                ),
+                            )
+                        )
+
+                        if not isinstance(
+                            source_config_before,
+                            dict,
+                        ):
+                            raise ProxmoxError(
+                                "Source VM configuration "
+                                "could not be loaded before "
+                                "disk staging."
+                            )
+
+                        import re
+
+                        existing_unused_keys = {
+                            str(key)
+                            for key
+                            in source_config_before
+                            if re.match(
+                                r"^unused\d+$",
+                                str(key),
+                            )
+                        }
+
+                        staging_disks: list[str] = []
+
+                        for key, raw_value in (
+                            source_config_before.items()
+                        ):
+                            disk_key = str(key)
+
+                            if not (
+                                re.match(
+                                    r"^(?:scsi|sata|ide|virtio)\d+$",
+                                    disk_key,
+                                )
+                                or re.match(
+                                    r"^(?:efidisk|tpmstate)\d+$",
+                                    disk_key,
+                                )
+                            ):
+                                continue
+
+                            if not isinstance(
+                                raw_value,
+                                str,
+                            ):
+                                continue
+
+                            normalized_value = (
+                                raw_value.strip()
+                            )
+
+                            if not normalized_value:
+                                continue
+
+                            disk_parts = [
+                                part.strip()
+                                for part
+                                in normalized_value.split(",")
+                            ]
+
+                            if any(
+                                part.lower()
+                                == "media=cdrom"
+                                for part in disk_parts
+                            ):
+                                continue
+
+                            volume = (
+                                disk_parts[0]
+                                if disk_parts
+                                else ""
+                            )
+
+                            if ":" not in volume:
+                                continue
+
+                            current_storage = (
+                                volume
+                                .split(":", 1)[0]
+                                .strip()
+                            )
+
+                            if (
+                                not current_storage
+                                or current_storage
+                                == staging_storage
+                            ):
+                                continue
+
+                            staging_disks.append(
+                                disk_key
+                            )
+
+                            staging_restore_plan.append(
+                                {
+                                    "disk":
+                                        disk_key,
+                                    "original_storage":
+                                        current_storage,
+                                }
+                            )
+
+                        staging_disks.sort()
+
+                        for disk_key in staging_disks:
+                            staging_upid = (
+                                await migration_client
+                                .move_qemu_disk(
+                                    node=request.node,
+                                    vmid=request.vmid,
+                                    disk=disk_key,
+                                    target_storage=
+                                        staging_storage,
+                                    delete_source=True,
+                                )
+                            )
+
+                            staging_timeout_seconds = (
+                                60 * 60 * 6
+                            )
+
+                            staging_started = (
+                                asyncio.get_running_loop()
+                                .time()
+                            )
+
+                            while True:
+                                staging_task = (
+                                    await migration_client
+                                    .task_details(
+                                        request.node,
+                                        staging_upid,
+                                    )
+                                )
+
+                                staging_status = (
+                                    staging_task.get(
+                                        "status",
+                                        {},
+                                    )
+                                    or {}
+                                )
+
+                                task_state = str(
+                                    staging_status.get(
+                                        "status",
+                                        "",
+                                    )
+                                    or ""
+                                ).lower()
+
+                                if task_state == "stopped":
+                                    exit_status = str(
+                                        staging_status.get(
+                                            "exitstatus",
+                                            "",
+                                        )
+                                        or ""
+                                    ).upper()
+
+                                    if exit_status != "OK":
+                                        staging_log = (
+                                            staging_task.get(
+                                                "log",
+                                                [],
+                                            )
+                                            or []
+                                        )
+
+                                        last_log_line = ""
+
+                                        if staging_log:
+                                            last_log_line = str(
+                                                (
+                                                    staging_log[-1]
+                                                    or {}
+                                                ).get(
+                                                    "t",
+                                                    "",
+                                                )
+                                                or ""
+                                            ).strip()
+
+                                        raise ProxmoxError(
+                                            (
+                                                "Disk staging failed "
+                                                f"for {disk_key}"
+                                            )
+                                            + (
+                                                f": {last_log_line}"
+                                                if last_log_line
+                                                else (
+                                                    f" with exit status "
+                                                    f"{exit_status or 'unknown'}"
+                                                )
+                                            )
+                                        )
+
+                                    break
+
+                                elapsed = (
+                                    asyncio.get_running_loop()
+                                    .time()
+                                    - staging_started
+                                )
+
+                                if (
+                                    elapsed
+                                    >= staging_timeout_seconds
+                                ):
+                                    raise ProxmoxError(
+                                        "Disk staging timed out "
+                                        f"for {disk_key}."
+                                    )
+
+                                await asyncio.sleep(2)
+
+                        source_config_after = (
+                            await migration_client
+                            .request_node(
+                                request.node,
+                                "GET",
+                                (
+                                    f"/nodes/{request.node}/qemu/"
+                                    f"{request.vmid}/config"
+                                ),
+                            )
+                        )
+
+                        if not isinstance(
+                            source_config_after,
+                            dict,
+                        ):
+                            raise ProxmoxError(
+                                "Source VM configuration "
+                                "could not be loaded after "
+                                "disk staging."
+                            )
+
+                        for disk_key in staging_disks:
+                            raw_value = (
+                                source_config_after.get(
+                                    disk_key
+                                )
+                            )
+
+                            if not isinstance(
+                                raw_value,
+                                str,
+                            ):
+                                raise ProxmoxError(
+                                    "Staged disk "
+                                    f"{disk_key} is missing "
+                                    "from the VM configuration."
+                                )
+
+                            volume = (
+                                raw_value
+                                .split(",", 1)[0]
+                                .strip()
+                            )
+
+                            current_storage = (
+                                volume
+                                .split(":", 1)[0]
+                                .strip()
+                                if ":" in volume
+                                else ""
+                            )
+
+                            if (
+                                current_storage
+                                != staging_storage
+                            ):
+                                raise ProxmoxError(
+                                    "Disk staging verification "
+                                    f"failed for {disk_key}: "
+                                    f"expected storage "
+                                    f"{staging_storage}, got "
+                                    f"{current_storage or 'unknown'}."
+                                )
+
+                        current_unused_keys = {
+                            str(key)
+                            for key
+                            in source_config_after
+                            if re.match(
+                                r"^unused\d+$",
+                                str(key),
+                            )
+                        }
+
+                        staging_unused_keys = sorted(
+                            current_unused_keys
+                            - existing_unused_keys
+                        )
+
+                        if staging_unused_keys:
+                            await migration_client.request_node(
+                                request.node,
+                                "POST",
+                                (
+                                    f"/nodes/{request.node}/qemu/"
+                                    f"{request.vmid}/config"
+                                ),
+                                data={
+                                    "delete":
+                                        ",".join(
+                                            staging_unused_keys
+                                        ),
+                                },
+                            )
+
+                            source_config_clean = (
+                                await migration_client
+                                .request_node(
+                                    request.node,
+                                    "GET",
+                                    (
+                                        f"/nodes/{request.node}/qemu/"
+                                        f"{request.vmid}/config"
+                                    ),
+                                )
+                            )
+
+                            if not isinstance(
+                                source_config_clean,
+                                dict,
+                            ):
+                                raise ProxmoxError(
+                                    "Source VM configuration "
+                                    "could not be verified "
+                                    "after staging cleanup."
+                                )
+
+                            remaining_staging_unused = [
+                                key
+                                for key
+                                in staging_unused_keys
+                                if key
+                                in source_config_clean
+                            ]
+
+                            if remaining_staging_unused:
+                                raise ProxmoxError(
+                                    "Staging cleanup failed "
+                                    "for unused disk entries: "
+                                    + ", ".join(
+                                        remaining_staging_unused
+                                    )
+                                )
+
+                    target_client = ProxmoxClient(
+                        infrastructure_id=
+                            target_infrastructure_id
+                    )
+
+                    target_dashboard = (
+                        await target_client.dashboard()
+                    )
+
+                    target_node_data = next(
+                        (
+                            item
+                            for item
+                            in target_dashboard.get(
+                                "nodes",
+                                [],
+                            )
+                            or []
+                            if str(
+                                item.get(
+                                    "node",
+                                    "",
+                                )
+                            )
+                            == request.target
+                        ),
+                        None,
+                    )
+
+                    if not isinstance(
+                        target_node_data,
+                        dict,
+                    ):
+                        raise ProxmoxError(
+                            "Target node information "
+                            "could not be resolved."
+                        )
+
+                    target_fingerprint = str(
+                        target_node_data.get(
+                            "ssl_fingerprint",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                    if not target_fingerprint:
+                        raise ProxmoxError(
+                            "Target node SSL fingerprint "
+                            "could not be resolved."
+                        )
+
+                    target_host = (
+                        target_client.node_host(
+                            request.target
+                        )
+                    )
+
+                    if not target_host:
+                        raise ProxmoxError(
+                            "Target node host mapping "
+                            "could not be resolved."
+                        )
+
+                    target_port = 8006
+
+                    if target_client.endpoints:
+                        from urllib.parse import urlparse
+
+                        parsed_endpoint = urlparse(
+                            target_client.endpoints[0]
+                        )
+
+                        if parsed_endpoint.port:
+                            target_port = (
+                                parsed_endpoint.port
+                            )
+
+                    remote_target_endpoint = (
+                        "apitoken="
+                        "PVEAPIToken="
+                        f"{target_client.token_id}="
+                        f"{target_client.token_secret}"
+                        ",host="
+                        f"{target_host}"
+                        ",fingerprint="
+                        f"{target_fingerprint}"
+                        ",port="
+                        f"{target_port}"
+                    )
+
+                    target_storage = (
+                        request.target_storage
+                        or ""
+                    ).strip()
+
+                    target_bridge = (
+                        request.target_bridge
+                        or ""
+                    ).strip()
+
+                    upid = (
+                        await migration_client
+                        .remote_migrate_guest(
+                            node=request.node,
+                            vmid=request.vmid,
+                            target_endpoint=
+                                remote_target_endpoint,
+                            target_storage=
+                                target_storage,
+                            target_bridge=
+                                target_bridge,
+                            target_vmid=(
+                                request.target_vmid
+                                or request.vmid
+                            ),
+                            online=False,
+                            delete_source=
+                                request.delete_source,
+                        )
+                    )
+
+
+                    migration_result = {
+                        "guest_type":
+                            request.guest_type,
+                        "vmid":
+                            request.vmid,
+                        "source_node":
+                            request.node,
+                        "target_node":
+                            request.target,
+                        "online":
+                            False,
+                        "restart":
+                            False,
+                        "with_local_disks":
+                            True,
+                        "target_storage":
+                            request.target_storage,
+                        "target_bridge":
+                            request.target_bridge,
+                        "target_infrastructure_id":
+                            target_infrastructure_id,
+                        "cross_infrastructure":
+                            True,
+                        "delete_source":
+                            request.delete_source,
+                        "storage_transfer_mode":
+                            storage_transfer_mode,
+                        "staging_restore_plan":
+                            staging_restore_plan,
+                        "phase":
+                            "remote_migration",
+                    }
+
+                    manager.append(
+                        task,
+                        (
+                            "[migration] Remote Proxmox "
+                            "migration started."
+                        ),
+                    )
+
+                    manager.append(
+                        task,
+                        (
+                            "[migration] Proxmox UPID: "
+                            f"{upid}"
+                        ),
+                    )
+
+                    await monitor_managed_proxmox_activity(
+                        task,
+                        migration_client,
+                        upid,
+                        migration_result,
+                    )
+
+                except Exception as exc:
+                    manager.append(
+                        task,
+                        (
+                            "[migration] Migration failed: "
+                            f"{exc}"
+                        ),
+                    )
+
+                    manager.fail(
+                        task,
+                        str(exc),
+                        {
+                            **dict(
+                                task.result
+                                or {}
+                            ),
+                            "phase":
+                                "failed",
+                        },
+                    )
+
+            asyncio.create_task(
+                run_remote_migration()
+            )
+
+            managed_upid = (
+                f"managed:{task.id}"
+            )
+
+            write_request_audit_event(
+                http_request,
+                action="guest.migrate",
+                result="success",
+                severity="info",
+                target_type=
+                    request.guest_type,
+                target=audit_target,
+                node=request.node,
+                infrastructure_id=
+                    request.infrastructure_id,
+                details={
+                    "vmid":
+                        request.vmid,
+                    "source_node":
+                        request.node,
+                    "target_node":
+                        request.target,
+                    "target_storage":
+                        request.target_storage,
+                    "target_bridge":
+                        request.target_bridge,
+                    "target_infrastructure_id":
+                        target_infrastructure_id,
+                    "cross_infrastructure":
+                        True,
+                    "delete_source":
+                        request.delete_source,
+                    "managed_task_id":
+                        task.id,
+                    "status":
+                        "background_task_started",
+                },
+            )
+
+            return {
+                "ok":
+                    True,
+                "node":
+                    request.node,
+                "target":
+                    request.target,
+                "target_infrastructure_id":
+                    target_infrastructure_id,
+                "cross_infrastructure":
+                    True,
+                "guest_type":
+                    request.guest_type,
+                "vmid":
+                    request.vmid,
+                "upid":
+                    managed_upid,
+                "task":
+                    task.public(),
+            }
+
+        else:
+            upid = (
+                await migration_client
+                .migrate_guest(
+                    node=request.node,
+                    guest_type=
+                        request.guest_type,
+                    vmid=request.vmid,
+                    target=request.target,
+                    online=request.online,
+                    restart=request.restart,
+                    with_local_disks=
+                        request.with_local_disks,
+                    target_storage=
+                        request.target_storage,
+                )
+            )
 
         task = await track_proxmox_activity(
             migration_client,
@@ -4414,8 +6597,7 @@ async def migrate_guest(
             kind="guest-migration",
             title=(
                 f"Migrate "
-                f"{request.guest_type.upper()} "
-                f"{request.vmid} · "
+                f"{guest_display_name} · "
                 f"{request.node} → "
                 f"{request.target}"
             ),
@@ -4436,6 +6618,24 @@ async def migrate_guest(
                     request.with_local_disks,
                 "target_storage":
                     request.target_storage,
+                "target_bridge":
+                    request.target_bridge,
+                "target_infrastructure_id":
+                    target_infrastructure_id,
+                "cross_infrastructure":
+                    cross_infrastructure,
+                "delete_source":
+                    (
+                        request.delete_source
+                        if cross_infrastructure
+                        else None
+                    ),
+                "staging_restore_plan":
+                    (
+                        staging_restore_plan
+                        if cross_infrastructure
+                        else []
+                    ),
             },
             notifications_enabled=True,
         )
@@ -4457,6 +6657,17 @@ async def migrate_guest(
                 "restart": request.restart,
                 "with_local_disks": request.with_local_disks,
                 "target_storage": request.target_storage,
+                "target_bridge": request.target_bridge,
+                "target_infrastructure_id":
+                    target_infrastructure_id,
+                "cross_infrastructure":
+                    cross_infrastructure,
+                "delete_source":
+                    (
+                        request.delete_source
+                        if cross_infrastructure
+                        else None
+                    ),
                 "upid": upid,
                 "status": "task_started",
             },
@@ -4466,6 +6677,10 @@ async def migrate_guest(
             "ok": True,
             "node": request.node,
             "target": request.target,
+            "target_infrastructure_id":
+                target_infrastructure_id,
+            "cross_infrastructure":
+                cross_infrastructure,
             "guest_type": request.guest_type,
             "vmid": request.vmid,
             "upid": upid,
@@ -4505,6 +6720,95 @@ async def proxmox_task(
         max_length=1024,
     ),
 ):
+    if upid.startswith("managed:"):
+        managed_task_id = (
+            upid.split(
+                ":",
+                1,
+            )[1].strip()
+        )
+
+        task = manager.get(
+            managed_task_id
+        )
+
+        if task is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Managed migration task "
+                    "was not found."
+                ),
+            )
+
+        state = str(
+            task.state
+            or ""
+        ).lower()
+
+        if state in {
+            "success",
+            "partial",
+            "error",
+        }:
+            proxmox_status = "stopped"
+        else:
+            proxmox_status = "running"
+
+        if state == "success":
+            exit_status = "OK"
+        elif state == "partial":
+            exit_status = "WARNING"
+        elif state == "error":
+            exit_status = (
+                task.error
+                or "ERROR"
+            )
+        else:
+            exit_status = None
+
+        status = {
+            "status":
+                proxmox_status,
+            "type":
+                "managed-migration",
+            "id":
+                str(
+                    (
+                        task.result
+                        or {}
+                    ).get(
+                        "vmid",
+                        "",
+                    )
+                ),
+            "node":
+                task.node,
+        }
+
+        if exit_status is not None:
+            status["exitstatus"] = (
+                exit_status
+            )
+
+        return {
+            "status":
+                status,
+            "log": [
+                {
+                    "n":
+                        index,
+                    "t":
+                        line,
+                }
+                for index, line
+                in enumerate(
+                    task.output,
+                    start=1,
+                )
+            ],
+        }
+
     try:
         task_client = ProxmoxClient(
             infrastructure_id=infrastructure_id

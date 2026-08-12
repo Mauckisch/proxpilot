@@ -23,7 +23,7 @@ A modern, lightweight web interface for monitoring and managing multiple Proxmox
 
 ProxPilot is an open-source management interface for **Proxmox VE**.
 
-The current 2.1.0 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
+The current 2.3.0 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
 
 It complements the native Proxmox interface by providing a clean dashboard, simplified daily administration, integrated monitoring and commonly used management actions across multiple independent Proxmox infrastructures.
 
@@ -42,6 +42,7 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 - Update management
 - Storage, network and cluster overview
 - Multiple independent Proxmox infrastructures
+- Cross-infrastructure migration for stopped QEMU virtual machines
 - Automatic cluster and standalone-host discovery
 - Integrated audit log
 - Administrator, Operator and Viewer roles
@@ -107,7 +108,7 @@ docker compose up -d --build
 
 Configure the global application settings in `.env` before starting. After the first login, add Proxmox environments under **Settings → Infrastructure**. Proxmox endpoints, API tokens, node addresses and SSH settings are configured there rather than through `PVE_*` environment variables.
 
-On first startup, ProxPilot automatically creates a persistent Ed25519 SSH key pair in `./ssh/` when no key pair exists yet. The private key is mounted into the backend at `/app/ssh/id_ed25519`. When adding an infrastructure, ProxPilot displays the corresponding public key with a copy action so it can be installed on the target Proxmox nodes.
+On first startup, ProxPilot automatically creates a persistent Ed25519 SSH key pair in `./ssh/` when no key pair exists yet. The private key is mounted into the backend at `/app/ssh/id_ed25519`. When adding an infrastructure, ProxPilot displays a ready-to-run SSH setup command with a copy action. Run the command as the configured SSH user on every target Proxmox node; it creates the SSH directory and authorized_keys file when necessary, applies the correct permissions and adds the ProxPilot public key only when it is not already present.
 
 ---
 
@@ -215,6 +216,7 @@ ProxPilot focuses on operational tasks:
 | LXC management | ✅ |
 | Guest power actions | ✅ |
 | Live migration | ✅ |
+| Cross-infrastructure QEMU migration | ✅ |
 | Snapshots | ✅ |
 | Backups | ✅ |
 | Guest restore | ✅ |
@@ -291,9 +293,9 @@ Inside the backend container, the managed private key is available at:
 
 The existing key pair is preserved across container rebuilds and restarts through the `./ssh:/app/ssh` volume mount. Existing keys are not silently replaced.
 
-When adding an infrastructure, the setup dialog displays the ProxPilot SSH public key and provides a copy action. Add that public key to the SSH account used on each target Proxmox node, normally `root`.
+When adding an infrastructure, the setup dialog displays a ready-to-run **ProxPilot SSH setup command** with a copy action. Run this command as the SSH user configured for the infrastructure on every target Proxmox node. The command creates `~/.ssh` and `~/.ssh/authorized_keys` when required, applies the correct permissions and appends the ProxPilot public key only when that exact key is not already present.
 
-For example, on a Proxmox node the public key can be appended to:
+This avoids manually copying the raw key and prevents duplicate entries in `authorized_keys`. For the common `root` SSH user, the resulting authorized-keys file is:
 
 ```text
 /root/.ssh/authorized_keys
@@ -302,6 +304,16 @@ For example, on a Proxmox node the public key can be appended to:
 The infrastructure form automatically uses `/app/ssh/id_ed25519` as the managed private key path, so users normally only need to configure the SSH user and SSH port.
 
 This allows environments such as a production cluster, lab cluster and standalone hosts to coexist in the same ProxPilot instance. Identical node names in different infrastructures remain distinguishable through their infrastructure context.
+
+### Cross-Infrastructure Migration
+
+ProxPilot 2.3.0 can migrate **stopped QEMU virtual machines** between independently managed Proxmox infrastructures. Cross-infrastructure migration is not enabled for LXC containers, and remote QEMU migration is intentionally started offline.
+
+The migration dialog allows the operator to choose the target infrastructure, target node, target VMID, target storage and target network bridge. Before the operation starts, ProxPilot performs a dedicated preflight check that validates the target infrastructure and node, VMID availability, CPU architecture compatibility, available memory, target storage availability and capacity, network bridge availability and storage-transfer compatibility.
+
+When the source storage cannot be transferred directly by Proxmox remote migration, ProxPilot can use a compatible staging storage on the source infrastructure. The guest disk is temporarily moved to the staging storage, the remote migration is started, and the source-side disk is restored to its original storage when the migration workflow requires the source VM to remain available. Temporary source volumes and migration locks are cleaned up automatically.
+
+The complete workflow is exposed as one managed ProxPilot task so preparation, remote migration and cleanup remain visible in the Activity view even before the final Proxmox migration UPID exists. Migration progress and task-log output are available while the operation is running.
 
 ### Task Scheduler
 
@@ -394,7 +406,8 @@ Supported operations:
 - Reset
 - Suspend
 - Resume
-- Migration
+- Migration within an infrastructure
+- Cross-infrastructure migration for stopped QEMU virtual machines
 - Snapshots
 - Manual backups
 - Restore from backup archives
@@ -602,17 +615,21 @@ Local authentication works without LDAP.
 
 ### Does ProxPilot support multiple Proxmox clusters?
 
-Yes. ProxPilot 2.1.0 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
+Yes. ProxPilot 2.3.0 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
 
 ### Where are Proxmox connections configured?
 
 Open **Settings → Infrastructure**. Proxmox API endpoints, API tokens, TLS verification, reachable node addresses and SSH settings are configured per infrastructure. The old `PVE_*` environment-variable model is no longer the normal configuration method.
 
+### Does ProxPilot support migration between separate Proxmox infrastructures?
+
+Yes. ProxPilot 2.3.0 supports cross-infrastructure migration for stopped QEMU virtual machines. The operation includes a preflight check for the target node, VMID, storage, memory, CPU architecture and network bridge. If the source storage cannot be transferred directly, ProxPilot can use a compatible staging storage and handles the temporary disk movement and cleanup automatically.
+
 ### How is SSH access configured?
 
-ProxPilot automatically generates and persists an Ed25519 SSH key pair when no managed key exists yet. Open **Settings → Infrastructure → Add Infrastructure** to view and copy the ProxPilot public key.
+ProxPilot automatically generates and persists an Ed25519 SSH key pair when no managed key exists yet. Open **Settings → Infrastructure → Add Infrastructure** to view and copy the ready-to-run ProxPilot SSH setup command.
 
-Install that public key in the SSH account's `authorized_keys` file on every Proxmox node that ProxPilot needs to manage. New infrastructures automatically use the managed private key at `/app/ssh/id_ed25519`.
+Run that command as the configured SSH user on every Proxmox node that ProxPilot needs to manage. It creates the required SSH files and permissions and adds the public key only when it is not already present. New infrastructures automatically use the managed private key at `/app/ssh/id_ed25519`.
 
 The `ssh/` directory is persistent application data. Back it up together with the ProxPilot database and never commit or publish the private key.
 

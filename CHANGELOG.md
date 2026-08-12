@@ -4,6 +4,73 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## \[2.3.0\] - 2026-08-13
+
+### Added
+
+-   Added cross-infrastructure migration for stopped QEMU virtual
+    machines between independently managed Proxmox infrastructures.
+-   Added selection of the target infrastructure, target node, target
+    VMID, target storage and target network bridge for remote guest
+    migrations.
+-   Added a dedicated remote-migration preflight check before any
+    migration operation is started.
+-   Added preflight validation for target infrastructure availability,
+    target-node state, VMID conflicts, CPU architecture, available
+    memory, target storage, storage capacity and target network bridge.
+-   Added storage-transfer compatibility detection for remote
+    migrations.
+-   Added staged storage migration for storage combinations that cannot
+    be transferred directly by Proxmox remote migration.
+-   Added automatic temporary movement of guest disks to compatible
+    staging storage before the remote migration.
+-   Added automatic restoration of staged source disks to their
+    original storage after the remote migration has completed.
+-   Added automatic cleanup of temporary staging-storage entries and
+    source migration locks.
+-   Added managed multi-stage migration tasks so preparation, remote
+    migration and cleanup can be tracked as one ProxPilot operation.
+-   Added migration progress and task-log reporting while multi-stage
+    remote migrations are running.
+-   Added support for monitoring ProxPilot-managed migration tasks before
+    the final Proxmox migration UPID exists.
+
+### Changed
+
+-   Extended the Proxmox migration backend with support for the
+    `remote_migrate` API and remote target endpoint configuration.
+-   Remote migration now verifies storage compatibility and can
+    transparently use a supported staging path when the source and target
+    storage types are incompatible.
+-   Temporary disk moves used for staging and restoration now remove the
+    obsolete source volume after a successful move instead of leaving
+    duplicate storage volumes behind.
+-   The guest migration interface now displays remote-migration warnings
+    returned by the preflight check before the user confirms the
+    operation.
+-   Increased the frontend API request timeout from 15 seconds to
+    30 seconds to allow longer migration preflight requests to complete.
+-   Replaced the raw ProxPilot SSH public key field in infrastructure
+    settings with a ready-to-run SSH setup command.
+-   The SSH setup command now creates `~/.ssh` and
+    `authorized_keys` when required, applies the correct permissions and
+    adds the ProxPilot public key only when it is not already present.
+
+### Fixed
+
+-   Fixed remote migration progress not appearing while disks were being
+    prepared on staging storage.
+-   Fixed multi-stage migrations waiting synchronously for disk staging
+    before returning a trackable task to the frontend.
+-   Fixed storage preflight details referencing an obsolete
+    `storage_status` variable.
+-   Fixed successful staged migrations leaving the source VM disk on the
+    temporary staging storage.
+-   Fixed successful source-storage restoration leaving duplicate
+    temporary disk volumes behind.
+-   Fixed source VMs potentially remaining migration-locked after a
+    completed cross-infrastructure migration.
+
 ## \[2.1.0\] - 2026-08-12
 
 ### Added

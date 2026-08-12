@@ -1526,6 +1526,207 @@ class ProxmoxClient:
 
         return upid
 
+    async def move_qemu_disk(
+        self,
+        node: str,
+        vmid: int,
+        disk: str,
+        target_storage: str,
+        *,
+        delete_source: bool = False,
+        disk_format: str | None = None,
+        digest: str | None = None,
+    ) -> str:
+        if not node.strip():
+            raise ProxmoxError(
+                "Source node must be specified."
+            )
+
+        if vmid <= 0:
+            raise ProxmoxError(
+                "Invalid VM ID."
+            )
+
+        normalized_disk = disk.strip()
+        normalized_storage = (
+            target_storage.strip()
+        )
+
+        if not normalized_disk:
+            raise ProxmoxError(
+                "Disk identifier must be specified."
+            )
+
+        if not normalized_storage:
+            raise ProxmoxError(
+                "Target storage must be specified."
+            )
+
+        allowed_formats = {
+            "raw",
+            "qcow2",
+            "vmdk",
+        }
+
+        if (
+            disk_format is not None
+            and disk_format
+                not in allowed_formats
+        ):
+            raise ProxmoxError(
+                "Unsupported target disk format."
+            )
+
+        parameters: dict[
+            str,
+            str | int,
+        ] = {
+            "disk":
+                normalized_disk,
+            "storage":
+                normalized_storage,
+            "delete":
+                1 if delete_source else 0,
+        }
+
+        if disk_format is not None:
+            parameters["format"] = (
+                disk_format
+            )
+
+        if digest:
+            parameters["digest"] = (
+                digest.strip()
+            )
+
+        upid = await self.request_node(
+            node,
+            "POST",
+            (
+                f"/nodes/{node}/qemu/"
+                f"{vmid}/move_disk"
+            ),
+            data=parameters,
+        )
+
+        if (
+            not isinstance(
+                upid,
+                str,
+            )
+            or not upid.startswith(
+                "UPID:"
+            )
+        ):
+            raise ProxmoxError(
+                "Proxmox did not return a valid "
+                "disk move task ID."
+            )
+
+        return upid
+
+    async def remote_migrate_guest(
+        self,
+        node: str,
+        vmid: int,
+        *,
+        target_endpoint: str,
+        target_storage: str,
+        target_bridge: str,
+        target_vmid: int | None = None,
+        online: bool = False,
+        delete_source: bool = False,
+    ) -> str:
+        if not node.strip():
+            raise ProxmoxError(
+                "Source node must be specified."
+            )
+
+        if vmid <= 0:
+            raise ProxmoxError(
+                "Invalid VM ID."
+            )
+
+        normalized_endpoint = (
+            target_endpoint.strip()
+        )
+
+        normalized_storage = (
+            target_storage.strip()
+        )
+
+        normalized_bridge = (
+            target_bridge.strip()
+        )
+
+        if not normalized_endpoint:
+            raise ProxmoxError(
+                "Remote target endpoint is missing."
+            )
+
+        if not normalized_storage:
+            raise ProxmoxError(
+                "Remote target storage is missing."
+            )
+
+        if not normalized_bridge:
+            raise ProxmoxError(
+                "Remote target bridge is missing."
+            )
+
+        parameters: dict[
+            str,
+            str | int,
+        ] = {
+            "target-endpoint":
+                normalized_endpoint,
+            "target-storage":
+                normalized_storage,
+            "target-bridge":
+                normalized_bridge,
+            "delete":
+                1 if delete_source else 0,
+            "online":
+                1 if online else 0,
+        }
+
+        if target_vmid is not None:
+            if target_vmid <= 0:
+                raise ProxmoxError(
+                    "Invalid target VM ID."
+                )
+
+            parameters["target-vmid"] = (
+                target_vmid
+            )
+
+        upid = await self.request_node(
+            node,
+            "POST",
+            (
+                f"/nodes/{node}/qemu/"
+                f"{vmid}/remote_migrate"
+            ),
+            data=parameters,
+        )
+
+        if (
+            not isinstance(
+                upid,
+                str,
+            )
+            or not upid.startswith(
+                "UPID:"
+            )
+        ):
+            raise ProxmoxError(
+                "Proxmox did not return a valid "
+                "remote migration task ID."
+            )
+
+        return upid
+
+
     async def create_console_ticket(
         self,
         node: str,

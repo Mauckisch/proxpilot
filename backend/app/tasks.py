@@ -2643,14 +2643,689 @@ async def _monitor_proxmox_activity(
                         exit_status,
                 }
 
+                migration_cleanup_error = None
+
+                if (
+                    task.kind == "guest-migration"
+                    and bool(
+                        base_result.get(
+                            "cross_infrastructure",
+                            False,
+                        )
+                    )
+                    and str(
+                        base_result.get(
+                            "guest_type",
+                            "",
+                        )
+                    ).lower() == "qemu"
+                ):
+                    vmid = int(
+                        base_result.get(
+                            "vmid",
+                            0,
+                        )
+                        or 0
+                    )
+
+                    delete_source = bool(
+                        base_result.get(
+                            "delete_source",
+                            False,
+                        )
+                    )
+
+                    migration_succeeded = (
+                        exit_status.upper()
+                        == "OK"
+                    )
+
+                    source_should_exist = not (
+                        migration_succeeded
+                        and delete_source
+                    )
+
+                    if (
+                        vmid > 0
+                        and source_should_exist
+                    ):
+                        try:
+                            source_config = (
+                                await client.request_node(
+                                    task.node,
+                                    "GET",
+                                    (
+                                        f"/nodes/{task.node}"
+                                        f"/qemu/{vmid}/config"
+                                    ),
+                                )
+                            )
+
+                            source_lock = str(
+                                (
+                                    source_config
+                                    or {}
+                                ).get(
+                                    "lock",
+                                    "",
+                                )
+                                or ""
+                            ).strip().lower()
+
+                            final_result[
+                                "source_lock_after_migration"
+                            ] = (
+                                source_lock
+                                or None
+                            )
+
+                            if source_lock == "migrate":
+                                manager.append(
+                                    task,
+                                    (
+                                        "[cleanup] Removing "
+                                        "migration lock from "
+                                        f"source VM {vmid}."
+                                    ),
+                                )
+
+                                unlock_code, _ = (
+                                    await asyncio.to_thread(
+                                        _run_streaming,
+                                        task,
+                                        f"qm unlock {vmid}",
+                                        60,
+                                        False,
+                                    )
+                                )
+
+                                if unlock_code != 0:
+                                    raise RuntimeError(
+                                        (
+                                            "Failed to unlock "
+                                            f"source VM {vmid} "
+                                            "after migration."
+                                        )
+                                    )
+
+                                verify_config = (
+                                    await client.request_node(
+                                        task.node,
+                                        "GET",
+                                        (
+                                            f"/nodes/{task.node}"
+                                            f"/qemu/{vmid}/config"
+                                        ),
+                                    )
+                                )
+
+                                remaining_lock = str(
+                                    (
+                                        verify_config
+                                        or {}
+                                    ).get(
+                                        "lock",
+                                        "",
+                                    )
+                                    or ""
+                                ).strip()
+
+                                if remaining_lock:
+                                    raise RuntimeError(
+                                        (
+                                            "Source VM "
+                                            f"{vmid} is still "
+                                            "locked after cleanup: "
+                                            f"{remaining_lock}"
+                                        )
+                                    )
+
+                                final_result[
+                                    "source_unlocked"
+                                ] = True
+
+                                manager.append(
+                                    task,
+                                    (
+                                        "[cleanup] Source VM "
+                                        f"{vmid} unlocked."
+                                    ),
+                                )
+
+                            else:
+                                final_result[
+                                    "source_unlocked"
+                                ] = False
+
+                                if source_lock:
+                                    raise RuntimeError(
+                                        (
+                                            "Source VM "
+                                            f"{vmid} has unexpected "
+                                            "lock after migration: "
+                                            f"{source_lock}"
+                                        )
+                                    )
+
+                            staging_restore_plan = (
+                                base_result.get(
+                                    "staging_restore_plan",
+                                    [],
+                                )
+                                or []
+                            )
+
+                            if staging_restore_plan:
+                                manager.append(
+                                    task,
+                                    (
+                                        "[cleanup] Restoring "
+                                        "source VM disks to "
+                                        "their original storage."
+                                    ),
+                                )
+
+                            restored_disks = []
+
+                            for restore_item in (
+                                staging_restore_plan
+                            ):
+                                if not isinstance(
+                                    restore_item,
+                                    dict,
+                                ):
+                                    continue
+
+                                disk_key = str(
+                                    restore_item.get(
+                                        "disk",
+                                        "",
+                                    )
+                                    or ""
+                                ).strip()
+
+                                original_storage = str(
+                                    restore_item.get(
+                                        "original_storage",
+                                        "",
+                                    )
+                                    or ""
+                                ).strip()
+
+                                if (
+                                    not disk_key
+                                    or not original_storage
+                                ):
+                                    raise RuntimeError(
+                                        (
+                                            "Invalid staging "
+                                            "restore metadata."
+                                        )
+                                    )
+
+                                config_before_restore = (
+                                    await client.request_node(
+                                        task.node,
+                                        "GET",
+                                        (
+                                            f"/nodes/{task.node}"
+                                            f"/qemu/{vmid}/config"
+                                        ),
+                                    )
+                                )
+
+                                if not isinstance(
+                                    config_before_restore,
+                                    dict,
+                                ):
+                                    raise RuntimeError(
+                                        (
+                                            "Could not load "
+                                            "source VM config "
+                                            "before storage restore."
+                                        )
+                                    )
+
+                                disk_value = (
+                                    config_before_restore.get(
+                                        disk_key
+                                    )
+                                )
+
+                                if not isinstance(
+                                    disk_value,
+                                    str,
+                                ):
+                                    raise RuntimeError(
+                                        (
+                                            f"Source disk "
+                                            f"{disk_key} is missing "
+                                            "before storage restore."
+                                        )
+                                    )
+
+                                current_volume = (
+                                    disk_value
+                                    .split(",", 1)[0]
+                                    .strip()
+                                )
+
+                                current_storage = (
+                                    current_volume
+                                    .split(":", 1)[0]
+                                    .strip()
+                                    if ":" in current_volume
+                                    else ""
+                                )
+
+                                if (
+                                    current_storage
+                                    == original_storage
+                                ):
+                                    manager.append(
+                                        task,
+                                        (
+                                            "[cleanup] "
+                                            f"{disk_key} already "
+                                            "uses original storage "
+                                            f"{original_storage}."
+                                        ),
+                                    )
+
+                                    restored_disks.append(
+                                        {
+                                            "disk":
+                                                disk_key,
+                                            "storage":
+                                                original_storage,
+                                            "already_restored":
+                                                True,
+                                        }
+                                    )
+
+                                    continue
+
+                                existing_unused_keys = {
+                                    str(key)
+                                    for key
+                                    in config_before_restore
+                                    if (
+                                        str(key).startswith(
+                                            "unused"
+                                        )
+                                        and str(key)[6:].isdigit()
+                                    )
+                                }
+
+                                manager.append(
+                                    task,
+                                    (
+                                        "[cleanup] Moving "
+                                        f"{disk_key} from "
+                                        f"{current_storage or 'unknown'} "
+                                        "back to "
+                                        f"{original_storage}."
+                                    ),
+                                )
+
+                                restore_upid = (
+                                    await client.move_qemu_disk(
+                                        node=task.node,
+                                        vmid=vmid,
+                                        disk=disk_key,
+                                        target_storage=
+                                            original_storage,
+                                        delete_source=True,
+                                    )
+                                )
+
+                                restore_timeout_seconds = (
+                                    60 * 60 * 6
+                                )
+
+                                restore_started = (
+                                    asyncio.get_running_loop()
+                                    .time()
+                                )
+
+                                while True:
+                                    restore_task = (
+                                        await client.task_details(
+                                            task.node,
+                                            restore_upid,
+                                        )
+                                    )
+
+                                    restore_status = (
+                                        restore_task.get(
+                                            "status",
+                                            {},
+                                        )
+                                        or {}
+                                    )
+
+                                    restore_state = str(
+                                        restore_status.get(
+                                            "status",
+                                            "",
+                                        )
+                                        or ""
+                                    ).lower()
+
+                                    if (
+                                        restore_state
+                                        == "stopped"
+                                    ):
+                                        restore_exit_status = str(
+                                            restore_status.get(
+                                                "exitstatus",
+                                                "",
+                                            )
+                                            or ""
+                                        ).upper()
+
+                                        if (
+                                            restore_exit_status
+                                            != "OK"
+                                        ):
+                                            restore_log = (
+                                                restore_task.get(
+                                                    "log",
+                                                    [],
+                                                )
+                                                or []
+                                            )
+
+                                            last_restore_line = ""
+
+                                            if restore_log:
+                                                last_restore_line = str(
+                                                    (
+                                                        restore_log[-1]
+                                                        or {}
+                                                    ).get(
+                                                        "t",
+                                                        "",
+                                                    )
+                                                    or ""
+                                                ).strip()
+
+                                            raise RuntimeError(
+                                                (
+                                                    "Source storage "
+                                                    "restore failed for "
+                                                    f"{disk_key}"
+                                                )
+                                                + (
+                                                    ": "
+                                                    + last_restore_line
+                                                    if last_restore_line
+                                                    else (
+                                                        " with exit "
+                                                        "status "
+                                                        + (
+                                                            restore_exit_status
+                                                            or "unknown"
+                                                        )
+                                                    )
+                                                )
+                                            )
+
+                                        break
+
+                                    restore_elapsed = (
+                                        asyncio.get_running_loop()
+                                        .time()
+                                        - restore_started
+                                    )
+
+                                    if (
+                                        restore_elapsed
+                                        >=
+                                        restore_timeout_seconds
+                                    ):
+                                        raise RuntimeError(
+                                            (
+                                                "Source storage "
+                                                "restore timed out "
+                                                f"for {disk_key}."
+                                            )
+                                        )
+
+                                    await asyncio.sleep(2)
+
+                                config_after_restore = (
+                                    await client.request_node(
+                                        task.node,
+                                        "GET",
+                                        (
+                                            f"/nodes/{task.node}"
+                                            f"/qemu/{vmid}/config"
+                                        ),
+                                    )
+                                )
+
+                                if not isinstance(
+                                    config_after_restore,
+                                    dict,
+                                ):
+                                    raise RuntimeError(
+                                        (
+                                            "Could not verify "
+                                            "source VM config "
+                                            "after storage restore."
+                                        )
+                                    )
+
+                                restored_value = (
+                                    config_after_restore.get(
+                                        disk_key
+                                    )
+                                )
+
+                                if not isinstance(
+                                    restored_value,
+                                    str,
+                                ):
+                                    raise RuntimeError(
+                                        (
+                                            f"Restored disk "
+                                            f"{disk_key} is missing."
+                                        )
+                                    )
+
+                                restored_volume = (
+                                    restored_value
+                                    .split(",", 1)[0]
+                                    .strip()
+                                )
+
+                                restored_storage = (
+                                    restored_volume
+                                    .split(":", 1)[0]
+                                    .strip()
+                                    if ":" in restored_volume
+                                    else ""
+                                )
+
+                                if (
+                                    restored_storage
+                                    != original_storage
+                                ):
+                                    raise RuntimeError(
+                                        (
+                                            "Source storage restore "
+                                            f"verification failed for "
+                                            f"{disk_key}: expected "
+                                            f"{original_storage}, got "
+                                            f"{restored_storage or 'unknown'}."
+                                        )
+                                    )
+
+                                current_unused_keys = {
+                                    str(key)
+                                    for key
+                                    in config_after_restore
+                                    if (
+                                        str(key).startswith(
+                                            "unused"
+                                        )
+                                        and str(key)[6:].isdigit()
+                                    )
+                                }
+
+                                restore_unused_keys = sorted(
+                                    current_unused_keys
+                                    - existing_unused_keys
+                                )
+
+                                if restore_unused_keys:
+                                    manager.append(
+                                        task,
+                                        (
+                                            "[cleanup] Removing "
+                                            "temporary staging "
+                                            "volume reference(s): "
+                                            + ", ".join(
+                                                restore_unused_keys
+                                            )
+                                        ),
+                                    )
+
+                                    await client.request_node(
+                                        task.node,
+                                        "POST",
+                                        (
+                                            f"/nodes/{task.node}"
+                                            f"/qemu/{vmid}/config"
+                                        ),
+                                        data={
+                                            "delete":
+                                                ",".join(
+                                                    restore_unused_keys
+                                                ),
+                                        },
+                                    )
+
+                                    cleanup_verify = (
+                                        await client.request_node(
+                                            task.node,
+                                            "GET",
+                                            (
+                                                f"/nodes/{task.node}"
+                                                f"/qemu/{vmid}/config"
+                                            ),
+                                        )
+                                    )
+
+                                    remaining_unused = [
+                                        key
+                                        for key
+                                        in restore_unused_keys
+                                        if (
+                                            isinstance(
+                                                cleanup_verify,
+                                                dict,
+                                            )
+                                            and key
+                                            in cleanup_verify
+                                        )
+                                    ]
+
+                                    if remaining_unused:
+                                        raise RuntimeError(
+                                            (
+                                                "Temporary staging "
+                                                "disk cleanup failed: "
+                                            )
+                                            + ", ".join(
+                                                remaining_unused
+                                            )
+                                        )
+
+                                restored_disks.append(
+                                    {
+                                        "disk":
+                                            disk_key,
+                                        "storage":
+                                            original_storage,
+                                        "already_restored":
+                                            False,
+                                    }
+                                )
+
+                                manager.append(
+                                    task,
+                                    (
+                                        "[cleanup] "
+                                        f"{disk_key} restored "
+                                        "to original storage "
+                                        f"{original_storage}."
+                                    ),
+                                )
+
+                            if restored_disks:
+                                final_result[
+                                    "source_storage_restored"
+                                ] = True
+
+                                final_result[
+                                    "restored_disks"
+                                ] = restored_disks
+
+                                manager.append(
+                                    task,
+                                    (
+                                        "[cleanup] Source VM "
+                                        "storage layout restored."
+                                    ),
+                                )
+
+                        except Exception as exc:
+                            migration_cleanup_error = str(
+                                exc
+                            )
+
+                            final_result[
+                                "source_unlock_error"
+                            ] = (
+                                migration_cleanup_error
+                            )
+
+                            manager.append(
+                                task,
+                                (
+                                    "[cleanup] WARNING: "
+                                    "Source migration lock "
+                                    "cleanup failed: "
+                                    f"{migration_cleanup_error}"
+                                ),
+                            )
+
+                    elif (
+                        migration_succeeded
+                        and delete_source
+                    ):
+                        final_result[
+                            "source_unlock_skipped"
+                        ] = (
+                            "source_deleted"
+                        )
+
                 if (
                     exit_status.upper()
                     == "OK"
                 ):
-                    manager.finish(
-                        task,
-                        final_result,
-                    )
+                    if migration_cleanup_error:
+                        manager.partial(
+                            task,
+                            final_result,
+                        )
+                    else:
+                        manager.finish(
+                            task,
+                            final_result,
+                        )
                 else:
                     manager.fail(
                         task,
@@ -2671,6 +3346,81 @@ async def _monitor_proxmox_activity(
             str(exc),
             base_result,
         )
+
+
+async def create_managed_proxmox_activity(
+    node: str,
+    infrastructure_id: int,
+    *,
+    kind: str,
+    title: str,
+    result: dict | None = None,
+    source: str = "manual",
+    notifications_enabled: bool = False,
+) -> ManagedTask:
+    """
+    Create and start a ProxPilot managed task before a
+    Proxmox UPID exists.
+
+    This is used for multi-stage operations where ProxPilot
+    performs preparation work before starting the actual
+    Proxmox task, for example:
+
+        ZFS -> staging storage
+        remote migration
+        source storage restoration
+    """
+
+    task = manager.create(
+        node,
+        kind,
+        title,
+        infrastructure_id=
+            infrastructure_id,
+        source=source,
+        notifications_enabled=
+            notifications_enabled,
+    )
+
+    task.result = dict(
+        result or {}
+    )
+
+    manager.start(
+        task
+    )
+
+    return task
+
+
+async def monitor_managed_proxmox_activity(
+    task: ManagedTask,
+    client,
+    upid: str,
+    result: dict | None = None,
+) -> None:
+    """
+    Attach an already existing ProxPilot ManagedTask to a
+    real Proxmox UPID.
+
+    This is used for multi-stage operations that already
+    started before Proxmox created the final task UPID.
+    """
+
+    merged_result = {
+        **dict(task.result or {}),
+        **dict(result or {}),
+        "upid": upid,
+    }
+
+    task.result = merged_result
+
+    await _monitor_proxmox_activity(
+        task,
+        client,
+        upid,
+        merged_result,
+    )
 
 
 async def track_proxmox_activity(
