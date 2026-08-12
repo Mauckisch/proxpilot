@@ -558,6 +558,445 @@ class ProxmoxClient:
 
         return upid
 
+    async def guest_status(
+        self,
+        node: str,
+        guest_type: str,
+        vmid: int,
+    ) -> dict:
+        if guest_type not in {"qemu", "lxc"}:
+            raise ProxmoxError(
+                "Unsupported guest type."
+            )
+
+        if vmid <= 0:
+            raise ProxmoxError(
+                "Invalid VM ID."
+            )
+
+        result = await self.request_node(
+            node,
+            "GET",
+            (
+                f"/nodes/{node}/"
+                f"{guest_type}/{vmid}/status/current"
+            ),
+        )
+
+        if not isinstance(result, dict):
+            raise ProxmoxError(
+                "Proxmox returned an invalid guest status."
+            )
+
+        return result
+
+
+    async def guest_ha_resource(
+        self,
+        vmid: int,
+    ) -> dict | None:
+        if vmid <= 0:
+            raise ProxmoxError(
+                "Invalid VM ID."
+            )
+
+        sid = f"vm:{vmid}"
+
+        resources = (
+            await self.request(
+                "GET",
+                "/cluster/ha/resources",
+            )
+            or []
+        )
+
+        if not isinstance(resources, list):
+            raise ProxmoxError(
+                "Proxmox returned an invalid HA resource list."
+            )
+
+        for resource in resources:
+            if not isinstance(resource, dict):
+                continue
+
+            if str(
+                resource.get(
+                    "sid",
+                    "",
+                )
+            ) == sid:
+                return dict(resource)
+
+        return None
+
+
+    async def set_guest_ha_state(
+        self,
+        vmid: int,
+        state: str,
+    ) -> None:
+        if vmid <= 0:
+            raise ProxmoxError(
+                "Invalid VM ID."
+            )
+
+        normalized_state = state.strip()
+
+        if not normalized_state:
+            raise ProxmoxError(
+                "HA state must not be empty."
+            )
+
+        await self.request(
+            "PUT",
+            (
+                "/cluster/ha/resources/"
+                f"vm:{vmid}"
+            ),
+            data={
+                "state":
+                    normalized_state,
+            },
+        )
+
+
+    async def restore_guest(
+        self,
+        node: str,
+        guest_type: str,
+        vmid: int,
+        archive: str,
+        *,
+        storage: str | None = None,
+    ) -> str:
+        if guest_type not in {"qemu", "lxc"}:
+            raise ProxmoxError(
+                "Unsupported guest type."
+            )
+
+        if vmid <= 0:
+            raise ProxmoxError(
+                "Invalid VM ID."
+            )
+
+        normalized_archive = archive.strip()
+
+        if not normalized_archive:
+            raise ProxmoxError(
+                "Backup archive must be specified."
+            )
+
+        normalized_storage = (
+            storage.strip()
+            if storage
+            else ""
+        )
+
+        if guest_type == "qemu":
+            parameters: dict[str, str | int] = {
+                "vmid":
+                    vmid,
+                "archive":
+                    normalized_archive,
+                "force":
+                    1,
+            }
+
+        else:
+            parameters = {
+                "vmid":
+                    vmid,
+                "ostemplate":
+                    normalized_archive,
+                "restore":
+                    1,
+                "force":
+                    1,
+            }
+
+        if normalized_storage:
+            parameters["storage"] = (
+                normalized_storage
+            )
+
+        upid = await self.request_node(
+            node,
+            "POST",
+            (
+                f"/nodes/{node}/"
+                f"{guest_type}"
+            ),
+            data=parameters,
+        )
+
+        if (
+            not isinstance(upid, str)
+            or not upid.startswith("UPID:")
+        ):
+            raise ProxmoxError(
+                "Proxmox did not return a valid task ID "
+                "for the guest restore."
+            )
+
+        return upid
+
+
+    async def guest_backup_archives(
+        self,
+        node: str,
+        guest_type: str,
+        vmid: int,
+    ) -> list[dict]:
+        if guest_type not in {"qemu", "lxc"}:
+            raise ProxmoxError(
+                "Unsupported guest type."
+            )
+
+        if vmid <= 0:
+            raise ProxmoxError(
+                "Invalid VM ID."
+            )
+
+        storage_items = (
+            await self.request_node(
+                node,
+                "GET",
+                f"/nodes/{node}/storage",
+            )
+            or []
+        )
+
+        if not isinstance(
+            storage_items,
+            list,
+        ):
+            raise ProxmoxError(
+                "Proxmox returned an invalid storage list."
+            )
+
+        result: list[dict] = []
+
+        expected_prefix = (
+            f"vzdump-qemu-{vmid}-"
+            if guest_type == "qemu"
+            else f"vzdump-lxc-{vmid}-"
+        )
+
+        expected_formats = (
+            {"vma", "vma.gz", "vma.lzo", "vma.zst"}
+            if guest_type == "qemu"
+            else {
+                "tar",
+                "tar.gz",
+                "tar.lzo",
+                "tar.zst",
+            }
+        )
+
+        for storage in storage_items:
+            if not isinstance(
+                storage,
+                dict,
+            ):
+                continue
+
+            storage_id = str(
+                storage.get(
+                    "storage",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if not storage_id:
+                continue
+
+            content_value = str(
+                storage.get(
+                    "content",
+                    "",
+                )
+                or ""
+            )
+
+            content_types = {
+                value.strip()
+                for value in content_value.split(",")
+                if value.strip()
+            }
+
+            if (
+                content_types
+                and "backup"
+                not in content_types
+            ):
+                continue
+
+            try:
+                archives = (
+                    await self.request_node(
+                        node,
+                        "GET",
+                        (
+                            f"/nodes/{node}/storage/"
+                            f"{quote(storage_id, safe='')}/content"
+                        ),
+                    )
+                    or []
+                )
+            except ProxmoxError:
+                continue
+
+            if not isinstance(
+                archives,
+                list,
+            ):
+                continue
+
+            for archive in archives:
+                if not isinstance(
+                    archive,
+                    dict,
+                ):
+                    continue
+
+                archive_vmid = archive.get(
+                    "vmid"
+                )
+
+                try:
+                    normalized_vmid = int(
+                        archive_vmid
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                if normalized_vmid != vmid:
+                    continue
+
+                volid = str(
+                    archive.get(
+                        "volid",
+                        "",
+                    )
+                    or ""
+                ).strip()
+
+                if not volid:
+                    continue
+
+                filename = (
+                    volid.split(
+                        "/",
+                        1,
+                    )[-1]
+                )
+
+                if not filename.startswith(
+                    expected_prefix
+                ):
+                    continue
+
+                archive_format = str(
+                    archive.get(
+                        "format",
+                        "",
+                    )
+                    or ""
+                ).strip()
+
+                if (
+                    archive_format
+                    and archive_format
+                    not in expected_formats
+                ):
+                    continue
+
+                try:
+                    size = int(
+                        archive.get(
+                            "size",
+                            0,
+                        )
+                        or 0
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    size = 0
+
+                try:
+                    ctime = int(
+                        archive.get(
+                            "ctime",
+                            0,
+                        )
+                        or 0
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    ctime = 0
+
+                result.append(
+                    {
+                        "storage":
+                            storage_id,
+                        "volid":
+                            volid,
+                        "vmid":
+                            normalized_vmid,
+                        "guest_type":
+                            guest_type,
+                        "format":
+                            archive_format,
+                        "size":
+                            size,
+                        "ctime":
+                            ctime,
+                        "notes":
+                            archive.get(
+                                "notes"
+                            ),
+                        "protected":
+                            bool(
+                                archive.get(
+                                    "protected"
+                                )
+                            ),
+                        "encrypted":
+                            bool(
+                                archive.get(
+                                    "encrypted"
+                                )
+                            ),
+                        "verification":
+                            archive.get(
+                                "verification"
+                            ),
+                    }
+                )
+
+        result.sort(
+            key=lambda item:
+                int(
+                    item.get(
+                        "ctime",
+                        0,
+                    )
+                    or 0
+                ),
+            reverse=True,
+        )
+
+        return result
+
+
     async def run_backup(
         self,
         node: str,

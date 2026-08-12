@@ -73,8 +73,10 @@ ALLOWED_SCHEDULED_ACTIONS = {
     "guest.suspend",
     "guest.resume",
     "backup.guest",
+    "backup.guest_restore",
     "snapshot.create",
     "snapshot.delete",
+    "snapshot.rollback",
     "guest.migrate",
     "node.check_updates",
     "node.install_updates",
@@ -110,8 +112,10 @@ def _validate_scheduled_action(
         "guest.suspend",
         "guest.resume",
         "backup.guest",
+        "backup.guest_restore",
         "snapshot.create",
         "snapshot.delete",
+        "snapshot.rollback",
         "guest.migrate",
     }
 
@@ -243,18 +247,24 @@ def _validate_scheduled_action(
     if action in {
         "snapshot.create",
         "snapshot.delete",
+        "snapshot.rollback",
     }:
         snapshot_name = str(
             values.get("snapshot_name", "")
         ).strip()
 
         if not snapshot_name:
+            operation_label = {
+                "snapshot.create":
+                    "Snapshot creation",
+                "snapshot.delete":
+                    "Snapshot deletion",
+                "snapshot.rollback":
+                    "Snapshot rollback",
+            }[action]
+
             raise SchedulerError(
-                (
-                    "Snapshot creation"
-                    if action == "snapshot.create"
-                    else "Snapshot deletion"
-                )
+                operation_label
                 + " requires a snapshot_name."
             )
 
@@ -266,6 +276,50 @@ def _validate_scheduled_action(
         if not job_id:
             raise SchedulerError(
                 "Guest backup requires a job_id."
+            )
+
+    if action == "backup.guest_restore":
+        archive = str(
+            values.get(
+                "archive",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not archive:
+            raise SchedulerError(
+                "Guest restore requires an archive."
+            )
+
+        target_storage = values.get(
+            "target_storage"
+        )
+
+        if (
+            target_storage is not None
+            and not isinstance(
+                target_storage,
+                str,
+            )
+        ):
+            raise SchedulerError(
+                "Guest restore target_storage "
+                "must be a string or null."
+            )
+
+        start_after_restore = values.get(
+            "start_after_restore",
+            False,
+        )
+
+        if not isinstance(
+            start_after_restore,
+            bool,
+        ):
+            raise SchedulerError(
+                "Guest restore start_after_restore "
+                "must be a boolean."
             )
 
     if action == "guest.migrate":

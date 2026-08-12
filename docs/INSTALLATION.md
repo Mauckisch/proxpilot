@@ -1,8 +1,8 @@
 # ProxPilot Installation Guide
 
-This guide explains how to install and configure **ProxPilot 2.0.0** for one or more Proxmox VE environments.
+This guide explains how to install and configure **ProxPilot 2.1.0** for one or more Proxmox VE environments.
 
-ProxPilot 2.0.0 supports multiple independent Proxmox infrastructures. An infrastructure can be either:
+ProxPilot 2.1.0 supports multiple independent Proxmox infrastructures. An infrastructure can be either:
 
 - a Proxmox VE cluster
 - a standalone Proxmox VE host
@@ -244,14 +244,18 @@ Never commit the token secret into Git or store it inside the repository.
 
 # Create Custom Roles
 
-ProxPilot uses two custom Proxmox roles.
+ProxPilot uses dedicated custom Proxmox roles.
 
 Creating dedicated roles instead of using Administrator permissions follows the principle of least privilege.
 
-The required roles are:
+The required core roles are:
 
 - DashboardManager
 - ProxPilotBackup
+
+When ProxPilot needs to use an SDN-managed network resource, an additional role is required:
+
+- ProxPilotSDN
 
 ---
 
@@ -317,18 +321,49 @@ pveum role modify ProxPilotBackup \
 
 ---
 
-Verify that both roles exist:
+## ProxPilotSDN
 
-```bash
-pveum role list | grep -E "DashboardManager|ProxPilotBackup"
+This role is required when ProxPilot needs to use an SDN-managed network resource.
+
+Required privilege:
+
+```text
+SDN.Use
 ```
 
-Expected output:
+Create the role:
+
+```bash
+pveum role add ProxPilotSDN \
+  --privs "SDN.Use"
+```
+
+If the role already exists:
+
+```bash
+pveum role modify ProxPilotSDN \
+  --privs "SDN.Use"
+```
+
+Assign this role only to the SDN paths that ProxPilot actually needs.
+
+---
+
+Verify that the required roles exist:
+
+```bash
+pveum role list | grep -E "DashboardManager|ProxPilotBackup|ProxPilotSDN"
+```
+
+Expected output for an installation that uses SDN-managed network resources:
 
 ```text
 DashboardManager
 ProxPilotBackup
+ProxPilotSDN
 ```
+
+`ProxPilotSDN` is not required when ProxPilot does not use an SDN-managed network resource.
 
 The next chapter assigns these roles to the API user and API token using Proxmox ACLs.
 # Configure ACLs
@@ -444,6 +479,108 @@ pveum acl modify /storage/backup-nfs \
 
 ---
 
+## Restore Target Storage
+
+Every storage that ProxPilot is allowed to use as a restore target must also have the `ProxPilotBackup` role assigned to both the API user and API token.
+
+`ProxPilotBackup` already contains:
+
+```text
+Datastore.AllocateSpace
+```
+
+However, the privilege is only effective on storage paths where the corresponding ACL applies.
+
+Replace:
+
+```text
+YOUR-RESTORE-TARGET-STORAGE
+```
+
+with the actual Proxmox storage ID.
+
+Assign the role to the API user:
+
+```bash
+pveum acl modify /storage/YOUR-RESTORE-TARGET-STORAGE \
+  --users dashboard@pve \
+  --roles ProxPilotBackup \
+  --propagate 1
+```
+
+Assign the role to the API token:
+
+```bash
+pveum acl modify /storage/YOUR-RESTORE-TARGET-STORAGE \
+  --tokens "dashboard@pve!dashboard" \
+  --roles ProxPilotBackup \
+  --propagate 1
+```
+
+Verify the effective token permissions:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /storage/YOUR-RESTORE-TARGET-STORAGE
+```
+
+The effective permissions must include:
+
+```text
+Datastore.AllocateSpace
+```
+
+A restore can fail with a Proxmox permission error when this privilege is not effective on the selected target storage.
+
+---
+
+## SDN Resources
+
+This section is required only when ProxPilot needs to use an SDN-managed network resource.
+
+Assign `ProxPilotSDN` to the exact SDN ACL path required by the environment.
+
+A tested example path is:
+
+```text
+/sdn/zones/localnetwork/vmbr2
+```
+
+Use the actual zone and network/bridge path from your Proxmox environment.
+
+Assign the role to the API user:
+
+```bash
+pveum acl modify /sdn/zones/localnetwork/vmbr2 \
+  --users dashboard@pve \
+  --roles ProxPilotSDN \
+  --propagate 1
+```
+
+Assign the role to the API token:
+
+```bash
+pveum acl modify /sdn/zones/localnetwork/vmbr2 \
+  --tokens "dashboard@pve!dashboard" \
+  --roles ProxPilotSDN \
+  --propagate 1
+```
+
+Verify:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /sdn/zones/localnetwork/vmbr2
+```
+
+The effective permissions must include:
+
+```text
+SDN.Use
+```
+
+---
+
 # Why are both roles assigned on `/vms`?
 
 Proxmox evaluates permissions based on the resource path.
@@ -512,6 +649,24 @@ VM.Snapshot
 VM.Snapshot.Rollback
 ```
 
+When restore target storage is configured, verify it separately:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /storage/YOUR-RESTORE-TARGET-STORAGE
+```
+
+The output must include `Datastore.AllocateSpace`.
+
+When an SDN-managed network resource is required, verify its exact ACL path:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /sdn/zones/YOUR-ZONE/YOUR-NETWORK
+```
+
+The output must include `SDN.Use`.
+
 ---
 
 Verify the configured ACLs:
@@ -534,9 +689,17 @@ A typical configuration looks similar to:
 
 /storage/backup-nfs                 ProxPilotBackup    user   dashboard@pve
 /storage/backup-nfs                 ProxPilotBackup    token  dashboard@pve!dashboard
+
+/storage/local-lvm                  ProxPilotBackup    user   dashboard@pve
+/storage/local-lvm                  ProxPilotBackup    token  dashboard@pve!dashboard
+
+/sdn/zones/localnetwork/vmbr2       ProxPilotSDN       user   dashboard@pve
+/sdn/zones/localnetwork/vmbr2       ProxPilotSDN       token  dashboard@pve!dashboard
 ```
 
-If your output is comparable to the example above, the API permissions are correctly configured and you can continue with the SSH configuration.
+The storage and SDN entries shown above are examples. Restore-target ACLs are required only for storages that ProxPilot is allowed to restore to, and SDN ACLs are required only for SDN resources that ProxPilot actually uses.
+
+If your output is comparable to the applicable parts of the example above, the API permissions are correctly configured and you can continue with the SSH configuration.
 # Configure SSH
 
 Several ProxPilot features require direct SSH access to the Proxmox nodes.
@@ -1134,13 +1297,17 @@ On a test guest:
 
 Test rollback only when it is safe to modify the guest state.
 
-## Backups
+## Backups and Restore
 
 Verify:
 
 - backup jobs are visible
 - existing backups are listed
 - manual backup creation works
+- every intended restore target storage has the required `ProxPilotBackup` ACL
+- a restore to a non-production test target works where restore functionality is permitted
+
+Do not test a restore against a production guest unless the operation is intentionally planned.
 
 ## Browser Console
 
@@ -1241,7 +1408,7 @@ docs/AUTHENTICATION.md
 
 ---
 
-# ProxPilot 2.0.0 Settings
+# ProxPilot 2.1.0 Settings
 
 After the first infrastructure is configured, review the application-wide settings available in the web interface.
 
@@ -1249,13 +1416,13 @@ After the first infrastructure is configured, review the application-wide settin
 
 Regional settings are configured under **Settings → Regional** and are restricted to administrators.
 
-ProxPilot 2.0.0 provides a selectable timezone setting so administrators do not need to enter timezone identifiers manually. The selected timezone is used by application features that require the configured regional timezone.
+ProxPilot 2.1.0 provides a selectable timezone setting so administrators do not need to enter timezone identifiers manually. The selected timezone is used by application features that require the configured regional timezone.
 
 The `TZ` environment variable remains the container-level default timezone setting.
 
 ## Notifications
 
-ProxPilot 2.0.0 supports notification delivery through:
+ProxPilot 2.1.0 supports notification delivery through:
 
 - Discord webhooks
 - email through SMTP
@@ -1270,7 +1437,7 @@ For multi-node update checks, update installations and package cleanup, ProxPilo
 
 SMTP credentials and Discord webhook URLs are sensitive configuration and must not be published in screenshots, logs, issue reports or Git repositories.
 
-## Task Scheduler in 2.0.0
+## Task Scheduler in 2.1.0
 
 The Task Scheduler supports multiple node targets for these node operations:
 
@@ -1394,6 +1561,40 @@ ssh -i ./ssh/id_ed25519 root@NODE-IP hostname
 ```
 
 Also verify DNS resolution when hostnames are used.
+
+## Restore Fails with a Storage Permission Error
+
+If a guest restore fails while allocating storage, verify the effective permissions on the selected restore target:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /storage/YOUR-RESTORE-TARGET-STORAGE
+```
+
+The result must include:
+
+```text
+Datastore.AllocateSpace
+```
+
+If it is missing, assign `ProxPilotBackup` to both the API user and API token on that storage path.
+
+## SDN Operation Fails with a Permission Error
+
+When an operation needs an SDN-managed network resource, verify the exact SDN path:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /sdn/zones/YOUR-ZONE/YOUR-NETWORK
+```
+
+The result must include:
+
+```text
+SDN.Use
+```
+
+If it is missing, assign `ProxPilotSDN` to both the API user and API token on the required SDN path.
 
 ## SSH Functions Fail
 
@@ -1615,6 +1816,9 @@ Before considering the installation complete, verify:
 - initial administrator login works
 - API user and token exist
 - required Proxmox roles and ACLs are configured
+- `ProxPilotBackup` is assigned to every storage that ProxPilot is allowed to use as a restore target
+- `Datastore.AllocateSpace` is effective on every allowed restore target storage
+- `ProxPilotSDN` and `SDN.Use` are configured on the exact required SDN paths when SDN-managed resources are used
 - the ProxPilot SSH public key is authorized on every required node
 - SSH key access works
 - at least one Infrastructure was successfully discovered and saved
@@ -1623,7 +1827,7 @@ Before considering the installation complete, verify:
 - dashboard data is visible
 - node information loads
 - guests are assigned to the correct infrastructure
-- snapshots and backups work where permitted
+- snapshots, backups and restore work where permitted
 - browser console works
 - HTTPS is configured for production
 - Regional settings use the intended timezone

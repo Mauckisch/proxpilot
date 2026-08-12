@@ -17,6 +17,7 @@ export const ACTIONS = [
     items: [
       { value: 'snapshot.create', label: 'Create' },
       { value: 'snapshot.delete', label: 'Delete' },
+      { value: 'snapshot.rollback', label: 'Rollback' },
     ],
   },
 
@@ -24,6 +25,10 @@ export const ACTIONS = [
     group: 'Backup',
     items: [
       { value: 'backup.guest', label: 'Run Guest Backup' },
+      {
+        value: 'backup.guest_restore',
+        label: 'Restore Guest Backup',
+      },
     ],
   },
 

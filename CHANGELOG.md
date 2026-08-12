@@ -4,6 +4,48 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## \[2.1.0\] - 2026-08-12
+
+### Added
+
+-   Added guest restore from available Proxmox backup archives for QEMU
+    virtual machines and LXC containers.
+-   Added discovery and selection of available backup archives for the
+    selected guest.
+-   Added optional target-storage selection for guest restores.
+-   Added an option to start the guest automatically after a successful
+    restore.
+-   Added guest restore as a Task Scheduler action.
+-   Added snapshot rollback as an interactive and scheduled operation.
+-   Added validation for scheduled guest restore tasks, including the
+    selected archive, optional target storage and start-after-restore
+    setting.
+-   Added backend handling for guest status and HA state during guest
+    restore operations.
+-   Added Proxmox task monitoring for guest restore and other tracked
+    Proxmox activities.
+-   Added the `ProxPilotSDN` role documentation with the `SDN.Use`
+    privilege for environments where ProxPilot needs to use SDN-managed
+    network resources.
+
+### Changed
+
+-   Extended snapshot handling and notifications to distinguish snapshot
+    creation, deletion and rollback operations.
+-   Extended the Task Scheduler to configure guest restore and snapshot
+    rollback operations.
+-   Guest targets in the Task Scheduler are now displayed by guest name
+    when the guest can be resolved; the technical QEMU/LXC VMID remains
+    as a fallback.
+-   Guest targets in the Audit Log are now resolved dynamically to guest
+    names when possible, including existing audit entries; the original
+    technical target remains as a fallback.
+-   Extended guest restore handling with explicit destructive-operation
+    safeguards and restore-state tracking.
+-   Updated README and installation documentation for the 2.1.0 feature
+    set, including guest restore, scheduled restore, snapshot rollback
+    and SDN role requirements.
+
 ## [2.0.4] - 2026-08-12
 
 ### Changed

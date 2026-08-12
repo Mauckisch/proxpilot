@@ -67,6 +67,28 @@ type SnapshotResponse = {
 };
 
 
+type GuestBackupArchive = {
+  storage: string;
+  volid: string;
+  vmid: number;
+  guest_type: 'qemu' | 'lxc';
+  format?: string;
+  size?: number;
+  ctime?: number;
+  notes?: string | null;
+};
+
+
+type GuestBackupArchiveResponse = {
+  infrastructure_id: number;
+  node: string;
+  guest_type: 'qemu' | 'lxc';
+  vmid: number;
+  count: number;
+  archives: GuestBackupArchive[];
+};
+
+
 const INTERVAL_UNITS = [
   { value: 'minutes', label: 'Minutes' },
   { value: 'hours', label: 'Hours' },
@@ -116,6 +138,75 @@ function formatDate(
   );
 }
 
+function formatBackupBytes(
+  value?: number,
+): string {
+  if (
+    value === undefined
+    || value === null
+    || !Number.isFinite(value)
+    || value < 0
+  ) {
+    return 'Unknown size';
+  }
+
+  if (value === 0) {
+    return '0 B';
+  }
+
+  const units = [
+    'B',
+    'KiB',
+    'MiB',
+    'GiB',
+    'TiB',
+  ];
+
+  let size = value;
+  let unit = 0;
+
+  while (
+    size >= 1024
+    && unit < units.length - 1
+  ) {
+    size /= 1024;
+    unit += 1;
+  }
+
+  return `${
+    size >= 100
+      ? size.toFixed(0)
+      : size >= 10
+        ? size.toFixed(1)
+        : size.toFixed(2)
+  } ${units[unit]}`;
+}
+
+
+function formatBackupArchiveDate(
+  timestamp?: number,
+): string {
+  if (
+    timestamp === undefined
+    || timestamp === null
+    || !Number.isFinite(timestamp)
+    || timestamp <= 0
+  ) {
+    return 'Unknown date';
+  }
+
+  return new Intl.DateTimeFormat(
+    undefined,
+    {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    },
+  ).format(
+    new Date(timestamp * 1000),
+  );
+}
+
+
 function toLocalInputValue(
   value?: string | null,
 ): string {
@@ -156,6 +247,7 @@ function actionIsGuest(action: string) {
   return (
     action.startsWith('guest.') ||
     action === 'backup.guest' ||
+    action === 'backup.guest_restore' ||
     action.startsWith('snapshot.')
   );
 }
@@ -250,6 +342,32 @@ export function TaskSchedulerPage({
     backupJobId,
     setBackupJobId,
   ] = useState<string | null>(null);
+
+  const [
+    restoreArchives,
+    setRestoreArchives,
+  ] = useState<GuestBackupArchive[]>([]);
+
+  const [
+    restoreArchive,
+    setRestoreArchive,
+  ] = useState<string | null>(null);
+
+  const [
+    restoreArchivesLoading,
+    setRestoreArchivesLoading,
+  ] = useState(false);
+
+  const [
+    restoreTargetStorage,
+    setRestoreTargetStorage,
+  ] = useState<string | null>(null);
+
+  const [
+    restoreStartAfter,
+    setRestoreStartAfter,
+  ] = useState(false);
+
   const [
     migrationTarget,
     setMigrationTarget,
@@ -442,12 +560,91 @@ export function TaskSchedulerPage({
       };
     }, [guestKey]);
 
+  const restoreTargetStorageOptions =
+    useMemo(() => {
+      if (!selectedGuest) {
+        return [];
+      }
+
+      const requiredContent =
+        selectedGuest.guest_type === 'qemu'
+          ? 'images'
+          : 'rootdir';
+
+      const names =
+        new Set<string>();
+
+      for (
+        const storage
+        of dashboard.data?.storages ?? []
+      ) {
+        if (
+          storage.infrastructure_id
+          !== infrastructureId
+        ) {
+          continue;
+        }
+
+        if (
+          storage.node
+          && storage.node
+            !== selectedGuest.node
+          && !Boolean(storage.shared)
+        ) {
+          continue;
+        }
+
+        const storageName =
+          storage.storage?.trim();
+
+        if (!storageName) {
+          continue;
+        }
+
+        const contentTypes =
+          String(
+            storage.content ?? '',
+          )
+            .split(',')
+            .map((value) =>
+              value.trim(),
+            )
+            .filter(Boolean);
+
+        if (
+          !contentTypes.includes(
+            requiredContent,
+          )
+        ) {
+          continue;
+        }
+
+        names.add(storageName);
+      }
+
+      return Array.from(names)
+        .sort((a, b) =>
+          a.localeCompare(b),
+        )
+        .map((storage) => ({
+          value: storage,
+          label: storage,
+        }));
+    }, [
+      dashboard.data?.storages,
+      infrastructureId,
+      selectedGuest,
+    ]);
+
   useEffect(() => {
     setSnapshots([]);
     setSnapshotName(null);
 
     if (
-      action !== 'snapshot.delete' ||
+      ![
+        'snapshot.delete',
+        'snapshot.rollback',
+      ].includes(action) ||
       !selectedGuest
     ) {
       return;
@@ -502,6 +699,97 @@ export function TaskSchedulerPage({
     infrastructureId,
   ]);
 
+  useEffect(() => {
+    setRestoreArchives([]);
+    setRestoreArchive(null);
+
+    if (
+      action !== 'backup.guest_restore'
+      || !selectedGuest
+      || infrastructureId === null
+    ) {
+      return;
+    }
+
+    const guest = selectedGuest;
+    let cancelled = false;
+
+    async function loadRestoreArchives() {
+      setRestoreArchivesLoading(true);
+
+      try {
+        const response =
+          await api.get<GuestBackupArchiveResponse>(
+            '/backup/guest-archives',
+            {
+              params: {
+                infrastructure_id:
+                  infrastructureId,
+                node:
+                  guest.node,
+                guest_type:
+                  guest.guest_type,
+                vmid:
+                  guest.vmid,
+              },
+            },
+          );
+
+        if (cancelled) {
+          return;
+        }
+
+        const loadedArchives =
+          [
+            ...(
+              response.data.archives
+              ?? []
+            ),
+          ].sort(
+            (a, b) =>
+              Number(
+                b.ctime ?? 0,
+              )
+              - Number(
+                a.ctime ?? 0,
+              ),
+          );
+
+        setRestoreArchives(
+          loadedArchives,
+        );
+
+        setRestoreArchive(
+          loadedArchives[0]?.volid
+          ?? null,
+        );
+      } catch {
+        if (!cancelled) {
+          setRestoreArchives([]);
+          setRestoreArchive(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setRestoreArchivesLoading(
+            false,
+          );
+        }
+      }
+    }
+
+    void loadRestoreArchives();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    action,
+    selectedGuest?.node,
+    selectedGuest?.guest_type,
+    selectedGuest?.vmid,
+    infrastructureId,
+  ]);
+
   function resetForm() {
     setEditingTask(null);
     setInfrastructureId(null);
@@ -517,6 +805,11 @@ export function TaskSchedulerPage({
     setSnapshotName(null);
     setSnapshotCreateName('');
     setBackupJobId(null);
+    setRestoreArchives([]);
+    setRestoreArchive(null);
+    setRestoreArchivesLoading(false);
+    setRestoreTargetStorage(null);
+    setRestoreStartAfter(false);
     setMigrationTarget(null);
     setSnapshots([]);
     setFormError(null);
@@ -615,6 +908,25 @@ export function TaskSchedulerPage({
         'string'
         ? task.payload.job_id
         : null,
+    );
+
+    setRestoreArchive(
+      typeof task.payload.archive ===
+        'string'
+        ? task.payload.archive
+        : null,
+    );
+
+    setRestoreTargetStorage(
+      typeof task.payload.target_storage ===
+        'string'
+        ? task.payload.target_storage
+        : null,
+    );
+
+    setRestoreStartAfter(
+      task.payload.start_after_restore ===
+        true,
     );
 
     setMigrationTarget(
@@ -726,7 +1038,10 @@ export function TaskSchedulerPage({
         snapshotCreateName.trim();
     }
 
-    if (action === 'snapshot.delete') {
+    if (
+      action === 'snapshot.delete' ||
+      action === 'snapshot.rollback'
+    ) {
       if (!snapshotName) {
         setFormError(
           snapshots.length === 0
@@ -749,6 +1064,33 @@ export function TaskSchedulerPage({
       }
 
       payload.job_id = backupJobId;
+    }
+
+    if (
+      action === 'backup.guest_restore'
+    ) {
+      if (!restoreArchive) {
+        setFormError(
+          restoreArchives.length === 0
+            ? (
+              'The selected guest has no '
+              + 'available backup archives.'
+            )
+            : 'Select a backup archive.',
+        );
+        return;
+      }
+
+      payload.archive =
+        restoreArchive;
+
+      if (restoreTargetStorage) {
+        payload.target_storage =
+          restoreTargetStorage;
+      }
+
+      payload.start_after_restore =
+        restoreStartAfter;
     }
 
     if (action === 'guest.migrate') {
@@ -992,9 +1334,27 @@ export function TaskSchedulerPage({
                 task.target_type ===
                 'guest'
               ) {
+                const targetGuest =
+                  (
+                    dashboard.data?.guests
+                    ?? []
+                  ).find(
+                    (guest) =>
+                      guest.infrastructure_id ===
+                        task.infrastructure_id
+                      && guest.vmid ===
+                        task.vmid,
+                  );
+
+                const guestName =
+                  targetGuest?.name?.trim();
+
                 targetLabel =
-                  `${task.guest_type?.toUpperCase()} ` +
-                  `${task.vmid} · ${task.node}`;
+                  guestName
+                  || (
+                    `${task.guest_type?.toUpperCase()} ` +
+                    `${task.vmid}`
+                  );
               } else if (
                 Array.isArray(
                   task.payload?.nodes,
@@ -1444,11 +1804,15 @@ export function TaskSchedulerPage({
             }
             onChange={(value) => {
               setAction(value ?? '');
-                        setNodes([]);
+              setNodes([]);
               setGuestKey(null);
               setSnapshotName(null);
               setSnapshotCreateName('');
               setBackupJobId(null);
+              setRestoreArchives([]);
+              setRestoreArchive(null);
+              setRestoreTargetStorage(null);
+              setRestoreStartAfter(false);
               setMigrationTarget(null);
             }}
             searchable
@@ -1531,8 +1895,10 @@ export function TaskSchedulerPage({
             />
           )}
 
-          {action ===
-            'snapshot.delete' &&
+          {[
+            'snapshot.delete',
+            'snapshot.rollback',
+          ].includes(action) &&
             selectedGuest && (
               <Select
                 label="Snapshot"
@@ -1555,7 +1921,9 @@ export function TaskSchedulerPage({
                     ? 'Loading snapshots...'
                     : snapshots.length === 0
                       ? 'This guest has no snapshots.'
-                      : 'Select the snapshot that should be deleted when the task runs.'
+                      : action === 'snapshot.rollback'
+                        ? 'Select the snapshot that should be restored when the task runs.'
+                        : 'Select the snapshot that should be deleted when the task runs.'
                 }
               />
             )}
@@ -1570,6 +1938,99 @@ export function TaskSchedulerPage({
               onChange={setBackupJobId}
             />
           )}
+
+          {action ===
+            'backup.guest_restore' &&
+            selectedGuest && (
+              <Stack gap="sm">
+                <Select
+                  label="Backup archive"
+                  required
+                  searchable
+                  disabled={
+                    restoreArchivesLoading ||
+                    restoreArchives.length === 0
+                  }
+                  data={
+                    restoreArchives.map(
+                      (archive) => ({
+                        value:
+                          archive.volid,
+                        label: [
+                          formatBackupArchiveDate(
+                            archive.ctime,
+                          ),
+                          formatBackupBytes(
+                            archive.size,
+                          ),
+                          archive.storage,
+                          archive.format
+                            || 'Unknown format',
+                        ].join(' · '),
+                      }),
+                    )
+                  }
+                  value={
+                    restoreArchive
+                  }
+                  onChange={
+                    setRestoreArchive
+                  }
+                  description={
+                    restoreArchivesLoading
+                      ? 'Loading available backup archives...'
+                      : restoreArchives.length === 0
+                        ? 'No backup archives are available for this guest.'
+                        : 'The newest backup is selected automatically.'
+                  }
+                />
+
+                <Select
+                  label="Target storage"
+                  searchable
+                  clearable
+                  data={
+                    restoreTargetStorageOptions
+                  }
+                  value={
+                    restoreTargetStorage
+                  }
+                  onChange={
+                    setRestoreTargetStorage
+                  }
+                  placeholder="Use original storage configuration"
+                  description="Optional. Leave empty to let Proxmox restore the storage configuration from the backup."
+                />
+
+                <Switch
+                  label="Start guest after restore"
+                  description={
+                    restoreStartAfter
+                      ? 'The guest will be started after a successful restore.'
+                      : 'The guest will remain stopped after a successful restore.'
+                  }
+                  checked={
+                    restoreStartAfter
+                  }
+                  onChange={(event) =>
+                    setRestoreStartAfter(
+                      event.currentTarget.checked,
+                    )
+                  }
+                />
+
+                <Alert
+                  color="red"
+                  title="Destructive restore"
+                >
+                  This scheduled action overwrites
+                  the current guest with the selected
+                  backup. A failed restore may
+                  intentionally leave the guest
+                  stopped for safety.
+                </Alert>
+              </Stack>
+            )}
 
           {action === 'guest.migrate' && (
             <Select

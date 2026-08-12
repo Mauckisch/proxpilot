@@ -108,6 +108,85 @@ export function AuditLogPage() {
   const { isAdmin } = useAuth();
   const dashboard = useDashboard();
 
+  function resolveAuditTarget(
+    event: AuditEvent,
+  ): string {
+    const originalTarget =
+      event.target?.trim() || '—';
+
+    let vmid: number | null = null;
+
+    const details = event.details;
+
+    if (
+      details
+      && typeof details === 'object'
+      && !Array.isArray(details)
+      && 'vmid' in details
+    ) {
+      const detailVmid =
+        Number(
+          (
+            details as {
+              vmid?: unknown;
+            }
+          ).vmid,
+        );
+
+      if (
+        Number.isInteger(detailVmid)
+        && detailVmid > 0
+      ) {
+        vmid = detailVmid;
+      }
+    }
+
+    if (vmid === null) {
+      const match =
+        originalTarget.match(
+          /\b(?:QEMU|LXC|Guest)\s+(\d+)\b/i,
+        );
+
+      if (match) {
+        const parsed =
+          Number(match[1]);
+
+        if (
+          Number.isInteger(parsed)
+          && parsed > 0
+        ) {
+          vmid = parsed;
+        }
+      }
+    }
+
+    if (vmid === null) {
+      return originalTarget;
+    }
+
+    const guest =
+      (
+        dashboard.data?.guests
+        ?? []
+      ).find(
+        (entry) =>
+          entry.vmid === vmid
+          && (
+            event.infrastructure_id == null
+            || entry.infrastructure_id ===
+              event.infrastructure_id
+          ),
+      );
+
+    const guestName =
+      guest?.name?.trim();
+
+    return (
+      guestName
+      || originalTarget
+    );
+  }
+
   const [page, setPage] =
     useState(1);
 
@@ -1149,8 +1228,11 @@ export function AuditLogPage() {
                     </Table.Td>
 
                     <Table.Td>
-                      {event.target
-                        ?? '—'}
+                      {
+                        resolveAuditTarget(
+                          event,
+                        )
+                      }
                     </Table.Td>
 
                     <Table.Td>
@@ -1288,8 +1370,11 @@ export function AuditLogPage() {
 
             <Text>
               <b>Target:</b>{' '}
-              {selectedEvent.target
-                ?? '—'}
+              {
+                resolveAuditTarget(
+                  selectedEvent,
+                )
+              }
             </Text>
 
             <Text>

@@ -25,11 +25,13 @@ from .scheduler import (
 from .tasks import (
     manager,
     start_backup_task,
+    start_guest_restore_task,
     start_package_cleanup,
     start_power_action,
     start_update_check,
     start_update_install,
     start_node_batch_action,
+    track_proxmox_activity,
 )
 
 
@@ -107,8 +109,12 @@ def _scheduled_action_label(
             "Create snapshot",
         "snapshot.delete":
             "Delete snapshot",
+        "snapshot.rollback":
+            "Rollback snapshot",
         "backup.guest":
             "Guest backup",
+        "backup.guest_restore":
+            "Guest restore",
     }
 
     return labels.get(
@@ -268,10 +274,16 @@ def _scheduled_result_lines(
             "vmid"
         )
 
-        operation = (
-            "Create"
-            if action == "snapshot.create"
-            else "Delete"
+        operation = {
+            "snapshot.create":
+                "Create",
+            "snapshot.delete":
+                "Delete",
+            "snapshot.rollback":
+                "Rollback",
+        }.get(
+            action,
+            action,
         )
 
         if guest_type and vmid is not None:
@@ -287,6 +299,81 @@ def _scheduled_result_lines(
             lines.append(
                 f"Snapshot: {snapshot_name}"
             )
+
+    elif action == "backup.guest_restore":
+        guest_type = str(
+            task.get(
+                "guest_type",
+                "",
+            )
+            or ""
+        ).upper()
+
+        vmid = task.get(
+            "vmid"
+        )
+
+        archive = (
+            result.get(
+                "archive"
+            )
+            or managed_result.get(
+                "archive"
+            )
+        )
+
+        target_storage = (
+            result.get(
+                "storage"
+            )
+            or managed_result.get(
+                "storage"
+            )
+        )
+
+        start_after_restore = (
+            result.get(
+                "start_after_restore"
+            )
+            if "start_after_restore"
+            in result
+            else managed_result.get(
+                "start_after_restore"
+            )
+        )
+
+        if (
+            guest_type
+            and vmid is not None
+        ):
+            lines.append(
+                f"Guest: {guest_type} {vmid}"
+            )
+
+        if archive:
+            lines.append(
+                f"Archive: {archive}"
+            )
+
+        lines.append(
+            "Target storage: "
+            + (
+                str(target_storage)
+                if target_storage
+                else "Backup/original configuration"
+            )
+        )
+
+        lines.append(
+            "Start after restore: "
+            + (
+                "Yes"
+                if bool(
+                    start_after_restore
+                )
+                else "No"
+            )
+        )
 
     elif action == "backup.guest":
         guest_type = str(
@@ -1370,6 +1457,86 @@ async def _execute_guest_action(
             )
             raise
 
+    if action == "snapshot.rollback":
+        snapshot_name = str(
+            payload.get(
+                "snapshot_name",
+                "",
+            )
+        ).strip()
+
+        snapshots = await task_client.snapshots(
+            node,
+            guest_type,
+            vmid,
+        )
+
+        existing_names = {
+            str(
+                item.get(
+                    "name",
+                    item.get(
+                        "snapname",
+                        "",
+                    ),
+                )
+            )
+            for item in snapshots
+            if isinstance(item, dict)
+        }
+
+        if snapshot_name not in existing_names:
+            raise RuntimeError(
+                f'Snapshot "{snapshot_name}" no longer exists.'
+            )
+
+        upid = await task_client.rollback_snapshot(
+            node,
+            guest_type,
+            vmid,
+            snapshot_name,
+        )
+
+        activity = await track_proxmox_activity(
+            task_client,
+            node,
+            upid,
+            infrastructure_id,
+            kind="snapshot",
+            title=(
+                f"Rollback snapshot "
+                f"{snapshot_name} on "
+                f"{guest_type.upper()} {vmid}"
+            ),
+            result={
+                "guest_type":
+                    guest_type,
+                "vmid":
+                    vmid,
+                "snapshot_name":
+                    snapshot_name,
+                "operation":
+                    "rollback",
+            },
+            source="scheduler",
+        )
+
+        manager.append(
+            activity,
+            _execution_message(trigger),
+        )
+
+        result = await _wait_for_managed_task(
+            activity,
+            timeout_seconds=7200,
+        )
+
+        return {
+            **result,
+            "snapshot_name":
+                snapshot_name,
+        }
+
     if action == "guest.migrate":
         target_node = str(
             payload.get(
@@ -1456,6 +1623,128 @@ async def _execute_guest_action(
                 str(exc),
             )
             raise
+
+    if action == "backup.guest_restore":
+        archive = str(
+            payload.get(
+                "archive",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not archive:
+            raise RuntimeError(
+                "Scheduled guest restore has no backup archive."
+            )
+
+        target_storage_value = (
+            payload.get(
+                "target_storage"
+            )
+        )
+
+        target_storage = (
+            str(
+                target_storage_value
+            ).strip()
+            if target_storage_value
+            is not None
+            else ""
+        )
+
+        if not target_storage:
+            target_storage = None
+
+        start_after_restore = bool(
+            payload.get(
+                "start_after_restore",
+                False,
+            )
+        )
+
+        #
+        # Revalidate the archive at execution time.
+        #
+        # A scheduled restore may run days or weeks after
+        # the task was created. Retention rules could have
+        # deleted the selected archive in the meantime.
+        #
+        archives = (
+            await task_client.guest_backup_archives(
+                node,
+                guest_type,
+                vmid,
+            )
+        )
+
+        selected_archive = next(
+            (
+                item
+                for item in archives
+                if (
+                    isinstance(
+                        item,
+                        dict,
+                    )
+                    and str(
+                        item.get(
+                            "volid",
+                            "",
+                        )
+                        or ""
+                    )
+                    == archive
+                )
+            ),
+            None,
+        )
+
+        if selected_archive is None:
+            raise RuntimeError(
+                "The configured backup archive "
+                "no longer exists for this guest."
+            )
+
+        managed = (
+            await start_guest_restore_task(
+                task_client,
+                node,
+                guest_type,
+                vmid,
+                archive,
+                infrastructure_id,
+                storage=
+                    target_storage,
+                start_after_restore=
+                    start_after_restore,
+                source="scheduler",
+            )
+        )
+
+        manager.append(
+            managed,
+            _execution_message(
+                trigger
+            ),
+        )
+
+        result = (
+            await _wait_for_managed_task(
+                managed,
+                timeout_seconds=7200,
+            )
+        )
+
+        return {
+            **result,
+            "archive":
+                archive,
+            "storage":
+                target_storage,
+            "start_after_restore":
+                start_after_restore,
+        }
 
     if action == "backup.guest":
         job_id = str(
@@ -1774,6 +2063,35 @@ async def _execute_manual_scheduled_task(
                 ),
             )
 
+            #
+            # A manual "Run now" execution must update
+            # the task's latest execution status, but it
+            # must NOT consume or modify the configured
+            # schedule.
+            #
+            # Therefore:
+            #
+            #   enabled      -> unchanged
+            #   next_run     -> unchanged
+            #   completed_at -> unchanged
+            #
+            connection.execute(
+                """
+                UPDATE scheduled_tasks
+                SET
+                    last_run = ?,
+                    last_result = 'success',
+                    last_error = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    finished_at,
+                    finished_at,
+                    task["id"],
+                ),
+            )
+
             connection.commit()
 
         _send_scheduled_task_notification(
@@ -1828,6 +2146,29 @@ async def _execute_manual_scheduled_task(
                     finished_at,
                     error,
                     task["_run_id"],
+                ),
+            )
+
+            #
+            # Same rule for failed manual executions:
+            # record the latest result without altering
+            # the configured schedule itself.
+            #
+            connection.execute(
+                """
+                UPDATE scheduled_tasks
+                SET
+                    last_run = ?,
+                    last_result = 'failed',
+                    last_error = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    finished_at,
+                    error,
+                    finished_at,
+                    task["id"],
                 ),
             )
 

@@ -120,6 +120,8 @@ from .tasks import (
     start_update_check,
     start_update_install,
     start_node_batch_action,
+    track_proxmox_activity,
+    start_guest_restore_task,
 )
 from .scheduler_worker import (
     start_manual_scheduled_task,
@@ -710,6 +712,40 @@ class GuestBackupRun(BaseModel):
     )
     guest_type: Literal["qemu", "lxc"]
     vmid: int = Field(gt=0)
+    confirmed: bool = False
+
+
+class GuestRestore(BaseModel):
+    infrastructure_id: int = Field(gt=0)
+
+    node: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+
+    guest_type: Literal[
+        "qemu",
+        "lxc",
+    ]
+
+    vmid: int = Field(
+        gt=0
+    )
+
+    archive: str = Field(
+        min_length=1,
+        max_length=1024,
+    )
+
+    target_storage: str | None = Field(
+        default=None,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+
+    start_after_restore: bool = False
+
     confirmed: bool = False
 
 
@@ -3557,6 +3593,233 @@ async def run_guest_backup(
         ) from exc
 
 
+@app.get("/api/backup/guest-archives")
+async def guest_backup_archives(
+    infrastructure_id: int = Query(gt=0),
+    node: str = Query(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    ),
+    guest_type: Literal[
+        "qemu",
+        "lxc",
+    ] = Query(),
+    vmid: int = Query(gt=0),
+):
+    try:
+        backup_client = ProxmoxClient(
+            infrastructure_id=
+                infrastructure_id
+        )
+
+        archives = (
+            await backup_client.guest_backup_archives(
+                node,
+                guest_type,
+                vmid,
+            )
+        )
+
+        return {
+            "infrastructure_id":
+                infrastructure_id,
+            "node":
+                node,
+            "guest_type":
+                guest_type,
+            "vmid":
+                vmid,
+            "count":
+                len(archives),
+            "archives":
+                archives,
+        }
+
+    except ProxmoxError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/api/backup/guest-restore")
+async def restore_guest_backup(
+    request: GuestRestore,
+    http_request: Request,
+):
+    require_operator_or_admin(
+        http_request
+    )
+
+    audit_target = (
+        f"{request.guest_type.upper()} "
+        f"{request.vmid}"
+    )
+
+    if not request.confirmed:
+        write_request_audit_event(
+            http_request,
+            action="backup.guest_restore",
+            result="failed",
+            severity="warning",
+            target_type=
+                request.guest_type,
+            target=audit_target,
+            node=request.node,
+            infrastructure_id=
+                request.infrastructure_id,
+            details={
+                "vmid":
+                    request.vmid,
+                "archive":
+                    request.archive,
+                "reason":
+                    "not_confirmed",
+            },
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The guest restore must be "
+                "explicitly confirmed."
+            ),
+        )
+
+    try:
+        restore_client = ProxmoxClient(
+            infrastructure_id=
+                request.infrastructure_id
+        )
+
+        archives = (
+            await restore_client.guest_backup_archives(
+                request.node,
+                request.guest_type,
+                request.vmid,
+            )
+        )
+
+        selected_archive = next(
+            (
+                archive
+                for archive in archives
+                if str(
+                    archive.get(
+                        "volid",
+                        "",
+                    )
+                )
+                == request.archive
+            ),
+            None,
+        )
+
+        if selected_archive is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "The selected backup archive "
+                    "was not found for this guest."
+                ),
+            )
+
+        task = await start_guest_restore_task(
+            restore_client,
+            request.node,
+            request.guest_type,
+            request.vmid,
+            request.archive,
+            request.infrastructure_id,
+            storage=request.target_storage,
+            start_after_restore=
+                request.start_after_restore,
+        )
+
+        write_request_audit_event(
+            http_request,
+            action="backup.guest_restore",
+            result="success",
+            severity="warning",
+            target_type=
+                request.guest_type,
+            target=audit_target,
+            node=request.node,
+            infrastructure_id=
+                request.infrastructure_id,
+            details={
+                "vmid":
+                    request.vmid,
+                "guest_type":
+                    request.guest_type,
+                "archive":
+                    request.archive,
+                "target_storage":
+                    request.target_storage,
+                "start_after_restore":
+                    request.start_after_restore,
+                "status":
+                    "task_started",
+            },
+        )
+
+        return {
+            "ok":
+                True,
+            "node":
+                request.node,
+            "guest_type":
+                request.guest_type,
+            "vmid":
+                request.vmid,
+            "archive":
+                request.archive,
+            "target_storage":
+                request.target_storage,
+            "start_after_restore":
+                request.start_after_restore,
+            "task":
+                task.public(),
+        }
+
+    except HTTPException:
+        raise
+
+    except ProxmoxError as exc:
+        write_request_audit_event(
+            http_request,
+            action="backup.guest_restore",
+            result="failed",
+            severity="error",
+            target_type=
+                request.guest_type,
+            target=audit_target,
+            node=request.node,
+            infrastructure_id=
+                request.infrastructure_id,
+            details={
+                "vmid":
+                    request.vmid,
+                "guest_type":
+                    request.guest_type,
+                "archive":
+                    request.archive,
+                "target_storage":
+                    request.target_storage,
+                "start_after_restore":
+                    request.start_after_restore,
+                "error":
+                    str(exc),
+            },
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+
 @app.get("/api/backup/task-log")
 async def backup_task_log(
     infrastructure_id: int = Query(gt=0),
@@ -3909,6 +4172,31 @@ async def rollback_snapshot(
             request.snapshot_name,
         )
 
+        task = await track_proxmox_activity(
+            snapshot_client,
+            request.node,
+            upid,
+            request.infrastructure_id,
+            kind="snapshot",
+            title=(
+                f"Rollback snapshot "
+                f"{request.snapshot_name} · "
+                f"{request.guest_type.upper()} "
+                f"{request.vmid}"
+            ),
+            result={
+                "guest_type":
+                    request.guest_type,
+                "vmid":
+                    request.vmid,
+                "snapshot_name":
+                    request.snapshot_name,
+                "operation":
+                    "rollback",
+            },
+            notifications_enabled=True,
+        )
+
         write_request_audit_event(
             http_request,
             action="snapshot.rollback",
@@ -3934,6 +4222,7 @@ async def rollback_snapshot(
             "vmid": request.vmid,
             "snapshot_name": request.snapshot_name,
             "upid": upid,
+            "task": task.public(),
         }
 
     except ProxmoxError as exc:
@@ -4117,6 +4406,40 @@ async def migrate_guest(
             target_storage=request.target_storage,
         )
 
+        task = await track_proxmox_activity(
+            migration_client,
+            request.node,
+            upid,
+            request.infrastructure_id,
+            kind="guest-migration",
+            title=(
+                f"Migrate "
+                f"{request.guest_type.upper()} "
+                f"{request.vmid} · "
+                f"{request.node} → "
+                f"{request.target}"
+            ),
+            result={
+                "guest_type":
+                    request.guest_type,
+                "vmid":
+                    request.vmid,
+                "source_node":
+                    request.node,
+                "target_node":
+                    request.target,
+                "online":
+                    request.online,
+                "restart":
+                    request.restart,
+                "with_local_disks":
+                    request.with_local_disks,
+                "target_storage":
+                    request.target_storage,
+            },
+            notifications_enabled=True,
+        )
+
         write_request_audit_event(
             http_request,
             action="guest.migrate",
@@ -4146,6 +4469,7 @@ async def migrate_guest(
             "guest_type": request.guest_type,
             "vmid": request.vmid,
             "upid": upid,
+            "task": task.public(),
         }
 
     except ProxmoxError as exc:
@@ -4224,6 +4548,45 @@ async def guest_action(
             request.action,
         )
 
+        action_labels = {
+            "start": "Start",
+            "shutdown": "Shutdown",
+            "reboot": "Reboot",
+            "stop": "Force stop",
+            "reset": "Reset",
+            "suspend": "Suspend",
+            "resume": "Resume",
+        }
+
+        action_label = action_labels.get(
+            request.action,
+            request.action.replace(
+                "_",
+                " ",
+            ).title(),
+        )
+
+        task = await track_proxmox_activity(
+            guest_client,
+            request.node,
+            upid,
+            request.infrastructure_id,
+            kind="guest-action",
+            title=(
+                f"{action_label} "
+                f"{request.guest_type.upper()} "
+                f"{request.vmid}"
+            ),
+            result={
+                "guest_type":
+                    request.guest_type,
+                "vmid":
+                    request.vmid,
+                "action":
+                    request.action,
+            },
+        )
+
         write_request_audit_event(
             http_request,
             action=audit_action,
@@ -4245,6 +4608,7 @@ async def guest_action(
         return {
             "ok": True,
             "upid": upid,
+            "task": task.public(),
         }
 
     except ProxmoxError as exc:
@@ -4278,11 +4642,41 @@ async def maintenance(
 ):
     require_operator_or_admin(http_request)
 
+    task = manager.create(
+        request.node,
+        "maintenance",
+        (
+            f"{'Enable' if request.action == 'enable' else 'Disable'} "
+            f"maintenance mode · {request.node}"
+        ),
+        infrastructure_id=
+            request.infrastructure_id,
+        source="manual",
+        notifications_enabled=True,
+    )
+
+    manager.start(task)
+
     try:
         message = await set_maintenance(
             request.node,
             request.action,
             request.infrastructure_id,
+        )
+
+        manager.append(
+            task,
+            message,
+        )
+
+        manager.finish(
+            task,
+            {
+                "action":
+                    request.action,
+                "message":
+                    message,
+            },
         )
 
         write_request_audit_event(
@@ -4306,6 +4700,15 @@ async def maintenance(
         }
 
     except MaintenanceError as exc:
+        manager.fail(
+            task,
+            str(exc),
+            {
+                "action":
+                    request.action,
+            },
+        )
+
         write_request_audit_event(
             http_request,
             action=f"node.maintenance.{request.action}",

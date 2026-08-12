@@ -23,7 +23,7 @@ A modern, lightweight web interface for monitoring and managing multiple Proxmox
 
 ProxPilot is an open-source management interface for **Proxmox VE**.
 
-The current 2.0.0 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
+The current 2.1.0 configuration model supports multiple independent Proxmox infrastructures from a single ProxPilot installation.
 
 It complements the native Proxmox interface by providing a clean dashboard, simplified daily administration, integrated monitoring and commonly used management actions across multiple independent Proxmox infrastructures.
 
@@ -37,7 +37,7 @@ It complements the native Proxmox interface by providing a clean dashboard, simp
 - Local and LDAP authentication
 - Integrated browser console for QEMU and LXC
 - VM and LXC management
-- Snapshot and backup management
+- Snapshot, backup and restore management
 - Node maintenance
 - Update management
 - Storage, network and cluster overview
@@ -217,6 +217,7 @@ ProxPilot focuses on operational tasks:
 | Live migration | ✅ |
 | Snapshots | ✅ |
 | Backups | ✅ |
+| Guest restore | ✅ |
 | Browser console (QEMU & LXC) | ✅ |
 | Storage overview | ✅ |
 | Network overview | ✅ |
@@ -313,11 +314,16 @@ Supported scheduled operations include:
 - Guest start, shutdown, stop, reboot, suspend and resume
 - Guest migration
 - Guest backup
-- Snapshot creation and deletion
+- Guest restore from an available backup archive
+- Snapshot creation, deletion and rollback
 - Node update checks and update installation
 - Node package cleanup
 - Node reboot and shutdown
 - Node maintenance mode enable and disable
+
+Guest restore tasks can optionally select a target storage and can start the guest after a successful restore. Restore is treated as a destructive operation because the selected backup overwrites the current guest.
+
+Guest targets in the Task Scheduler are displayed by guest name when the guest can still be resolved. The technical QEMU/LXC VMID target remains available as a fallback.
 
 Scheduled tasks run independently of interactive user sessions. Automated executions are identified as scheduler/system operations in the audit log and Activity panel.
 
@@ -391,6 +397,7 @@ Supported operations:
 - Migration
 - Snapshots
 - Manual backups
+- Restore from backup archives
 - Configuration viewer
 - Guest Agent information
 - Guest operating system
@@ -485,6 +492,7 @@ Features include:
 
 - Multi-select filters
 - Context-aware filter values
+- Guest-name target display when the guest can be resolved, with the technical VMID target as fallback
 - CSV export
 - JSON export
 - Configurable retention
@@ -594,7 +602,7 @@ Local authentication works without LDAP.
 
 ### Does ProxPilot support multiple Proxmox clusters?
 
-Yes. ProxPilot 2.0.0 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
+Yes. ProxPilot 2.1.0 supports multiple independent infrastructures in one installation. Each infrastructure can be a Proxmox VE cluster or a standalone host.
 
 ### Where are Proxmox connections configured?
 

@@ -47,8 +47,25 @@ EVENT_GUEST_BACKUP_FAILED = (
     "GUEST_BACKUP_FAILED"
 )
 
-EVENT_SNAPSHOT_SUCCESS = "SNAPSHOT_SUCCESS"
-EVENT_SNAPSHOT_FAILED = "SNAPSHOT_FAILED"
+EVENT_GUEST_RESTORE_SUCCESS = (
+    "GUEST_RESTORE_SUCCESS"
+)
+EVENT_GUEST_RESTORE_FAILED = (
+    "GUEST_RESTORE_FAILED"
+)
+
+EVENT_SNAPSHOT_CREATED = (
+    "SNAPSHOT_CREATED"
+)
+EVENT_SNAPSHOT_DELETED = (
+    "SNAPSHOT_DELETED"
+)
+EVENT_SNAPSHOT_ROLLED_BACK = (
+    "SNAPSHOT_ROLLED_BACK"
+)
+EVENT_SNAPSHOT_FAILED = (
+    "SNAPSHOT_FAILED"
+)
 
 EVENT_GUEST_MIGRATION_SUCCESS = (
     "GUEST_MIGRATION_SUCCESS"
@@ -57,8 +74,11 @@ EVENT_GUEST_MIGRATION_FAILED = (
     "GUEST_MIGRATION_FAILED"
 )
 
-EVENT_MAINTENANCE_SUCCESS = (
-    "MAINTENANCE_SUCCESS"
+EVENT_MAINTENANCE_ENABLED = (
+    "MAINTENANCE_ENABLED"
+)
+EVENT_MAINTENANCE_DISABLED = (
+    "MAINTENANCE_DISABLED"
 )
 EVENT_MAINTENANCE_FAILED = (
     "MAINTENANCE_FAILED"
@@ -83,11 +103,16 @@ NOTIFICATION_EVENTS = (
     EVENT_REBOOT_REQUIRED,
     EVENT_GUEST_BACKUP_SUCCESS,
     EVENT_GUEST_BACKUP_FAILED,
-    EVENT_SNAPSHOT_SUCCESS,
+    EVENT_GUEST_RESTORE_SUCCESS,
+    EVENT_GUEST_RESTORE_FAILED,
+    EVENT_SNAPSHOT_CREATED,
+    EVENT_SNAPSHOT_DELETED,
+    EVENT_SNAPSHOT_ROLLED_BACK,
     EVENT_SNAPSHOT_FAILED,
     EVENT_GUEST_MIGRATION_SUCCESS,
     EVENT_GUEST_MIGRATION_FAILED,
-    EVENT_MAINTENANCE_SUCCESS,
+    EVENT_MAINTENANCE_ENABLED,
+    EVENT_MAINTENANCE_DISABLED,
     EVENT_MAINTENANCE_FAILED,
     EVENT_SCHEDULED_TASK_SUCCESS,
     EVENT_SCHEDULED_TASK_FAILED,
@@ -126,6 +151,137 @@ def _normalize_recipients(
 
 def ensure_event_preferences() -> None:
     with get_connection() as connection:
+        legacy_maintenance = (
+            connection.execute(
+                """
+                SELECT
+                    email_enabled,
+                    discord_enabled
+                FROM notification_event_preferences
+                WHERE event_key = 'MAINTENANCE_SUCCESS'
+                """
+            ).fetchone()
+        )
+
+        if legacy_maintenance is not None:
+            for event_key in (
+                EVENT_MAINTENANCE_ENABLED,
+                EVENT_MAINTENANCE_DISABLED,
+            ):
+                existing_event = (
+                    connection.execute(
+                        """
+                        SELECT event_key
+                        FROM notification_event_preferences
+                        WHERE event_key = ?
+                        """,
+                        (
+                            event_key,
+                        ),
+                    ).fetchone()
+                )
+
+                if existing_event is None:
+                    connection.execute(
+                        """
+                        INSERT INTO
+                            notification_event_preferences (
+                                event_key,
+                                email_enabled,
+                                discord_enabled
+                            )
+                        VALUES (?, ?, ?)
+                        """,
+                        (
+                            event_key,
+                            int(
+                                legacy_maintenance[
+                                    "email_enabled"
+                                ]
+                                or 0
+                            ),
+                            int(
+                                legacy_maintenance[
+                                    "discord_enabled"
+                                ]
+                                or 0
+                            ),
+                        ),
+                    )
+
+            connection.execute(
+                """
+                DELETE FROM notification_event_preferences
+                WHERE event_key = 'MAINTENANCE_SUCCESS'
+                """
+            )
+
+        legacy_snapshot = (
+            connection.execute(
+                """
+                SELECT
+                    email_enabled,
+                    discord_enabled
+                FROM notification_event_preferences
+                WHERE event_key = 'SNAPSHOT_SUCCESS'
+                """
+            ).fetchone()
+        )
+
+        if legacy_snapshot is not None:
+            for event_key in (
+                EVENT_SNAPSHOT_CREATED,
+                EVENT_SNAPSHOT_DELETED,
+                EVENT_SNAPSHOT_ROLLED_BACK,
+            ):
+                existing_event = (
+                    connection.execute(
+                        """
+                        SELECT event_key
+                        FROM notification_event_preferences
+                        WHERE event_key = ?
+                        """,
+                        (
+                            event_key,
+                        ),
+                    ).fetchone()
+                )
+
+                if existing_event is None:
+                    connection.execute(
+                        """
+                        INSERT INTO
+                            notification_event_preferences (
+                                event_key,
+                                email_enabled,
+                                discord_enabled
+                            )
+                        VALUES (?, ?, ?)
+                        """,
+                        (
+                            event_key,
+                            int(
+                                legacy_snapshot[
+                                    "email_enabled"
+                                ]
+                                or 0
+                            ),
+                            int(
+                                legacy_snapshot[
+                                    "discord_enabled"
+                                ]
+                                or 0
+                            ),
+                        ),
+                    )
+
+            connection.execute(
+                """
+                DELETE FROM notification_event_preferences
+                WHERE event_key = 'SNAPSHOT_SUCCESS'
+                """
+            )
+
         existing = {
             str(row["event_key"])
             for row in connection.execute(

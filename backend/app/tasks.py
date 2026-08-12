@@ -17,11 +17,20 @@ from .infrastructures import get_infrastructure
 from .notifications import (
     EVENT_GUEST_BACKUP_FAILED,
     EVENT_GUEST_BACKUP_SUCCESS,
+    EVENT_GUEST_RESTORE_FAILED,
+    EVENT_GUEST_RESTORE_SUCCESS,
+    EVENT_GUEST_MIGRATION_FAILED,
+    EVENT_GUEST_MIGRATION_SUCCESS,
+    EVENT_MAINTENANCE_DISABLED,
+    EVENT_MAINTENANCE_ENABLED,
+    EVENT_MAINTENANCE_FAILED,
     EVENT_PACKAGE_CLEANUP_FAILED,
     EVENT_PACKAGE_CLEANUP_SUCCESS,
     EVENT_REBOOT_REQUIRED,
+    EVENT_SNAPSHOT_CREATED,
+    EVENT_SNAPSHOT_DELETED,
     EVENT_SNAPSHOT_FAILED,
-    EVENT_SNAPSHOT_SUCCESS,
+    EVENT_SNAPSHOT_ROLLED_BACK,
     EVENT_UPDATE_INSTALL_FAILED,
     EVENT_UPDATE_INSTALL_SUCCESS,
     EVENT_UPDATES_AVAILABLE,
@@ -316,9 +325,81 @@ def _send_task_notification(
 
             return
 
+        if task.kind == "guest-restore":
+            guest_type = str(
+                task.result.get(
+                    "guest_type",
+                    "",
+                )
+                or ""
+            ).upper()
+
+            vmid = task.result.get(
+                "vmid"
+            )
+
+            archive = str(
+                task.result.get(
+                    "archive",
+                    "",
+                )
+                or ""
+            )
+
+            storage = str(
+                task.result.get(
+                    "storage",
+                    "",
+                )
+                or ""
+            )
+
+            storage_line = (
+                f"\nTarget storage: {storage}"
+                if storage
+                else ""
+            )
+
+            if task.state == "success":
+                send_notification_event(
+                    EVENT_GUEST_RESTORE_SUCCESS,
+                    (
+                        "ProxPilot - Guest restore "
+                        "completed"
+                    ),
+                    (
+                        "✅ ProxPilot · Guest restore completed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Guest: {guest_type} {vmid}\n"
+                        f"Archive: {archive}"
+                        f"{storage_line}"
+                    ),
+                )
+            else:
+                send_notification_event(
+                    EVENT_GUEST_RESTORE_FAILED,
+                    (
+                        "ProxPilot - Guest restore "
+                        "failed"
+                    ),
+                    (
+                        "❌ ProxPilot · Guest restore failed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Guest: {guest_type} {vmid}\n"
+                        f"Archive: {archive}"
+                        f"{storage_line}\n"
+                        f"Error: {task.error or 'Unknown error'}"
+                    ),
+                )
+
+            return
+
         if task.kind in {
             "snapshot",
             "scheduled-snapshot",
+            "snapshot-rollback",
         }:
             snapshot_name = str(
                 task.result.get(
@@ -336,34 +417,66 @@ def _send_task_notification(
                 or "create"
             )
 
+            operation_labels = {
+                "create": "Create",
+                "delete": "Delete",
+                "rollback": "Rollback",
+            }
+
+            operation_success_text = {
+                "create": "created",
+                "delete": "deleted",
+                "rollback": "rolled back",
+            }
+
             operation_label = (
-                "Delete"
-                if operation == "delete"
-                else "Create"
+                operation_labels.get(
+                    operation,
+                    operation.replace(
+                        "_",
+                        " ",
+                    ).title(),
+                )
             )
 
             operation_text = (
-                "deleted"
-                if operation == "delete"
-                else "created"
+                operation_success_text.get(
+                    operation,
+                    operation.replace(
+                        "_",
+                        " ",
+                    ),
+                )
             )
 
             if task.state == "success":
-                send_notification_event(
-                    EVENT_SNAPSHOT_SUCCESS,
-                    (
-                        "ProxPilot - Snapshot "
-                        f"{operation_text}"
-                    ),
-                    (
-                        "✅ ProxPilot · Snapshot "
-                        f"{operation_text}\n\n"
-                        f"Infrastructure: {infrastructure_name}\n"
-                        f"Node: {task.node}\n"
-                        f"Operation: {operation_label}\n"
-                        f"Snapshot: {snapshot_name or task.title}"
-                    ),
+                success_event = {
+                    "create":
+                        EVENT_SNAPSHOT_CREATED,
+                    "delete":
+                        EVENT_SNAPSHOT_DELETED,
+                    "rollback":
+                        EVENT_SNAPSHOT_ROLLED_BACK,
+                }.get(
+                    operation
                 )
+
+                if success_event:
+                    send_notification_event(
+                        success_event,
+                        (
+                            "ProxPilot - Snapshot "
+                            f"{operation_text}"
+                        ),
+                        (
+                            "✅ ProxPilot · Snapshot "
+                            f"{operation_text}\n\n"
+                            f"Infrastructure: {infrastructure_name}\n"
+                            f"Node: {task.node}\n"
+                            f"Operation: {operation_label}\n"
+                            f"Snapshot: {snapshot_name or task.title}"
+                        ),
+                    )
             else:
                 send_notification_event(
                     EVENT_SNAPSHOT_FAILED,
@@ -381,6 +494,149 @@ def _send_task_notification(
                         f"Error: {task.error or 'Unknown error'}"
                     ),
                 )
+
+            return
+
+        if task.kind == "maintenance":
+            maintenance_action = str(
+                task.result.get(
+                    "action",
+                    "",
+                )
+                or ""
+            ).lower()
+
+            if task.state == "success":
+                if maintenance_action == "enable":
+                    send_notification_event(
+                        EVENT_MAINTENANCE_ENABLED,
+                        (
+                            "ProxPilot - Maintenance "
+                            f"mode enabled on {task.node}"
+                        ),
+                        (
+                            "✅ ProxPilot · Maintenance mode enabled\n\n"
+                            f"Infrastructure: {infrastructure_name}\n"
+                            f"Node: {task.node}\n"
+                            "Maintenance mode: Enabled"
+                        ),
+                    )
+
+                elif maintenance_action == "disable":
+                    send_notification_event(
+                        EVENT_MAINTENANCE_DISABLED,
+                        (
+                            "ProxPilot - Maintenance "
+                            f"mode disabled on {task.node}"
+                        ),
+                        (
+                            "✅ ProxPilot · Maintenance mode disabled\n\n"
+                            f"Infrastructure: {infrastructure_name}\n"
+                            f"Node: {task.node}\n"
+                            "Maintenance mode: Disabled"
+                        ),
+                    )
+
+            else:
+                action_label = {
+                    "enable": "Enable",
+                    "disable": "Disable",
+                }.get(
+                    maintenance_action,
+                    maintenance_action.replace(
+                        "_",
+                        " ",
+                    ).title()
+                    or "Change",
+                )
+
+                send_notification_event(
+                    EVENT_MAINTENANCE_FAILED,
+                    (
+                        "ProxPilot - Maintenance "
+                        "mode change failed"
+                    ),
+                    (
+                        "❌ ProxPilot · Maintenance mode change failed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Node: {task.node}\n"
+                        f"Operation: {action_label}\n"
+                        f"Error: {task.error or 'Unknown error'}"
+                    ),
+                )
+
+            return
+
+        if task.kind == "guest-migration":
+            guest_type = str(
+                task.result.get(
+                    "guest_type",
+                    "",
+                )
+                or ""
+            ).upper()
+
+            vmid = task.result.get(
+                "vmid"
+            )
+
+            source_node = str(
+                task.result.get(
+                    "source_node",
+                    task.node,
+                )
+                or task.node
+            )
+
+            target_node = str(
+                task.result.get(
+                    "target_node",
+                    "",
+                )
+                or ""
+            )
+
+            target_storage = (
+                task.result.get(
+                    "target_storage"
+                )
+            )
+
+            storage_line = (
+                f"\nTarget storage: {target_storage}"
+                if target_storage
+                else ""
+            )
+
+            if task.state == "success":
+                send_notification_event(
+                    EVENT_GUEST_MIGRATION_SUCCESS,
+                    "ProxPilot - Guest migration completed",
+                    (
+                        "✅ ProxPilot · Guest migration completed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Guest: {guest_type} {vmid}\n"
+                        f"Source node: {source_node}\n"
+                        f"Target node: {target_node}"
+                        f"{storage_line}"
+                    ),
+                )
+            else:
+                send_notification_event(
+                    EVENT_GUEST_MIGRATION_FAILED,
+                    "ProxPilot - Guest migration failed",
+                    (
+                        "❌ ProxPilot · Guest migration failed\n\n"
+                        f"Infrastructure: {infrastructure_name}\n"
+                        f"Guest: {guest_type} {vmid}\n"
+                        f"Source node: {source_node}\n"
+                        f"Target node: {target_node}"
+                        f"{storage_line}\n"
+                        f"Error: {task.error or 'Unknown error'}"
+                    ),
+                )
+
+            return
 
     except Exception as exc:
         # Notification delivery must never change
@@ -1561,6 +1817,896 @@ async def start_power_action(
             _execute_power,
             task,
             action,
+        )
+    )
+
+    return task
+
+
+async def _wait_proxmox_task(
+        client,
+        node: str,
+        upid: str,
+        *,
+        task: ManagedTask | None = None,
+        poll_interval: float = 2.0,
+    ) -> dict:
+        last_log_line = 0
+
+        while True:
+            details = await client.task_details(
+                node,
+                upid,
+            )
+
+            status = (
+                details.get("status", {})
+                or {}
+            )
+
+            log_entries = (
+                details.get("log", [])
+                or []
+            )
+
+            if task is not None:
+                for entry in log_entries:
+                    line_number = int(
+                        entry.get("n", 0)
+                        or 0
+                    )
+
+                    if (
+                        line_number
+                        <= last_log_line
+                    ):
+                        continue
+
+                    message = str(
+                        entry.get("t", "")
+                    ).strip()
+
+                    if message:
+                        manager.append(
+                            task,
+                            message,
+                        )
+
+                    last_log_line = max(
+                        last_log_line,
+                        line_number,
+                    )
+
+            if (
+                status.get("status")
+                == "stopped"
+            ):
+                exit_status = str(
+                    status.get(
+                        "exitstatus",
+                        "unknown",
+                    )
+                )
+
+                if (
+                    exit_status.upper()
+                    != "OK"
+                ):
+                    raise RuntimeError(
+                        "Proxmox task failed: "
+                        f"{exit_status}"
+                    )
+
+                return status
+
+            await asyncio.sleep(
+                poll_interval
+            )
+
+
+async def _wait_guest_stopped(
+    client,
+    node: str,
+    guest_type: str,
+    vmid: int,
+    *,
+    timeout: int = 180,
+) -> None:
+    deadline = (
+        asyncio.get_running_loop().time()
+        + timeout
+    )
+
+    while True:
+        status = await client.guest_status(
+            node,
+            guest_type,
+            vmid,
+        )
+
+        current_state = str(
+            status.get(
+                "status",
+                "",
+            )
+            or ""
+        ).lower()
+
+        if current_state == "stopped":
+            return
+
+        if (
+            asyncio.get_running_loop().time()
+            >= deadline
+        ):
+            raise RuntimeError(
+                "Guest did not stop within "
+                f"{timeout} seconds."
+            )
+
+        await asyncio.sleep(2)
+
+
+async def _execute_guest_restore(
+    task: ManagedTask,
+    client,
+    guest_type: str,
+    vmid: int,
+    archive: str,
+    storage: str | None,
+    *,
+    start_after_restore: bool = False,
+    execute: bool = False,
+) -> None:
+    manager.start(task)
+
+    if not execute:
+        manager.fail(
+            task,
+            (
+                "Guest restore execution was blocked because "
+                "the destructive execution guard was not enabled."
+            ),
+            {
+                "guest_type": guest_type,
+                "vmid": vmid,
+                "archive": archive,
+                "storage": storage,
+                "start_after_restore":
+                    start_after_restore,
+                "restore_started": False,
+                "restore_completed": False,
+                "execution_blocked": True,
+            },
+        )
+        return
+
+    original_running = False
+    ha_resource: dict | None = None
+    original_ha_state: str | None = None
+    restore_started = False
+    restore_completed = False
+
+    base_result = {
+        "guest_type":
+            guest_type,
+        "vmid":
+            vmid,
+        "archive":
+            archive,
+        "storage":
+            storage,
+        "start_after_restore":
+            start_after_restore,
+        "ha_managed":
+            False,
+        "original_ha_state":
+            None,
+        "original_running":
+            False,
+    }
+
+    try:
+        manager.append(
+            task,
+            (
+                "Reading current guest and HA "
+                "state..."
+            ),
+        )
+
+        status = await client.guest_status(
+            task.node,
+            guest_type,
+            vmid,
+        )
+
+        original_running = (
+            str(
+                status.get(
+                    "status",
+                    "",
+                )
+                or ""
+            ).lower()
+            == "running"
+        )
+
+        ha_resource = (
+            await client.guest_ha_resource(
+                vmid
+            )
+        )
+
+        if ha_resource is not None:
+            original_ha_state = str(
+                ha_resource.get(
+                    "state",
+                    "",
+                )
+                or ""
+            ).strip()
+
+        base_result[
+            "ha_managed"
+        ] = ha_resource is not None
+
+        base_result[
+            "original_ha_state"
+        ] = original_ha_state
+
+        base_result[
+            "original_running"
+        ] = original_running
+
+        task.result = dict(
+            base_result
+        )
+
+        if ha_resource is not None:
+            manager.append(
+                task,
+                (
+                    "Guest is HA managed"
+                    + (
+                        f" (state={original_ha_state})."
+                        if original_ha_state
+                        else "."
+                    )
+                ),
+            )
+
+            if (
+                original_ha_state
+                != "stopped"
+            ):
+                manager.append(
+                    task,
+                    (
+                        "Requesting HA state "
+                        "'stopped' before restore..."
+                    ),
+                )
+
+                await client.set_guest_ha_state(
+                    vmid,
+                    "stopped",
+                )
+
+            await _wait_guest_stopped(
+                client,
+                task.node,
+                guest_type,
+                vmid,
+            )
+
+            manager.append(
+                task,
+                "Guest is stopped.",
+            )
+
+        elif original_running:
+            manager.append(
+                task,
+                (
+                    "Guest is running and is not "
+                    "HA managed. Stopping guest "
+                    "before restore..."
+                ),
+            )
+
+            stop_upid = (
+                await client.guest_action(
+                    task.node,
+                    guest_type,
+                    vmid,
+                    "stop",
+                )
+            )
+
+            if (
+                isinstance(stop_upid, str)
+                and stop_upid.startswith(
+                    "UPID:"
+                )
+            ):
+                await _wait_proxmox_task(
+                    client,
+                    task.node,
+                    stop_upid,
+                    task=task,
+                )
+
+            await _wait_guest_stopped(
+                client,
+                task.node,
+                guest_type,
+                vmid,
+            )
+
+            manager.append(
+                task,
+                "Guest is stopped.",
+            )
+
+        manager.append(
+            task,
+            (
+                "Starting restore from "
+                f"{archive}..."
+            ),
+        )
+
+        restore_upid = (
+            await client.restore_guest(
+                task.node,
+                guest_type,
+                vmid,
+                archive,
+                storage=storage,
+            )
+        )
+
+        restore_started = True
+
+        base_result[
+            "upid"
+        ] = restore_upid
+
+        task.result = dict(
+            base_result
+        )
+
+        manager.append(
+            task,
+            (
+                "Restore task started: "
+                f"{restore_upid}"
+            ),
+        )
+
+        await _wait_proxmox_task(
+            client,
+            task.node,
+            restore_upid,
+            task=task,
+        )
+
+        restore_completed = True
+
+        base_result[
+            "restore_started"
+        ] = True
+
+        base_result[
+            "restore_completed"
+        ] = True
+
+        task.result = dict(
+            base_result
+        )
+
+        manager.append(
+            task,
+            "Guest restore completed successfully.",
+        )
+
+        if ha_resource is not None:
+            desired_ha_state = (
+                "started"
+                if start_after_restore
+                else "stopped"
+            )
+
+            manager.append(
+                task,
+                (
+                    "Setting final HA state to "
+                    f"'{desired_ha_state}'..."
+                ),
+            )
+
+            await client.set_guest_ha_state(
+                vmid,
+                desired_ha_state,
+            )
+
+            base_result[
+                "final_ha_state"
+            ] = desired_ha_state
+
+            base_result[
+                "guest_started_after_restore"
+            ] = start_after_restore
+
+            manager.append(
+                task,
+                (
+                    "Final HA state set to "
+                    f"'{desired_ha_state}'."
+                ),
+            )
+
+        elif start_after_restore:
+            manager.append(
+                task,
+                (
+                    "Starting guest after "
+                    "successful restore..."
+                ),
+            )
+
+            start_upid = (
+                await client.guest_action(
+                    task.node,
+                    guest_type,
+                    vmid,
+                    "start",
+                )
+            )
+
+            if (
+                isinstance(start_upid, str)
+                and start_upid.startswith(
+                    "UPID:"
+                )
+            ):
+                await _wait_proxmox_task(
+                    client,
+                    task.node,
+                    start_upid,
+                    task=task,
+                )
+
+            base_result[
+                "guest_started_after_restore"
+            ] = True
+
+            manager.append(
+                task,
+                "Guest started successfully.",
+            )
+
+        else:
+            base_result[
+                "guest_started_after_restore"
+            ] = False
+
+            manager.append(
+                task,
+                (
+                    "Guest remains stopped "
+                    "after successful restore."
+                ),
+            )
+
+        manager.finish(
+            task,
+            base_result,
+        )
+
+    except Exception as exc:
+        failure_result = {
+            **base_result,
+            "restore_started":
+                restore_started,
+            "restore_completed":
+                restore_completed,
+        }
+
+        #
+        # If the destructive restore never started,
+        # it is safe to return the guest to its
+        # previous operational state.
+        #
+        if not restore_started:
+            if (
+                ha_resource is not None
+                and original_ha_state
+                and original_ha_state
+                != "stopped"
+            ):
+                manager.append(
+                    task,
+                    (
+                        "Restore did not start. "
+                        "Restoring previous HA state "
+                        f"'{original_ha_state}'..."
+                    ),
+                )
+
+                try:
+                    await client.set_guest_ha_state(
+                        vmid,
+                        original_ha_state,
+                    )
+
+                    failure_result[
+                        "ha_state_restored"
+                    ] = True
+
+                    manager.append(
+                        task,
+                        (
+                            "Previous HA state restored "
+                            "because no restore data was "
+                            "written."
+                        ),
+                    )
+
+                except Exception as recovery_exc:
+                    failure_result[
+                        "ha_state_restored"
+                    ] = False
+
+                    failure_result[
+                        "ha_recovery_error"
+                    ] = str(
+                        recovery_exc
+                    )
+
+                    manager.append(
+                        task,
+                        (
+                            "WARNING: Restore never "
+                            "started, but the previous "
+                            "HA state could not be "
+                            "restored: "
+                            f"{recovery_exc}"
+                        ),
+                    )
+
+            elif (
+                ha_resource is None
+                and original_running
+            ):
+                manager.append(
+                    task,
+                    (
+                        "Restore did not start. Guest "
+                        "was running before the "
+                        "operation; starting it again..."
+                    ),
+                )
+
+                try:
+                    start_upid = (
+                        await client.guest_action(
+                            task.node,
+                            guest_type,
+                            vmid,
+                            "start",
+                        )
+                    )
+
+                    if (
+                        isinstance(
+                            start_upid,
+                            str,
+                        )
+                        and start_upid.startswith(
+                            "UPID:"
+                        )
+                    ):
+                        await _wait_proxmox_task(
+                            client,
+                            task.node,
+                            start_upid,
+                            task=task,
+                        )
+
+                    failure_result[
+                        "guest_restarted"
+                    ] = True
+
+                    manager.append(
+                        task,
+                        (
+                            "Guest restarted because "
+                            "the restore never began."
+                        ),
+                    )
+
+                except Exception as recovery_exc:
+                    failure_result[
+                        "guest_restarted"
+                    ] = False
+
+                    failure_result[
+                        "guest_recovery_error"
+                    ] = str(
+                        recovery_exc
+                    )
+
+                    manager.append(
+                        task,
+                        (
+                            "WARNING: Restore never "
+                            "started, but the guest "
+                            "could not be restarted: "
+                            f"{recovery_exc}"
+                        ),
+                    )
+
+        #
+        # Once the destructive restore has started,
+        # never automatically return the guest to a
+        # running state when the restore itself did
+        # not complete successfully.
+        #
+        elif not restore_completed:
+            if (
+                ha_resource is not None
+                and original_ha_state
+                and original_ha_state
+                != "stopped"
+            ):
+                failure_result[
+                    "ha_state_restored"
+                ] = False
+
+                manager.append(
+                    task,
+                    (
+                        "Restore started but did not "
+                        "complete successfully. HA "
+                        "resource is intentionally left "
+                        "stopped for safety."
+                    ),
+                )
+
+            elif (
+                ha_resource is None
+                and original_running
+            ):
+                failure_result[
+                    "guest_restarted"
+                ] = False
+
+                manager.append(
+                    task,
+                    (
+                        "Restore started but did not "
+                        "complete successfully. Guest "
+                        "is intentionally left stopped "
+                        "for safety."
+                    ),
+                )
+
+        #
+        # The restore itself completed, but a
+        # subsequent recovery action failed.
+        #
+        else:
+            manager.append(
+                task,
+                (
+                    "Restore data was completed, but "
+                    "post-restore state recovery "
+                    "failed. Guest state requires "
+                    "manual verification."
+                ),
+            )
+
+        manager.fail(
+            task,
+            str(exc),
+            failure_result,
+        )
+
+
+async def start_guest_restore_task(
+    client,
+    node: str,
+    guest_type: str,
+    vmid: int,
+    archive: str,
+    infrastructure_id: int,
+    *,
+    storage: str | None = None,
+    start_after_restore: bool = False,
+    source: str = "manual",
+) -> ManagedTask:
+    task = manager.create(
+        node,
+        "guest-restore",
+        (
+            f"Restore {guest_type.upper()} "
+            f"{vmid} from backup"
+        ),
+        infrastructure_id=
+            infrastructure_id,
+        source=source,
+        notifications_enabled=True,
+    )
+
+    task.result = {
+        "guest_type":
+            guest_type,
+        "vmid":
+            vmid,
+        "archive":
+            archive,
+        "storage":
+            storage,
+        "start_after_restore":
+            start_after_restore,
+    }
+
+    asyncio.create_task(
+        _execute_guest_restore(
+            task,
+            client,
+            guest_type,
+            vmid,
+            archive,
+            storage,
+            start_after_restore=
+                start_after_restore,
+            execute=True,
+        )
+    )
+
+    return task
+
+
+async def _monitor_proxmox_activity(
+    task: ManagedTask,
+    client,
+    upid: str,
+    result: dict | None = None,
+) -> None:
+    manager.start(task)
+
+    last_log_line = 0
+    base_result = dict(result or {})
+    base_result["upid"] = upid
+
+    try:
+        while True:
+            details = await client.task_details(
+                task.node,
+                upid,
+            )
+
+            status = (
+                details.get("status", {})
+                or {}
+            )
+
+            log_entries = (
+                details.get("log", [])
+                or []
+            )
+
+            for entry in log_entries:
+                line_number = int(
+                    entry.get("n", 0)
+                    or 0
+                )
+
+                if (
+                    line_number
+                    <= last_log_line
+                ):
+                    continue
+
+                message = str(
+                    entry.get("t", "")
+                ).strip()
+
+                if message:
+                    manager.append(
+                        task,
+                        message,
+                    )
+
+                last_log_line = max(
+                    last_log_line,
+                    line_number,
+                )
+
+            if (
+                status.get("status")
+                == "stopped"
+            ):
+                exit_status = str(
+                    status.get(
+                        "exitstatus",
+                        "unknown",
+                    )
+                )
+
+                final_result = {
+                    **base_result,
+                    "exitstatus":
+                        exit_status,
+                }
+
+                if (
+                    exit_status.upper()
+                    == "OK"
+                ):
+                    manager.finish(
+                        task,
+                        final_result,
+                    )
+                else:
+                    manager.fail(
+                        task,
+                        (
+                            "Proxmox task failed: "
+                            f"{exit_status}"
+                        ),
+                        final_result,
+                    )
+
+                return
+
+            await asyncio.sleep(2)
+
+    except Exception as exc:
+        manager.fail(
+            task,
+            str(exc),
+            base_result,
+        )
+
+
+async def track_proxmox_activity(
+    client,
+    node: str,
+    upid: str,
+    infrastructure_id: int,
+    *,
+    kind: str,
+    title: str,
+    result: dict | None = None,
+    source: str = "manual",
+    notifications_enabled: bool = False,
+) -> ManagedTask:
+    task = manager.create(
+        node,
+        kind,
+        title,
+        infrastructure_id=
+            infrastructure_id,
+        source=source,
+        notifications_enabled=
+            notifications_enabled,
+    )
+
+    task.result = {
+        **dict(result or {}),
+        "upid": upid,
+    }
+
+    asyncio.create_task(
+        _monitor_proxmox_activity(
+            task,
+            client,
+            upid,
+            result,
         )
     )
 

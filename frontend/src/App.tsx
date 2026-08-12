@@ -468,6 +468,18 @@ export default function App() {
           </Stack>
         </AppShell.Section>
 
+        {!navbarCollapsed && (
+          <AppShell.Section pb="md">
+            <Text
+              size="xs"
+              c="dimmed"
+              px={8}
+            >
+              {nodeStatusText}
+            </Text>
+          </AppShell.Section>
+        )}
+
         <AppShell.Section
           pt="md"
           style={{
@@ -497,10 +509,6 @@ export default function App() {
                   </Text>
                 </Group>
               </UnstyledButton>
-
-              <Text size="xs" c="dimmed" px={8}>
-                {nodeStatusText}
-              </Text>
             </Stack>
           )}
         </AppShell.Section>

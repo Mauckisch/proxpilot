@@ -1,6 +1,6 @@
 # ProxPilot Configuration Guide
 
-This document describes the configuration model for **ProxPilot 2.0.0**.
+This document describes the configuration model for **ProxPilot 2.1.0**.
 
 ProxPilot configuration is divided into two areas:
 
@@ -37,7 +37,7 @@ The `.env` file contains only global ProxPilot application settings.
 
 # Global Application Settings
 
-A typical ProxPilot 2.0.0 environment file contains:
+A typical ProxPilot 2.1.0 environment file contains:
 
 ```dotenv
 TZ=Europe/Berlin
@@ -859,7 +859,7 @@ If an SMTP password is already stored, leaving the password field empty while sa
 
 Notification delivery is configured per event. Email and Discord can therefore be selected independently for the same event.
 
-ProxPilot 2.0.0 notification events cover operational states and results including node availability, available updates, update installation, package cleanup, reboot requirements, guest backups, snapshots and Task Scheduler execution results.
+ProxPilot 2.1.0 notification events cover operational states and results including node availability, available updates, update installation, package cleanup, reboot requirements, guest backups, snapshots and Task Scheduler execution results.
 
 Example:
 
@@ -1084,7 +1084,7 @@ for the complete reverse-proxy configuration.
 
 # Example Global .env
 
-A normal ProxPilot 2.0.0 `.env` can look like:
+A normal ProxPilot 2.1.0 `.env` can look like:
 
 ```dotenv
 # ============================================================

@@ -141,11 +141,12 @@ pveum user token list dashboard@pve
 
 ## 5. Required custom roles
 
-ProxPilot uses two custom roles:
+ProxPilot uses three custom roles:
 
 ```text
 DashboardManager
 ProxPilotBackup
+ProxPilotSDN
 ```
 
 The separation makes the permissions easier to understand and maintain.
@@ -244,6 +245,9 @@ VM.Snapshot.Rollback
 ```bash
 pveum role add ProxPilotBackup \
   --privs "Datastore.Allocate Datastore.AllocateSpace Datastore.Audit VM.Audit VM.Backup VM.Snapshot VM.Snapshot.Rollback"
+
+pveum role add ProxPilotSDN \
+  --privs "SDN.Use"
 ```
 
 ### Update an existing role
@@ -258,6 +262,46 @@ pveum role modify ProxPilotBackup \
 ```bash
 pveum role list | grep ProxPilotBackup
 ```
+
+---
+
+## 8. ProxPilotSDN role
+
+The `ProxPilotSDN` role provides permission to use SDN-managed network resources required by ProxPilot.
+
+Required privilege:
+
+```text
+SDN.Use
+```
+
+### Privilege explanation
+
+| Privilege | Required for |
+|---|---|
+| `SDN.Use` | Using an SDN-managed network resource required by a guest operation |
+
+### Create the role
+
+```bash
+pveum role add ProxPilotSDN \
+  --privs "SDN.Use"
+```
+
+### Update an existing role
+
+```bash
+pveum role modify ProxPilotSDN \
+  --privs "SDN.Use"
+```
+
+### Verify the role
+
+```bash
+pveum role list | grep ProxPilotSDN
+```
+
+Assign this role only to the SDN paths that ProxPilot actually needs.
 
 ---
 
@@ -281,6 +325,40 @@ The ACLs must be assigned to both:
 
 - `dashboard@pve`
 - `dashboard@pve!dashboard`
+
+### SDN ACLs
+
+When ProxPilot needs an SDN-managed network resource, `ProxPilotSDN` must be assigned to the exact required SDN ACL path for both the API user and API token.
+
+A tested example path is:
+
+```text
+/sdn/zones/localnetwork/vmbr2
+```
+
+Replace that path with the actual SDN zone and network/bridge path in your environment.
+
+```bash
+pveum acl modify /sdn/zones/localnetwork/vmbr2 \
+  --users dashboard@pve \
+  --roles ProxPilotSDN \
+  --propagate 1
+
+pveum acl modify /sdn/zones/localnetwork/vmbr2 \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotSDN \
+  --propagate 1
+```
+
+Verify:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /sdn/zones/localnetwork/vmbr2
+```
+
+The effective permissions must include `SDN.Use`.
+
 
 ---
 
@@ -407,6 +485,36 @@ pveum acl modify /storage/backup-nfs \
   --roles ProxPilotBackup \
   --propagate 1
 ```
+
+### Restore target storage
+
+The same `ProxPilotBackup` role is also required on every storage that ProxPilot is allowed to use as a restore target.
+
+`ProxPilotBackup` already contains `Datastore.AllocateSpace`. However, the privilege is only effective on storage paths where the role is assigned. A restore can therefore fail with a `403 Permission check failed` response when the selected restore target storage does not have the required ACL.
+
+Replace `YOUR-RESTORE-TARGET-STORAGE` with the actual Proxmox storage ID:
+
+```bash
+pveum acl modify /storage/YOUR-RESTORE-TARGET-STORAGE \
+  --users dashboard@pve \
+  --roles ProxPilotBackup \
+  --propagate 1
+
+pveum acl modify /storage/YOUR-RESTORE-TARGET-STORAGE \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotBackup \
+  --propagate 1
+```
+
+Verify the effective token permissions:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /storage/YOUR-RESTORE-TARGET-STORAGE
+```
+
+For restore targets, the effective permissions must include `Datastore.AllocateSpace`.
+
 
 ---
 
@@ -694,6 +802,8 @@ pveum role modify ProxPilotBackup \
 Symptoms:
 
 - Backup starts but cannot write to the target storage
+- Guest restore cannot allocate disk space on the selected target storage
+- A restore can fail with `403 Permission check failed` when `Datastore.AllocateSpace` is not effective on that storage
 - Proxmox reports a storage permission error
 
 Check:
@@ -716,6 +826,39 @@ pveum acl modify /storage/YOUR-BACKUP-STORAGE \
   --roles ProxPilotBackup \
   --propagate 1
 ```
+
+---
+
+
+### `SDN.Use`
+
+Symptoms:
+
+- An operation involving an SDN-managed network resource fails with a permission error
+- `SDN.Use` is not effective for the API token on the required SDN path
+
+Check:
+
+```bash
+pveum user token permissions dashboard@pve dashboard \
+  --path /sdn/zones/YOUR-ZONE/YOUR-NETWORK
+```
+
+Fix:
+
+```bash
+pveum acl modify /sdn/zones/YOUR-ZONE/YOUR-NETWORK \
+  --users dashboard@pve \
+  --roles ProxPilotSDN \
+  --propagate 1
+
+pveum acl modify /sdn/zones/YOUR-ZONE/YOUR-NETWORK \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotSDN \
+  --propagate 1
+```
+
+The effective permissions must include `SDN.Use`.
 
 ---
 
@@ -791,6 +934,38 @@ pveum acl modify /storage/backup-nfs \
   --propagate 1
 ```
 
+### Assign restore target storage ACLs
+
+If `local-lvm` is an allowed restore target:
+
+```bash
+pveum acl modify /storage/local-lvm \
+  --users dashboard@pve \
+  --roles ProxPilotBackup \
+  --propagate 1
+
+pveum acl modify /storage/local-lvm \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotBackup \
+  --propagate 1
+```
+
+### Assign SDN ACLs
+
+Only when the SDN resource is required:
+
+```bash
+pveum acl modify /sdn/zones/localnetwork/vmbr2 \
+  --users dashboard@pve \
+  --roles ProxPilotSDN \
+  --propagate 1
+
+pveum acl modify /sdn/zones/localnetwork/vmbr2 \
+  --tokens 'dashboard@pve!dashboard' \
+  --roles ProxPilotSDN \
+  --propagate 1
+```
+
 ### Verify
 
 ```bash
@@ -817,9 +992,13 @@ Before starting ProxPilot, confirm:
 - [ ] `DashboardManager` exists
 - [ ] `DashboardManager` contains `VM.Console`
 - [ ] `ProxPilotBackup` exists
+- [ ] `ProxPilotBackup` contains `Datastore.AllocateSpace`
+- [ ] `ProxPilotSDN` exists and contains `SDN.Use` if SDN-managed resources are required
 - [ ] Root ACL is assigned to user and token
 - [ ] `/vms` ACLs are assigned to user and token
 - [ ] Backup storage ACL is assigned to user and token
+- [ ] Every allowed restore target storage has `ProxPilotBackup` assigned to user and token
+- [ ] Every required SDN ACL path has `ProxPilotSDN` assigned to user and token
 - [ ] Propagation is enabled
 - [ ] Effective permissions were verified
 - [ ] The token ID and secret were entered in the ProxPilot Infrastructure configuration

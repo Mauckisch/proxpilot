@@ -55,7 +55,10 @@ export function GuestCardActions({
         Details & migration
       </Button>
 
-      <SimpleGrid cols={2} spacing="sm">
+      <SimpleGrid
+        cols={2}
+        spacing="sm"
+      >
         <SnapshotButton guest={guest} />
         <GuestBackupButton guest={guest} />
       </SimpleGrid>

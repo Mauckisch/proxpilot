@@ -2,7 +2,7 @@
 
 This document collects common ProxPilot problems and practical troubleshooting steps.
 
-The examples in this guide reflect the ProxPilot 2.0.0 configuration model. Proxmox VE environments are configured as **Infrastructures** in the ProxPilot web interface. Proxmox API credentials, TLS settings, node addresses and SSH settings are therefore no longer expected as global `PVE_*` variables in `.env`.
+The examples in this guide reflect the ProxPilot 2.1.0 configuration model. Proxmox VE environments are configured as **Infrastructures** in the ProxPilot web interface. Proxmox API credentials, TLS settings, node addresses and SSH settings are therefore no longer expected as global `PVE_*` variables in `.env`.
 
 ---
 

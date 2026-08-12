@@ -127,16 +127,70 @@ const EVENT_LABELS: Record<
       'A VM or container backup failed.',
   },
 
-  SNAPSHOT_SUCCESS: {
-    label: 'Snapshot successful',
+  GUEST_RESTORE_SUCCESS: {
+    label: 'Guest restore successful',
+    description:
+      'A VM or container was restored from a backup successfully.',
+  },
+
+  GUEST_RESTORE_FAILED: {
+    label: 'Guest restore failed',
+    description:
+      'Restoring a VM or container from a backup failed.',
+  },
+
+  SNAPSHOT_CREATED: {
+    label: 'Snapshot created',
     description:
       'A guest snapshot was created successfully.',
   },
 
-  SNAPSHOT_FAILED: {
-    label: 'Snapshot failed',
+  SNAPSHOT_DELETED: {
+    label: 'Snapshot deleted',
     description:
-      'Creating a guest snapshot failed.',
+      'A guest snapshot was deleted successfully.',
+  },
+
+  SNAPSHOT_ROLLED_BACK: {
+    label: 'Snapshot rolled back',
+    description:
+      'A guest was restored to a snapshot successfully.',
+  },
+
+  SNAPSHOT_FAILED: {
+    label: 'Snapshot operation failed',
+    description:
+      'Creating, deleting or rolling back a guest snapshot failed.',
+  },
+
+  GUEST_MIGRATION_SUCCESS: {
+    label: 'Guest migration successful',
+    description:
+      'A VM or container migration completed successfully.',
+  },
+
+  GUEST_MIGRATION_FAILED: {
+    label: 'Guest migration failed',
+    description:
+      'A VM or container migration failed.',
+  },
+
+  MAINTENANCE_ENABLED: {
+    label: 'Maintenance mode enabled',
+    description:
+      'HA maintenance mode was enabled successfully.',
+  },
+
+  MAINTENANCE_DISABLED: {
+    label: 'Maintenance mode disabled',
+    description:
+      'HA maintenance mode was disabled successfully.',
+  },
+
+  MAINTENANCE_FAILED: {
+    label: 'Maintenance mode failed',
+    description:
+      'Enabling or disabling HA maintenance mode failed.',
   },
 
   SCHEDULED_TASK_SUCCESS: {
