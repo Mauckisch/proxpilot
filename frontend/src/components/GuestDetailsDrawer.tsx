@@ -35,7 +35,12 @@ import {
   IconServer,
   IconTransfer,
 } from '@tabler/icons-react';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { api } from '../api';
 import { OperatorButton } from './OperatorButton';
@@ -815,6 +820,9 @@ export function GuestDetailsDrawer({
     [config],
   );
 
+  const migrationLogRef =
+    useRef<HTMLElement | null>(null);
+
   const migrationLog =
     taskData?.log
       ?.map((entry) => entry.t)
@@ -823,6 +831,21 @@ export function GuestDetailsDrawer({
           typeof line === 'string',
       )
       .join('\n') ?? '';
+
+  useEffect(() => {
+    if (
+      !migrationLog ||
+      !migrationLogRef.current
+    ) {
+      return;
+    }
+
+    const element =
+      migrationLogRef.current;
+
+    element.scrollTop =
+      element.scrollHeight;
+  }, [migrationLog]);
 
   const taskStopped =
     taskData?.status?.status?.toLowerCase() ===
@@ -1793,7 +1816,7 @@ export function GuestDetailsDrawer({
                       {validGuestType === 'qemu' && (
                         <Checkbox
                           label="Include local disks"
-                          description="Transfer local VM disks that are not available as shared storage."
+                          description="Required when the VM uses local storage instead of shared storage. Local VM disks will be transferred to the target node."
                           checked={withLocalDisks}
                           onChange={(event) =>
                             setWithLocalDisks(
@@ -1961,6 +1984,9 @@ export function GuestDetailsDrawer({
                           </Text>
 
                           <Code
+                            ref={
+                              migrationLogRef
+                            }
                             block
                             mt={4}
                             style={{
