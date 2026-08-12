@@ -7,11 +7,9 @@ import {
   MultiSelect,
   NumberInput,
   Paper,
-  ScrollArea,
   Select,
   Stack,
   Switch,
-  Table,
   Text,
   TextInput,
   Textarea,
@@ -906,16 +904,22 @@ export function TaskSchedulerPage({
         </Alert>
       )}
 
-      <Paper
-        withBorder
-        radius="md"
-        p="lg"
-      >
-        {tasks.isLoading ? (
+      {tasks.isLoading ? (
+        <Paper
+          withBorder
+          radius="md"
+          p="lg"
+        >
           <Text c="dimmed">
             Loading scheduled tasks...
           </Text>
-        ) : tasks.isError ? (
+        </Paper>
+      ) : tasks.isError ? (
+        <Paper
+          withBorder
+          radius="md"
+          p="lg"
+        >
           <Alert
             color="red"
             icon={
@@ -925,7 +929,13 @@ export function TaskSchedulerPage({
           >
             Scheduled tasks could not be loaded.
           </Alert>
-        ) : (tasks.data ?? []).length === 0 ? (
+        </Paper>
+      ) : (tasks.data ?? []).length === 0 ? (
+        <Paper
+          withBorder
+          radius="md"
+          p="lg"
+        >
           <Stack
             align="center"
             py="xl"
@@ -947,156 +957,115 @@ export function TaskSchedulerPage({
               configured yet.
             </Text>
           </Stack>
-        ) : (
-          <ScrollArea
-            type="auto"
-            offsetScrollbars
-          >
-            <Table
-              striped
-              highlightOnHover
-              withTableBorder
-              miw={1100}
-            >
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Infrastructure</Table.Th>
-                <Table.Th>Action</Table.Th>
-                <Table.Th>Target</Table.Th>
-                <Table.Th>Schedule</Table.Th>
-                <Table.Th>Next run</Table.Th>
-                <Table.Th>Last result</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>Created by</Table.Th>
-                {canOperate && (
-                  <Table.Th>Actions</Table.Th>
-                )}
-              </Table.Tr>
-            </Table.Thead>
+        </Paper>
+      ) : (
+        <Stack gap="md">
+          {(tasks.data ?? []).map(
+            (task) => {
+              const infrastructureName =
+                dashboard.data?.nodes
+                  .find(
+                    (entry) =>
+                      entry.infrastructure_id ===
+                      task.infrastructure_id,
+                  )
+                  ?.infrastructure_name ??
+                `Infrastructure ${task.infrastructure_id}`;
 
-            <Table.Tbody>
-              {(tasks.data ?? []).map(
-                (task) => (
-                  <Table.Tr key={task.id}>
-                    <Table.Td>
-                      <Text fw={600}>
-                        {task.name}
-                      </Text>
+              const actionLabel =
+                ACTIONS
+                  .flatMap(
+                    (group) =>
+                      group.items,
+                  )
+                  .find(
+                    (entry) =>
+                      entry.value ===
+                      task.action,
+                  )
+                  ?.label ??
+                task.action;
 
-                      {task.description && (
+              let targetLabel = '—';
+
+              if (
+                task.target_type ===
+                'guest'
+              ) {
+                targetLabel =
+                  `${task.guest_type?.toUpperCase()} ` +
+                  `${task.vmid} · ${task.node}`;
+              } else if (
+                Array.isArray(
+                  task.payload?.nodes,
+                ) &&
+                task.payload.nodes.length > 0
+              ) {
+                targetLabel = [
+                  ...task.payload.nodes,
+                ]
+                  .map(
+                    (targetNode) =>
+                      String(targetNode),
+                  )
+                  .sort(
+                    (a, b) =>
+                      a.localeCompare(
+                        b,
+                        undefined,
+                        {
+                          numeric: true,
+                          sensitivity:
+                            'base',
+                        },
+                      ),
+                  )
+                  .join(', ');
+              } else if (task.node) {
+                targetLabel =
+                  task.node;
+              }
+
+              const scheduleLabel =
+                task.repeat_enabled
+                  ? (
+                      `Every ${task.interval_value} ` +
+                      `${task.interval_unit}`
+                    )
+                  : 'Once';
+
+              return (
+                <Paper
+                  key={task.id}
+                  withBorder
+                  radius="md"
+                  p="lg"
+                >
+                  <Stack gap="md">
+                    <Group
+                      justify="space-between"
+                      align="flex-start"
+                      wrap="nowrap"
+                    >
+                      <div>
                         <Text
-                          size="xs"
-                          c="dimmed"
+                          fw={700}
+                          size="lg"
                         >
-                          {task.description}
+                          {task.name}
                         </Text>
-                      )}
-                    </Table.Td>
 
-                    <Table.Td>
-                      {
-                        dashboard.data?.nodes
-                          .find(
-                            (entry) =>
-                              entry.infrastructure_id ===
-                              task.infrastructure_id,
-                          )
-                          ?.infrastructure_name ??
-                        `Infrastructure ${task.infrastructure_id}`
-                      }
-                    </Table.Td>
+                        {task.description && (
+                          <Text
+                            size="sm"
+                            c="dimmed"
+                            mt={2}
+                          >
+                            {task.description}
+                          </Text>
+                        )}
+                      </div>
 
-                    <Table.Td>
-                      {
-                        ACTIONS
-                          .flatMap(
-                            (group) =>
-                              group.items,
-                          )
-                          .find(
-                            (entry) =>
-                              entry.value ===
-                              task.action,
-                          )
-                          ?.label ??
-                        task.action
-                      }
-                    </Table.Td>
-
-                    <Table.Td>
-                      {task.target_type ===
-                      'guest' ? (
-                        `${task.guest_type?.toUpperCase()} ${task.vmid} · ${task.node}`
-                      ) : (
-                        Array.isArray(
-                          task.payload?.nodes,
-                        ) &&
-                        task.payload.nodes.length > 0
-                      ) ? (
-                        <Stack gap={2}>
-                          {[...task.payload.nodes]
-                            .map((targetNode) =>
-                              String(targetNode),
-                            )
-                            .sort((a, b) =>
-                              a.localeCompare(
-                                b,
-                                undefined,
-                                {
-                                  numeric: true,
-                                  sensitivity: 'base',
-                                },
-                              ),
-                            )
-                            .map(
-                              (targetNode) => (
-                                <Text
-                                  key={targetNode}
-                                  size="sm"
-                                >
-                                  {targetNode}
-                                </Text>
-                              ),
-                            )}
-                        </Stack>
-                      ) : (
-                        task.node ?? '—'
-                      )}
-                    </Table.Td>
-
-                    <Table.Td>
-                      {task.repeat_enabled
-                        ? `Every ${task.interval_value} ${task.interval_unit}`
-                        : 'Once'}
-                    </Table.Td>
-
-                    <Table.Td>
-                      {formatDate(
-                        task.next_run,
-                        timeFormat,
-                      )}
-                    </Table.Td>
-
-                    <Table.Td>
-                      {task.last_result ? (
-                        <Badge
-                          color={
-                            task.last_result ===
-                            'success'
-                              ? 'green'
-                              : 'red'
-                          }
-                          variant="light"
-                        >
-                          {task.last_result}
-                        </Badge>
-                      ) : (
-                        '—'
-                      )}
-                    </Table.Td>
-
-                    <Table.Td>
                       <Badge
                         color={
                           task.enabled
@@ -1109,35 +1078,218 @@ export function TaskSchedulerPage({
                           ? 'Enabled'
                           : 'Disabled'}
                       </Badge>
-                    </Table.Td>
+                    </Group>
 
-                    <Table.Td>
-                      {task.created_by_username}
-                    </Table.Td>
+                    <Group
+                      gap="xl"
+                      align="flex-start"
+                    >
+                      <Stack gap={2}>
+                        <Text
+                          size="xs"
+                          fw={600}
+                          c="dimmed"
+                        >
+                          Infrastructure
+                        </Text>
+
+                        <Text size="sm">
+                          {infrastructureName}
+                        </Text>
+                      </Stack>
+
+                      <Stack gap={2}>
+                        <Text
+                          size="xs"
+                          fw={600}
+                          c="dimmed"
+                        >
+                          Action
+                        </Text>
+
+                        <Text size="sm">
+                          {actionLabel}
+                        </Text>
+                      </Stack>
+
+                      <Stack gap={2}>
+                        <Text
+                          size="xs"
+                          fw={600}
+                          c="dimmed"
+                        >
+                          Target
+                        </Text>
+
+                        <Text size="sm">
+                          {targetLabel}
+                        </Text>
+                      </Stack>
+
+                      <Stack gap={2}>
+                        <Text
+                          size="xs"
+                          fw={600}
+                          c="dimmed"
+                        >
+                          Schedule
+                        </Text>
+
+                        <Text size="sm">
+                          {scheduleLabel}
+                        </Text>
+                      </Stack>
+
+                      <Stack gap={2}>
+                        <Text
+                          size="xs"
+                          fw={600}
+                          c="dimmed"
+                        >
+                          Next run
+                        </Text>
+
+                        <Text size="sm">
+                          {formatDate(
+                            task.next_run,
+                            timeFormat,
+                          )}
+                        </Text>
+                      </Stack>
+
+                      <Stack gap={2}>
+                        <Text
+                          size="xs"
+                          fw={600}
+                          c="dimmed"
+                        >
+                          Last result
+                        </Text>
+
+                        {task.last_result ? (
+                          <Badge
+                            color={
+                              task.last_result ===
+                              'success'
+                                ? 'green'
+                                : 'red'
+                            }
+                            variant="light"
+                          >
+                            {task.last_result}
+                          </Badge>
+                        ) : (
+                          <Text size="sm">
+                            —
+                          </Text>
+                        )}
+                      </Stack>
+
+                      <Stack gap={2}>
+                        <Text
+                          size="xs"
+                          fw={600}
+                          c="dimmed"
+                        >
+                          Created by
+                        </Text>
+
+                        <Text size="sm">
+                          {task.created_by_username}
+                        </Text>
+                      </Stack>
+                    </Group>
 
                     {canOperate && (
-                      <Table.Td>
+                      <Group
+                        justify="space-between"
+                        align="center"
+                        pt="sm"
+                        style={{
+                          borderTop:
+                            '1px solid var(--proxpilot-blue-border)',
+                        }}
+                      >
                         <Group
-                          gap="xs"
-                          wrap="nowrap"
+                          gap="sm"
+                          align="center"
                         >
+                          <Text
+                            size="sm"
+                            fw={600}
+                          >
+                            Actions
+                          </Text>
+
                           <Switch
-                            checked={task.enabled}
-                            onChange={(event) =>
-                              void setEnabled.mutateAsync(
-                                {
-                                  id: task.id,
-                                  enabled:
-                                    event.currentTarget
-                                      .checked,
-                                },
-                              )
+                            checked={
+                              task.enabled
                             }
+                            label={
+                              task.enabled
+                                ? 'Enabled'
+                                : 'Disabled'
+                            }
+                            disabled={
+                              setEnabled.isPending
+                            }
+                            onChange={(event) => {
+                              const enabled =
+                                event.currentTarget
+                                  .checked;
+
+                              void setEnabled
+                                .mutateAsync({
+                                  id: task.id,
+                                  enabled,
+                                });
+                            }}
                           />
+                        </Group>
+
+                        <Group gap="xs">
+                          <Button
+                            size="xs"
+                            variant="default"
+                            leftSection={
+                              <IconEdit
+                                size={14}
+                              />
+                            }
+                            onClick={() =>
+                              openEdit(task)
+                            }
+                          >
+                            Edit
+                          </Button>
 
                           <Button
                             size="xs"
-                            variant="light"
+                            variant="outline"
+                            color="red"
+                            leftSection={
+                              <IconTrash
+                                size={14}
+                              />
+                            }
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Delete scheduled task "${task.name}"?`,
+                                )
+                              ) {
+                                void deleteTask
+                                  .mutateAsync(
+                                    task.id,
+                                  );
+                              }
+                            }}
+                          >
+                            Delete
+                          </Button>
+
+                          <Button
+                            size="xs"
                             color="green"
                             leftSection={
                               <IconPlayerPlay
@@ -1160,64 +1312,25 @@ export function TaskSchedulerPage({
                                   `Run scheduled task "${task.name}" now?\n\nThe configured schedule will not be changed.`,
                                 )
                               ) {
-                                void runTask.mutateAsync(
-                                  task.id,
-                                );
+                                void runTask
+                                  .mutateAsync(
+                                    task.id,
+                                  );
                               }
                             }}
                           >
                             Run now
                           </Button>
-
-                          <Button
-                            size="xs"
-                            variant="subtle"
-                            leftSection={
-                              <IconEdit
-                                size={14}
-                              />
-                            }
-                            onClick={() =>
-                              openEdit(task)
-                            }
-                          >
-                            Edit
-                          </Button>
-
-                          <Button
-                            size="xs"
-                            variant="subtle"
-                            color="red"
-                            leftSection={
-                              <IconTrash
-                                size={14}
-                              />
-                            }
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  `Delete scheduled task "${task.name}"?`,
-                                )
-                              ) {
-                                void deleteTask.mutateAsync(
-                                  task.id,
-                                );
-                              }
-                            }}
-                          >
-                            Delete
-                          </Button>
                         </Group>
-                      </Table.Td>
+                      </Group>
                     )}
-                  </Table.Tr>
-                ),
-              )}
-            </Table.Tbody>
-            </Table>
-          </ScrollArea>
-        )}
-      </Paper>
+                  </Stack>
+                </Paper>
+              );
+            },
+          )}
+        </Stack>
+      )}
 
       <Modal
         opened={editorOpened}

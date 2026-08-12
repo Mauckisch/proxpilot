@@ -39,6 +39,9 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api';
 import { OperatorButton } from './OperatorButton';
+import {
+  useDashboard,
+} from '../hooks/useDashboard';
 import type {
   ClusterNode,
   Guest,
@@ -287,6 +290,7 @@ export function GuestDetailsDrawer({
   onClose,
   onMigrationComplete,
 }: GuestDetailsDrawerProps) {
+  const dashboard = useDashboard();
   const [details, setDetails] =
     useState<GuestDetailsResponse | null>(null);
   const [detailsLoading, setDetailsLoading] =
@@ -297,7 +301,7 @@ export function GuestDetailsDrawer({
   const [targetNode, setTargetNode] =
     useState<string | null>(null);
   const [targetStorage, setTargetStorage] =
-    useState('');
+    useState<string>('__default__');
   const [online, setOnline] = useState(true);
   const [restart, setRestart] = useState(true);
   const [withLocalDisks, setWithLocalDisks] =
@@ -366,7 +370,7 @@ export function GuestDetailsDrawer({
     setTaskData(null);
     setTaskError(null);
     setMigrationRunning(false);
-    setTargetStorage('');
+    setTargetStorage('__default__');
     setWithLocalDisks(false);
     setOnline(
       guest.type === 'qemu' &&
@@ -508,6 +512,245 @@ export function GuestDetailsDrawer({
         })),
     [guest?.node, nodes],
   );
+
+  const currentGuestStorages =
+    useMemo(() => {
+      const guestConfig =
+        details?.config ?? {};
+
+      const storageNames =
+        new Set<string>();
+
+      for (
+        const [key, rawValue] of
+        Object.entries(guestConfig)
+      ) {
+        const isQemuDisk =
+          /^(scsi|sata|ide|virtio)\d+$/.test(
+            key,
+          ) ||
+          /^(efidisk|tpmstate)\d+$/.test(
+            key,
+          );
+
+        const isLxcDisk =
+          key === 'rootfs' ||
+          /^mp\d+$/.test(key);
+
+        if (
+          validGuestType === 'qemu'
+            ? !isQemuDisk
+            : validGuestType === 'lxc'
+              ? !isLxcDisk
+              : true
+        ) {
+          continue;
+        }
+
+        if (
+          typeof rawValue !== 'string'
+        ) {
+          continue;
+        }
+
+        const volume =
+          rawValue
+            .split(',', 1)[0]
+            ?.trim();
+
+        if (!volume) {
+          continue;
+        }
+
+        const separator =
+          volume.indexOf(':');
+
+        if (separator <= 0) {
+          continue;
+        }
+
+        const storageName =
+          volume
+            .slice(0, separator)
+            .trim();
+
+        if (storageName) {
+          storageNames.add(
+            storageName,
+          );
+        }
+      }
+
+      return Array.from(
+        storageNames,
+      ).sort(
+        (a, b) =>
+          a.localeCompare(
+            b,
+            undefined,
+            {
+              numeric: true,
+              sensitivity: 'base',
+            },
+          ),
+      );
+    }, [
+      details?.config,
+      validGuestType,
+    ]);
+
+  const defaultStorageLabel =
+    currentGuestStorages.length > 0
+      ? (
+          'Default (current: ' +
+          currentGuestStorages.join(', ') +
+          ')'
+        )
+      : 'Default (Proxmox mapping)';
+
+  const targetStorageOptions =
+    useMemo(() => {
+      const options = [
+        {
+          value: '__default__',
+          label: defaultStorageLabel,
+        },
+      ];
+
+      if (
+        !guest ||
+        !targetNode
+      ) {
+        return options;
+      }
+
+      const requiredContent =
+        validGuestType === 'lxc'
+          ? 'rootdir'
+          : 'images';
+
+      const storageNames =
+        new Set<string>();
+
+      for (
+        const storage of
+        dashboard.data?.storages ?? []
+      ) {
+        if (
+          storage.infrastructure_id !==
+          guest.infrastructure_id
+        ) {
+          continue;
+        }
+
+        if (
+          storage.node &&
+          storage.node !== targetNode
+        ) {
+          continue;
+        }
+
+        if (
+          storage.status &&
+          String(storage.status)
+            .toLowerCase() !== 'available'
+          &&
+          String(storage.status)
+            .toLowerCase() !== 'active'
+        ) {
+          continue;
+        }
+
+        const storageName =
+          String(
+            storage.storage ?? '',
+          ).trim();
+
+        if (!storageName) {
+          continue;
+        }
+
+        const content =
+          String(
+            storage.content ?? '',
+          )
+            .split(',')
+            .map(
+              (value) =>
+                value.trim()
+                  .toLowerCase(),
+            );
+
+        if (
+          content.length > 0 &&
+          !content.includes(
+            requiredContent,
+          )
+        ) {
+          continue;
+        }
+
+        storageNames.add(
+          storageName,
+        );
+      }
+
+      const sorted =
+        Array.from(storageNames)
+          .sort(
+            (a, b) =>
+              a.localeCompare(
+                b,
+                undefined,
+                {
+                  numeric: true,
+                  sensitivity: 'base',
+                },
+              ),
+          );
+
+      return [
+        ...options,
+        ...sorted.map(
+          (storageName) => ({
+            value: storageName,
+            label: storageName,
+          }),
+        ),
+      ];
+    }, [
+      dashboard.data?.storages,
+      defaultStorageLabel,
+      guest,
+      targetNode,
+      validGuestType,
+    ]);
+
+  useEffect(() => {
+    if (
+      targetStorage ===
+      '__default__'
+    ) {
+      return;
+    }
+
+    const stillAvailable =
+      targetStorageOptions.some(
+        (option) =>
+          option.value ===
+          targetStorage,
+      );
+
+    if (!stillAvailable) {
+      setTargetStorage(
+        '__default__',
+      );
+    }
+  }, [
+    targetNode,
+    targetStorage,
+    targetStorageOptions,
+  ]);
 
   const config = details?.config ?? {};
   const status = details?.status ?? {};
@@ -658,7 +901,10 @@ export function GuestDetailsDrawer({
               validGuestType === 'qemu' &&
               withLocalDisks,
             target_storage:
-              targetStorage.trim() || null,
+              targetStorage ===
+              '__default__'
+                ? null
+                : targetStorage,
             confirmed: true,
           },
         );
@@ -1502,17 +1748,30 @@ export function GuestDetailsDrawer({
                         />
                       </Group>
 
-                      <TextInput
+                      <Select
                         label="Target storage"
                         description={
-                          'Optional. Leave empty to let Proxmox use its default mapping.'
+                          'Select a storage available on the target node or let Proxmox use its default mapping.'
                         }
-                        placeholder="For example: local-zfs"
-                        value={targetStorage}
-                        onChange={(event) =>
+                        data={
+                          targetStorageOptions
+                        }
+                        value={
+                          targetStorage
+                        }
+                        onChange={(value) =>
                           setTargetStorage(
-                            event.currentTarget.value,
+                            value ??
+                              '__default__',
                           )
+                        }
+                        allowDeselect={false}
+                        searchable
+                        disabled={
+                          !targetNode
+                        }
+                        nothingFoundMessage={
+                          'No compatible storage found'
                         }
                       />
 

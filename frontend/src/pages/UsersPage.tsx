@@ -10,7 +10,6 @@ import {
   PasswordInput,
   Select,
   Stack,
-  Table,
   Text,
   TextInput,
   Title,
@@ -413,60 +412,75 @@ export function UsersPage() {
           !users.isError &&
           users.data &&
           users.data.length > 0 && (
-            <Table.ScrollContainer
-              minWidth={920}
-            >
-              <Table verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>
-                      Username
-                    </Table.Th>
-                    <Table.Th>Role</Table.Th>
-                    <Table.Th>Source</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th>Created</Table.Th>
-                    <Table.Th>
-                      Last login
-                    </Table.Th>
-                    <Table.Th w={250}>
-                      Actions
-                    </Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
+            <Stack gap="md">
+              {users.data.map((user) => {
+                const current =
+                  isCurrentUser(user);
 
-                <Table.Tbody>
-                  {users.data.map((user) => {
-                    const current =
-                      isCurrentUser(user);
+                const lastAdmin =
+                  isLastEnabledAdmin(user);
 
-                    const lastAdmin =
-                      isLastEnabledAdmin(user);
+                const deleteDisabled =
+                  current || lastAdmin;
 
-                    const deleteDisabled =
-                      current || lastAdmin;
+                return (
+                  <Card
+                    key={user.id}
+                    withBorder
+                    radius="md"
+                    p="lg"
+                  >
+                    <Stack gap="md">
+                      <Group
+                        justify="space-between"
+                        align="flex-start"
+                      >
+                        <Group gap="xs">
+                          <Text
+                            fw={700}
+                            size="lg"
+                          >
+                            {user.username}
+                          </Text>
 
-                    return (
-                      <Table.Tr key={user.id}>
-                        <Table.Td>
-                          <Group gap="xs">
-                            <Text fw={600}>
-                              {user.username}
-                            </Text>
+                          {current && (
+                            <Badge
+                              size="xs"
+                              variant="light"
+                              color="blue"
+                            >
+                              You
+                            </Badge>
+                          )}
+                        </Group>
 
-                            {current && (
-                              <Badge
-                                size="xs"
-                                variant="light"
-                                color="blue"
-                              >
-                                You
-                              </Badge>
-                            )}
-                          </Group>
-                        </Table.Td>
+                        <Badge
+                          color={
+                            user.enabled
+                              ? 'green'
+                              : 'red'
+                          }
+                          variant="light"
+                        >
+                          {user.enabled
+                            ? 'Enabled'
+                            : 'Disabled'}
+                        </Badge>
+                      </Group>
 
-                        <Table.Td>
+                      <Group
+                        gap="xl"
+                        align="flex-start"
+                      >
+                        <Stack gap={2}>
+                          <Text
+                            size="xs"
+                            fw={600}
+                            c="dimmed"
+                          >
+                            Role
+                          </Text>
+
                           <Badge
                             color={
                               user.role === 'admin'
@@ -483,9 +497,17 @@ export function UsersPage() {
                                 ? 'Operator'
                                 : 'Viewer'}
                           </Badge>
-                        </Table.Td>
+                        </Stack>
 
-                        <Table.Td>
+                        <Stack gap={2}>
+                          <Text
+                            size="xs"
+                            fw={600}
+                            c="dimmed"
+                          >
+                            Source
+                          </Text>
+
                           <Badge
                             variant="outline"
                           >
@@ -494,127 +516,144 @@ export function UsersPage() {
                               ? 'Local'
                               : 'LDAP'}
                           </Badge>
-                        </Table.Td>
+                        </Stack>
 
-                        <Table.Td>
-                          <Badge
-                            color={
-                              user.enabled
-                                ? 'green'
-                                : 'red'
+                        <Stack gap={2}>
+                          <Text
+                            size="xs"
+                            fw={600}
+                            c="dimmed"
+                          >
+                            Created
+                          </Text>
+
+                          <Text size="sm">
+                            {formatDate(
+                              user.created_at,
+                            )}
+                          </Text>
+                        </Stack>
+
+                        <Stack gap={2}>
+                          <Text
+                            size="xs"
+                            fw={600}
+                            c="dimmed"
+                          >
+                            Last login
+                          </Text>
+
+                          <Text size="sm">
+                            {formatDate(
+                              user.last_login,
+                            )}
+                          </Text>
+                        </Stack>
+                      </Group>
+
+                      <Group
+                        justify="space-between"
+                        align="center"
+                        pt="sm"
+                        style={{
+                          borderTop:
+                            '1px solid var(--proxpilot-blue-border)',
+                        }}
+                      >
+                        <Text
+                          size="sm"
+                          fw={600}
+                        >
+                          Actions
+                        </Text>
+
+                        <Group gap="xs">
+                          <Button
+                            size="xs"
+                            variant="default"
+                            leftSection={
+                              <IconEdit
+                                size={14}
+                              />
                             }
-                            variant="light"
+                            onClick={() =>
+                              openEditDialog(
+                                user,
+                              )
+                            }
                           >
-                            {user.enabled
-                              ? 'Enabled'
-                              : 'Disabled'}
-                          </Badge>
-                        </Table.Td>
+                            Edit
+                          </Button>
 
-                        <Table.Td>
-                          {formatDate(
-                            user.created_at,
-                          )}
-                        </Table.Td>
-
-                        <Table.Td>
-                          {formatDate(
-                            user.last_login,
-                          )}
-                        </Table.Td>
-
-                        <Table.Td>
-                          <Group
-                            gap="xs"
-                            wrap="nowrap"
-                          >
+                          {user.source ===
+                            'local' && (
                             <Button
                               size="xs"
                               variant="light"
+                              color="grape"
                               leftSection={
-                                <IconEdit
+                                <IconKey
                                   size={14}
                                 />
                               }
                               onClick={() =>
-                                openEditDialog(
+                                openPasswordDialog(
                                   user,
                                 )
                               }
                             >
-                              Edit
+                              Password
                             </Button>
+                          )}
 
-                            {user.source ===
-                              'local' && (
+                          <Tooltip
+                            label={
+                              current
+                                ? 'You cannot delete your own account.'
+                                : lastAdmin
+                                  ? 'The last enabled administrator cannot be deleted.'
+                                  : 'Delete user'
+                            }
+                            disabled={
+                              !deleteDisabled
+                            }
+                            withArrow
+                          >
+                            <span
+                              style={{
+                                display:
+                                  'inline-flex',
+                              }}
+                            >
                               <Button
                                 size="xs"
-                                variant="light"
-                                color="grape"
+                                variant="outline"
+                                color="red"
+                                disabled={
+                                  deleteDisabled
+                                }
                                 leftSection={
-                                  <IconKey
+                                  <IconTrash
                                     size={14}
                                   />
                                 }
                                 onClick={() =>
-                                  openPasswordDialog(
+                                  openDeleteDialog(
                                     user,
                                   )
                                 }
                               >
-                                Password
+                                Delete
                               </Button>
-                            )}
-
-                            <Tooltip
-                              label={
-                                current
-                                  ? 'You cannot delete your own account.'
-                                  : lastAdmin
-                                    ? 'The last enabled administrator cannot be deleted.'
-                                    : 'Delete user'
-                              }
-                              disabled={
-                                !deleteDisabled
-                              }
-                              withArrow
-                            >
-                              <span
-                                style={{
-                                  display:
-                                    'inline-flex',
-                                }}
-                              >
-                                <Button
-                                  size="xs"
-                                  variant="light"
-                                  color="red"
-                                  disabled={
-                                    deleteDisabled
-                                  }
-                                  leftSection={
-                                    <IconTrash
-                                      size={14}
-                                    />
-                                  }
-                                  onClick={() =>
-                                    openDeleteDialog(
-                                      user,
-                                    )
-                                  }
-                                >
-                                  Delete
-                                </Button>
-                              </span>
-                            </Tooltip>
-                          </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    );
-                  })}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
+                            </span>
+                          </Tooltip>
+                        </Group>
+                      </Group>
+                    </Stack>
+                  </Card>
+                );
+              })}
+            </Stack>
           )}
       </Card>
 

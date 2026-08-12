@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## [2.0.4] - 2026-08-12
+
+### Changed
+
+- Redesigned the Users settings view from a wide table into individual responsive user cards.
+- User information is now grouped more clearly by role, authentication source, account status, creation date and last login.
+- User actions are now displayed below each user instead of in a dedicated table column.
+- Improved the Users settings layout for narrower application widths.
+- Replaced the manual migration target-storage input with a selectable list of compatible storages available on the selected target node.
+- Added a Default migration storage option that preserves Proxmox automatic storage mapping.
+- The Default migration storage option now shows the storage or storages currently used by the guest when that information is available.
+- Migration storage choices are refreshed automatically when the target node changes.
+
+### Fixed
+
+- Fixed user action buttons being clipped when the available content width was too small.
+- Removed the need for horizontal scrolling in the Users settings view.
+- Fixed migration target storage requiring a manually entered storage name.
+- Prevented stale migration storage selections from remaining selected after changing the target node.
+
+## [2.0.3] - 2026-08-12
+
+### Changed
+
+- Redesigned the Task Scheduler from a wide table into individual responsive task cards.
+- Task details are now grouped more clearly by infrastructure, action, target, schedule, next run, last result, status and creator.
+- Task actions are now displayed below each scheduled task instead of in a dedicated table column.
+- The Task Scheduler no longer requires horizontal scrolling for normal desktop layouts.
+- The Run now action is now displayed as a dedicated green button.
+- Enable and disable remain separate toggle controls and only control the scheduled task state.
+
+### Fixed
+
+- Fixed the Task Scheduler layout being clipped on narrower application widths.
+- Fixed task action controls being difficult to access when the scheduler table exceeded the available content width.
+- Fixed an invalid frontend task-result comparison that caused the TypeScript build to fail.
+
 ## [2.0.2] - 2026-08-11
 
 ### Changed
