@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## \[2.3.1\] - 2026-08-13
+
+### Fixed
+
+-   Fixed the node shutdown confirmation showing the HA maintenance-mode
+    warning for standalone Proxmox hosts.
+-   The maintenance-mode warning is now shown only when shutting down a
+    node that belongs to a Proxmox cluster and is not currently in
+    maintenance mode.
+
 ## \[2.3.0\] - 2026-08-13
 
 ### Added

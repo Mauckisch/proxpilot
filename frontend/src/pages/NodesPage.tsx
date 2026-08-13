@@ -91,7 +91,10 @@ function getActionText(
       return `Reboot ${node.node}? Running guests will not be migrated automatically.`;
 
     case 'shutdown':
-      return node.maintenance
+      return (
+        node.infrastructure_type === 'standalone' ||
+        node.maintenance
+      )
         ? `Shutdown ${node.node}?`
         : `Shutdown ${node.node} although maintenance mode is not enabled? Running guests will not be migrated automatically.`;
   }

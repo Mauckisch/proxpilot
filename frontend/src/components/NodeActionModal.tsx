@@ -57,6 +57,7 @@ export function NodeActionModal({
   const shutdownWithoutMaintenance =
     confirmState?.kind === 'node' &&
     confirmState.action === 'shutdown' &&
+    confirmState.node.infrastructure_type === 'cluster' &&
     !confirmState.node.maintenance;
 
   return (
