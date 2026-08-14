@@ -243,6 +243,21 @@ export function DashboardPage({
     (node) => node.maintenance,
   ).length;
 
+  const rebootHasUnmanagedRunningGuests =
+    nodeActions.confirmState?.kind === 'node' &&
+    nodeActions.confirmState.action === 'reboot'
+      ? guests.some(
+          (guest) =>
+            guest.node ===
+              nodeActions.confirmState?.node.node &&
+            guest.status?.toLowerCase() ===
+              'running' &&
+            !String(
+              guest.hastate ?? '',
+            ).trim(),
+        )
+      : false;
+
   return (
     <>
       <Stack gap="xl">
@@ -475,6 +490,9 @@ export function DashboardPage({
       <NodeActionModal
         confirmState={nodeActions.confirmState}
         actionRunning={nodeActions.actionRunning}
+        hasUnmanagedRunningGuests={
+          rebootHasUnmanagedRunningGuests
+        }
         onClose={nodeActions.closeConfirmation}
         onConfirm={nodeActions.confirmAction}
       />

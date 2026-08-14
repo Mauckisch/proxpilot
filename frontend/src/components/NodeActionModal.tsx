@@ -17,6 +17,7 @@ import {
 type NodeActionModalProps = {
   confirmState: NodeConfirmState;
   actionRunning: boolean;
+  hasUnmanagedRunningGuests?: boolean;
   onClose: () => void;
   onConfirm: () => void | Promise<void>;
 };
@@ -24,6 +25,7 @@ type NodeActionModalProps = {
 export function NodeActionModal({
   confirmState,
   actionRunning,
+  hasUnmanagedRunningGuests = false,
   onClose,
   onConfirm,
 }: NodeActionModalProps) {
@@ -45,6 +47,7 @@ export function NodeActionModal({
         ? getNodeActionText(
             confirmState.action,
             confirmState.node,
+            hasUnmanagedRunningGuests,
           )
         : '';
 

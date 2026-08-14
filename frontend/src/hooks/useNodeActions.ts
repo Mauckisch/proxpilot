@@ -82,6 +82,7 @@ export function getNodeActionTitle(
 export function getNodeActionText(
   action: NodeAction,
   node: ClusterNode,
+  hasUnmanagedRunningGuests = false,
 ): string {
   switch (action) {
     case 'check-updates':
@@ -94,7 +95,13 @@ export function getNodeActionText(
       return `Remove unused packages and clean the package cache on ${node.node}?`;
 
     case 'reboot':
-      return `Reboot ${node.node}? Running guests will not be migrated automatically.`;
+      return (
+        node.infrastructure_type === 'cluster' &&
+        !node.maintenance &&
+        hasUnmanagedRunningGuests
+      )
+        ? `Reboot ${node.node}? Running guests that are not managed by HA will not be migrated automatically.`
+        : `Reboot ${node.node}?`;
 
     case 'shutdown':
       return (

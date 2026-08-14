@@ -76,6 +76,7 @@ function getActionTitle(action: NodeAction): string {
 function getActionText(
   action: NodeAction,
   node: ClusterNode,
+  hasUnmanagedRunningGuests = false,
 ): string {
   switch (action) {
     case 'check-updates':
@@ -88,7 +89,13 @@ function getActionText(
       return `Remove unused packages and clean the package cache on ${node.node}?`;
 
     case 'reboot':
-      return `Reboot ${node.node}? Running guests will not be migrated automatically.`;
+      return (
+        node.infrastructure_type === 'cluster' &&
+        !node.maintenance &&
+        hasUnmanagedRunningGuests
+      )
+        ? `Reboot ${node.node}? Running guests that are not managed by HA will not be migrated automatically.`
+        : `Reboot ${node.node}?`;
 
     case 'shutdown':
       return (
@@ -566,6 +573,23 @@ export function NodesPage({
         ? `${getActionTitle(confirmState.action)}: ${confirmState.node.node}`
         : '';
 
+  const rebootHasUnmanagedRunningGuests =
+    confirmState?.kind === 'node' &&
+    confirmState.action === 'reboot'
+      ? (
+          dashboard.data?.guests.some(
+            (guest) =>
+              guest.infrastructure_id ===
+                confirmState.node.infrastructure_id &&
+              guest.node === confirmState.node.node &&
+              guest.status?.toLowerCase() === 'running' &&
+              !String(
+                guest.hastate ?? '',
+              ).trim(),
+          ) ?? false
+        )
+      : false;
+
   const modalText =
     confirmState?.kind === 'maintenance'
       ? confirmState.action === 'enable'
@@ -575,6 +599,7 @@ export function NodesPage({
         ? getActionText(
             confirmState.action,
             confirmState.node,
+            rebootHasUnmanagedRunningGuests,
           )
         : '';
 

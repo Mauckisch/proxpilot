@@ -1414,6 +1414,13 @@ def _execute_power(task: ManagedTask, action: str) -> None:
         code, output = _run_streaming(task, command, timeout=30)
         if code != 0 or "scheduled" not in output:
             raise RuntimeError(f"{action} konnte nicht geplant werden.")
+
+        if action == "reboot":
+            update_cache.clear_reboot_required(
+                task.node,
+                task.infrastructure_id,
+            )
+
         manager.finish(task, {"scheduled": True})
     except Exception as exc:
         manager.fail(task, str(exc))

@@ -95,6 +95,26 @@ class UpdateCache:
                 )
             )
 
+    def clear_reboot_required(
+        self,
+        node: str,
+        infrastructure_id: int,
+    ) -> bool:
+        with self._lock:
+            status = self._nodes.get(
+                self._key(
+                    infrastructure_id,
+                    node,
+                )
+            )
+
+            if status is None:
+                return False
+
+            status.reboot_required = False
+
+            return True
+
     def list(self):
         with self._lock:
             return [

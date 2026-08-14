@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## \[2.3.3\] - 2026-08-14
+
+### Fixed
+
+-   Fixed the node reboot confirmation incorrectly stating that running
+    guests would not be migrated automatically when Proxmox HA is able
+    to handle them.
+-   Reboot warnings are now shown only for cluster nodes outside
+    maintenance mode when running guests that are not managed by HA are
+    present.
+-   Applied the same HA-aware reboot confirmation logic consistently to
+    both the Nodes page and the Dashboard.
+-   The cached reboot-required state is now cleared when a reboot has
+    been successfully scheduled, so the Reboot required indicator is
+    removed immediately.
+
 ## \[2.3.2\] - 2026-08-14
 
 ### Added
