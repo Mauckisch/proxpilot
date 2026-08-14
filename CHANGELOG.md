@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## \[2.3.2\] - 2026-08-14
+
+### Added
+
+-   Added an expandable Proxmox host preparation section to the
+    Add Infrastructure dialog.
+-   Added ready-to-copy Proxmox CLI commands for creating the dedicated
+    ProxPilot API user and API token.
+-   Added setup commands for the DashboardManager, ProxPilotBackup and
+    optional ProxPilotSDN roles.
+-   Added ready-to-copy ACL commands for base permissions, guest
+    permissions, backup and restore storage permissions and optional
+    SDN resources.
+-   Added verification commands for the ProxPilot API user, token, roles
+    and effective VM permissions.
+-   Kept the complete Proxmox preparation instructions collapsed by
+    default so the Add Infrastructure dialog remains compact.
+
+### Changed
+
+-   Clarified that permissions assigned at the Proxmox root ACL path `/`
+    grant only the privileges contained in the assigned ProxPilot role
+    and do not provide unrestricted administrator or Linux root access.
+
 ## \[2.3.1\] - 2026-08-13
 
 ### Fixed

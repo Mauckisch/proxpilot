@@ -1,8 +1,10 @@
 import {
+  Accordion,
   Alert,
   Badge,
   Button,
   Card,
+  Code,
   Divider,
   Group,
   Modal,
@@ -215,6 +217,11 @@ export function InfrastructureSettingsCard() {
   const [
     sshPublicKeyCopied,
     setSshPublicKeyCopied,
+  ] = useState(false);
+
+  const [
+    apiSetupCopied,
+    setApiSetupCopied,
   ] = useState(false);
 
   const [
@@ -1169,6 +1176,366 @@ export function InfrastructureSettingsCard() {
               host.
             </Text>
           </div>
+
+          <Accordion
+            variant="contained"
+            radius="md"
+          >
+            <Accordion.Item value="api-setup">
+              <Accordion.Control>
+                Proxmox API setup commands
+              </Accordion.Control>
+
+              <Accordion.Panel>
+                <Stack gap="md">
+                  <Group justify="flex-end">
+                    <Button
+                      variant="light"
+                      size="xs"
+                      leftSection={
+                        apiSetupCopied
+                          ? (
+                            <IconCheck
+                              size={16}
+                            />
+                          )
+                          : (
+                            <IconCopy
+                              size={16}
+                            />
+                          )
+                      }
+                      onClick={() => {
+                        const commands = `# 1. Create API user and token
+
+pveum user add dashboard@pve \\
+  --comment "ProxPilot API user"
+
+pveum user token add dashboard@pve dashboard \\
+  --comment "ProxPilot API token"
+
+
+# 2. Create ProxPilot roles
+
+pveum role add DashboardManager \\
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
+
+pveum role add ProxPilotBackup \\
+  --privs "Datastore.Allocate Datastore.AllocateSpace Datastore.Audit VM.Audit VM.Backup VM.Snapshot VM.Snapshot.Rollback"
+
+pveum role add ProxPilotSDN \\
+  --privs "SDN.Use"
+
+
+# 3. Assign root permissions
+
+pveum acl modify / \\
+  --users dashboard@pve \\
+  --roles DashboardManager \\
+  --propagate 1
+
+pveum acl modify / \\
+  --tokens 'dashboard@pve!dashboard' \\
+  --roles DashboardManager \\
+  --propagate 1
+
+
+# 4. Assign guest permissions
+
+pveum acl modify /vms \\
+  --users dashboard@pve \\
+  --roles DashboardManager,ProxPilotBackup \\
+  --propagate 1
+
+pveum acl modify /vms \\
+  --tokens 'dashboard@pve!dashboard' \\
+  --roles DashboardManager,ProxPilotBackup \\
+  --propagate 1
+
+
+# 5. Backup and restore storage
+# Replace YOUR-STORAGE with the actual Proxmox storage ID.
+
+pveum acl modify /storage/YOUR-STORAGE \\
+  --users dashboard@pve \\
+  --roles ProxPilotBackup \\
+  --propagate 1
+
+pveum acl modify /storage/YOUR-STORAGE \\
+  --tokens 'dashboard@pve!dashboard' \\
+  --roles ProxPilotBackup \\
+  --propagate 1
+
+
+# 6. Optional SDN permissions
+# Only required when using SDN-managed network resources.
+# Replace the path with the actual SDN ACL path.
+
+pveum acl modify /sdn/zones/YOUR-ZONE/YOUR-NETWORK \\
+  --users dashboard@pve \\
+  --roles ProxPilotSDN \\
+  --propagate 1
+
+pveum acl modify /sdn/zones/YOUR-ZONE/YOUR-NETWORK \\
+  --tokens 'dashboard@pve!dashboard' \\
+  --roles ProxPilotSDN \\
+  --propagate 1
+
+
+# 7. Verify configuration
+
+pveum user list | grep dashboard
+
+pveum user token list dashboard@pve
+
+pveum role list | grep -E \\
+  'DashboardManager|ProxPilotBackup|ProxPilotSDN'
+
+pveum user token permissions \\
+  dashboard@pve dashboard \\
+  --path /vms`;
+
+                        void navigator.clipboard
+                          .writeText(commands)
+                          .then(() => {
+                            setApiSetupCopied(
+                              true,
+                            );
+
+                            window.setTimeout(
+                              () =>
+                                setApiSetupCopied(
+                                  false,
+                                ),
+                              2000,
+                            );
+                          });
+                      }}
+                    >
+                      {apiSetupCopied
+                        ? 'Copied'
+                        : 'Copy all commands'}
+                    </Button>
+                  </Group>
+
+                  <Alert
+                    color="blue"
+                    icon={
+                      <IconAlertCircle
+                        size={18}
+                      />
+                    }
+                    title="Run on a Proxmox node"
+                  >
+                    Run these commands as root on the
+                    Proxmox environment before using
+                    Test &amp; Discover. In a cluster,
+                    the Proxmox user, token, roles and
+                    ACL configuration is cluster-wide.
+                  </Alert>
+
+                  <Text size="sm">
+                    The token creation command prints
+                    the API token secret only once.
+                    Copy the generated secret and enter
+                    it in the <strong>Token secret</strong>{' '}
+                    field below.
+                  </Text>
+
+                  <div>
+                    <Text
+                      size="sm"
+                      fw={600}
+                      mb="xs"
+                    >
+                      1. Create API user and token
+                    </Text>
+
+                    <Code block>
+{`pveum user add dashboard@pve \\
+  --comment "ProxPilot API user"
+
+pveum user token add dashboard@pve dashboard \\
+  --comment "ProxPilot API token"`}
+                    </Code>
+                  </div>
+
+                  <div>
+                    <Text
+                      size="sm"
+                      fw={600}
+                      mb="xs"
+                    >
+                      2. Create ProxPilot roles
+                    </Text>
+
+                    <Code block>
+{`pveum role add DashboardManager \\
+  --privs "Datastore.Audit Sys.Audit VM.Audit VM.Console VM.Migrate VM.PowerMgmt"
+
+pveum role add ProxPilotBackup \\
+  --privs "Datastore.Allocate Datastore.AllocateSpace Datastore.Audit VM.Audit VM.Backup VM.Snapshot VM.Snapshot.Rollback"
+
+pveum role add ProxPilotSDN \\
+  --privs "SDN.Use"`}
+                    </Code>
+
+                    <Text
+                      size="xs"
+                      c="dimmed"
+                      mt="xs"
+                    >
+                      ProxPilotSDN is required only when
+                      ProxPilot uses SDN-managed network
+                      resources.
+                    </Text>
+                  </div>
+
+                  <div>
+                    <Text
+                      size="sm"
+                      fw={600}
+                      mb="xs"
+                    >
+                      3. Assign root permissions
+                    </Text>
+
+                    <Code block>
+{`pveum acl modify / \\
+  --users dashboard@pve \\
+  --roles DashboardManager \\
+  --propagate 1
+
+pveum acl modify / \\
+  --tokens 'dashboard@pve!dashboard' \\
+  --roles DashboardManager \\
+  --propagate 1`}
+                    </Code>
+                  </div>
+
+                  <div>
+                    <Text
+                      size="sm"
+                      fw={600}
+                      mb="xs"
+                    >
+                      4. Assign guest permissions
+                    </Text>
+
+                    <Code block>
+{`pveum acl modify /vms \\
+  --users dashboard@pve \\
+  --roles DashboardManager,ProxPilotBackup \\
+  --propagate 1
+
+pveum acl modify /vms \\
+  --tokens 'dashboard@pve!dashboard' \\
+  --roles DashboardManager,ProxPilotBackup \\
+  --propagate 1`}
+                    </Code>
+                  </div>
+
+                  <div>
+                    <Text
+                      size="sm"
+                      fw={600}
+                      mb="xs"
+                    >
+                      5. Backup and restore storage
+                    </Text>
+
+                    <Code block>
+{`# Replace YOUR-STORAGE with an actual Proxmox storage ID.
+
+pveum acl modify /storage/YOUR-STORAGE \\
+  --users dashboard@pve \\
+  --roles ProxPilotBackup \\
+  --propagate 1
+
+pveum acl modify /storage/YOUR-STORAGE \\
+  --tokens 'dashboard@pve!dashboard' \\
+  --roles ProxPilotBackup \\
+  --propagate 1`}
+                    </Code>
+
+                    <Text
+                      size="xs"
+                      c="dimmed"
+                      mt="xs"
+                    >
+                      Repeat these commands for every
+                      backup or restore target storage
+                      that ProxPilot is allowed to use.
+                    </Text>
+                  </div>
+
+                  <div>
+                    <Text
+                      size="sm"
+                      fw={600}
+                      mb="xs"
+                    >
+                      6. Optional SDN permissions
+                    </Text>
+
+                    <Code block>
+{`# Only required for SDN-managed network resources.
+# Replace the path with the actual SDN ACL path.
+
+pveum acl modify /sdn/zones/YOUR-ZONE/YOUR-NETWORK \\
+  --users dashboard@pve \\
+  --roles ProxPilotSDN \\
+  --propagate 1
+
+pveum acl modify /sdn/zones/YOUR-ZONE/YOUR-NETWORK \\
+  --tokens 'dashboard@pve!dashboard' \\
+  --roles ProxPilotSDN \\
+  --propagate 1`}
+                    </Code>
+                  </div>
+
+                  <div>
+                    <Text
+                      size="sm"
+                      fw={600}
+                      mb="xs"
+                    >
+                      7. Verify configuration
+                    </Text>
+
+                    <Code block>
+{`pveum user list | grep dashboard
+
+pveum user token list dashboard@pve
+
+pveum role list | grep -E \\
+  'DashboardManager|ProxPilotBackup|ProxPilotSDN'
+
+pveum user token permissions \\
+  dashboard@pve dashboard \\
+  --path /vms`}
+                    </Code>
+                  </div>
+
+                  <Alert
+                    color="yellow"
+                    icon={
+                      <IconAlertCircle
+                        size={18}
+                      />
+                    }
+                    title="Existing installations"
+                  >
+                    The role creation commands use
+                    <Code>pveum role add</Code>. If a
+                    role already exists, use{' '}
+                    <Code>pveum role modify</Code>{' '}
+                    instead of creating it again.
+                  </Alert>
+                </Stack>
+              </Accordion.Panel>
+            </Accordion.Item>
+          </Accordion>
 
           <TextInput
             label="API endpoint"
