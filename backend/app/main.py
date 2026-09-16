@@ -76,6 +76,7 @@ from .ldap_auth import (
     test_ldap_configuration,
 )
 from .maintenance import MaintenanceError, set_maintenance
+from .ha_control import HaControlError, set_ha_state
 from .routes.console import router as console_router
 from .network import (
     NetworkError,
@@ -768,6 +769,12 @@ class Maintenance(BaseModel):
     infrastructure_id: int = Field(gt=0)
     node: str
     action: Literal["enable", "disable"]
+
+
+class HaControl(BaseModel):
+    infrastructure_id: int = Field(gt=0)
+    action: Literal["arm", "disarm"]
+    resource_mode: Literal["freeze", "ignore"] | None = None
 
 
 class NodeAction(BaseModel):
@@ -6929,6 +6936,116 @@ async def guest_action(
                 "vmid": request.vmid,
                 "guest_type": request.guest_type,
                 "requested_action": request.action,
+                "error": str(exc),
+            },
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/api/cluster/ha-control")
+async def ha_control(
+    request: HaControl,
+    http_request: Request,
+):
+    require_operator_or_admin(http_request)
+
+    if request.action == "arm" and request.resource_mode is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="resource_mode is only valid when disarming HA.",
+        )
+
+    if request.action == "disarm" and request.resource_mode is None:
+        raise HTTPException(
+            status_code=400,
+            detail="resource_mode is required when disarming HA.",
+        )
+
+    action_label = (
+        "Arm HA"
+        if request.action == "arm"
+        else f"Disarm HA ({request.resource_mode})"
+    )
+
+    task = manager.create(
+        "cluster",
+        "ha-control",
+        action_label,
+        infrastructure_id=request.infrastructure_id,
+        source="manual",
+        notifications_enabled=True,
+    )
+
+    manager.start(task)
+
+    try:
+        message, node = await set_ha_state(
+            request.infrastructure_id,
+            request.action,
+            request.resource_mode,
+        )
+
+        manager.append(
+            task,
+            message,
+        )
+
+        manager.finish(
+            task,
+            {
+                "action": request.action,
+                "resource_mode": request.resource_mode,
+                "message": message,
+                "node": node,
+            },
+        )
+
+        write_request_audit_event(
+            http_request,
+            action=f"cluster.ha.{request.action}",
+            result="success",
+            severity="info",
+            target_type="cluster",
+            target="HA",
+            node=node,
+            infrastructure_id=request.infrastructure_id,
+            details={
+                "ha_action": request.action,
+                "resource_mode": request.resource_mode,
+                "message": message,
+            },
+        )
+
+        return {
+            "ok": True,
+            "message": message,
+        }
+
+    except HaControlError as exc:
+        manager.fail(
+            task,
+            str(exc),
+            {
+                "action": request.action,
+                "resource_mode": request.resource_mode,
+            },
+        )
+
+        write_request_audit_event(
+            http_request,
+            action=f"cluster.ha.{request.action}",
+            result="failed",
+            severity="error",
+            target_type="cluster",
+            target="HA",
+            infrastructure_id=request.infrastructure_id,
+            details={
+                "ha_action": request.action,
+                "resource_mode": request.resource_mode,
                 "error": str(exc),
             },
         )

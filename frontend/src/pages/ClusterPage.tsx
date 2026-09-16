@@ -11,12 +11,15 @@ import {
   Center,
   Group,
   Loader,
+  Modal,
+  Radio,
   Select,
   SimpleGrid,
   Stack,
   Text,
   Title,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconCircleCheck,
@@ -26,7 +29,9 @@ import {
   IconUsersGroup,
 } from '@tabler/icons-react';
 
+import { api } from '../api';
 import { HaResourceCard } from '../components/HaResourceCard';
+import { OperatorButton } from '../components/OperatorButton';
 import {
   InfrastructureSelectOption,
 } from '../components/InfrastructureSelectOption';
@@ -40,6 +45,37 @@ import {
   getInfrastructureHealthLabel,
 } from '../utils/infrastructureHealth';
 import { sortNodes } from '../utils/sort';
+
+function getApiErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error
+  ) {
+    const response = (
+      error as {
+        response?: {
+          data?: {
+            detail?: string;
+          };
+        };
+      }
+    ).response;
+
+    if (
+      typeof response?.data?.detail === 'string' &&
+      response.data.detail
+    ) {
+      return response.data.detail;
+    }
+  }
+
+  return fallback;
+}
+
 
 function formatTimestamp(
   timestamp?: number,
@@ -65,6 +101,21 @@ function statusIncludes(
 
 export function ClusterPage() {
   const dashboard = useDashboard();
+
+  const [
+    haConfirmAction,
+    setHaConfirmAction,
+  ] = useState<'arm' | 'disarm' | null>(null);
+
+  const [
+    haResourceMode,
+    setHaResourceMode,
+  ] = useState<'freeze' | 'ignore'>('freeze');
+
+  const [
+    haActionRunning,
+    setHaActionRunning,
+  ] = useState(false);
 
   const [
     selectedInfrastructureId,
@@ -270,6 +321,65 @@ export function ClusterPage() {
     return map;
   }, [services]);
 
+  async function runHaAction() {
+    if (
+      !haConfirmAction ||
+      effectiveInfrastructureId === null
+    ) {
+      return;
+    }
+
+    setHaActionRunning(true);
+
+    try {
+      const response = await api.post(
+        '/cluster/ha-control',
+        {
+          infrastructure_id:
+            effectiveInfrastructureId,
+          action: haConfirmAction,
+          resource_mode:
+            haConfirmAction === 'disarm'
+              ? haResourceMode
+              : null,
+        },
+      );
+
+      notifications.show({
+        title:
+          haConfirmAction === 'arm'
+            ? 'HA armed'
+            : 'HA disarmed',
+        message:
+          response.data?.message ??
+          (
+            haConfirmAction === 'arm'
+              ? 'HA arm requested.'
+              : `HA disarm requested (${haResourceMode}).`
+          ),
+        color: 'green',
+      });
+
+      setHaConfirmAction(null);
+      await dashboard.refetch();
+    } catch (error) {
+      notifications.show({
+        title:
+          haConfirmAction === 'arm'
+            ? 'Failed to arm HA'
+            : 'Failed to disarm HA',
+        message: getApiErrorMessage(
+          error,
+          'The HA action could not be completed.',
+        ),
+        color: 'red',
+      });
+    } finally {
+      setHaActionRunning(false);
+    }
+  }
+
+
   if (dashboard.isLoading) {
     return (
       <Center mih={400}>
@@ -334,6 +444,96 @@ export function ClusterPage() {
 
   return (
     <Stack gap="xl">
+
+      <Modal
+        opened={haConfirmAction !== null}
+        onClose={() => {
+          if (!haActionRunning) {
+            setHaConfirmAction(null);
+          }
+        }}
+        title={
+          haConfirmAction === 'arm'
+            ? 'Arm HA'
+            : 'Disarm HA'
+        }
+        centered
+        closeOnClickOutside={!haActionRunning}
+        closeOnEscape={!haActionRunning}
+      >
+        <Stack gap="md">
+          {haConfirmAction === 'arm' ? (
+            <Text size="sm">
+              Re-arm the Proxmox HA stack and activate
+              cluster-wide watchdog fencing?
+            </Text>
+          ) : (
+            <>
+              <Alert
+                color="orange"
+                icon={<IconAlertCircle size={20} />}
+                title="Disarm HA"
+              >
+                Disarming HA releases all watchdogs
+                cluster-wide.
+              </Alert>
+
+              <Radio.Group
+                value={haResourceMode}
+                onChange={(value) =>
+                  setHaResourceMode(
+                    value as 'freeze' | 'ignore',
+                  )
+                }
+                label="Resource mode"
+              >
+                <Stack mt="xs">
+                  <Radio
+                    value="freeze"
+                    label="Freeze"
+                    description="Keep resources tracked by HA, but do not apply new commands or state changes."
+                  />
+
+                  <Radio
+                    value="ignore"
+                    label="Ignore"
+                    description="Remove resources from HA tracking so they can be managed normally while HA is disarmed."
+                  />
+                </Stack>
+              </Radio.Group>
+            </>
+          )}
+
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              disabled={haActionRunning}
+              onClick={() =>
+                setHaConfirmAction(null)
+              }
+            >
+              Cancel
+            </Button>
+
+            <OperatorButton
+              color={
+                haConfirmAction === 'arm'
+                  ? 'green'
+                  : 'red'
+              }
+              loading={haActionRunning}
+              onClick={() => {
+                void runHaAction();
+              }}
+            >
+              {haConfirmAction === 'arm'
+                ? 'Arm HA'
+                : 'Disarm HA'}
+            </OperatorButton>
+          </Group>
+        </Stack>
+      </Modal>
+
       <Group
         justify="space-between"
         align="flex-end"
@@ -498,6 +698,28 @@ export function ClusterPage() {
               {fencing?.status ??
                 'No fencing information'}
             </Text>
+
+            {fencing && (
+              <OperatorButton
+                size="xs"
+                variant="light"
+                color={fencingArmed ? 'red' : 'green'}
+                loading={haActionRunning}
+                permissionTooltip="Operator or administrator permissions required to arm or disarm HA."
+                onClick={() => {
+                  if (fencingArmed) {
+                    setHaResourceMode('freeze');
+                    setHaConfirmAction('disarm');
+                  } else {
+                    setHaConfirmAction('arm');
+                  }
+                }}
+              >
+                {fencingArmed
+                  ? 'Disarm HA'
+                  : 'Arm HA'}
+              </OperatorButton>
+            )}
           </Stack>
         </Card>
 

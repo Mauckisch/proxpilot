@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog and follows Semantic Versioning.
 
+## \[2.4.0\] - 2026-09-16
+
+### Added
+
+-   Added cluster-wide Proxmox HA arm and disarm controls to the
+    Cluster & HA page.
+-   Added live display and control of the current HA fencing state.
+-   Added support for Proxmox HA `freeze` and `ignore` resource modes
+    when disarming HA.
+-   Added confirmation dialogs explaining the effect of arming and
+    disarming HA before the operation is executed.
+-   Restricted HA arm and disarm operations to Operator and
+    Administrator roles.
+-   Added managed task and audit-log tracking for HA arm and disarm
+    operations.
+-   Added a dedicated backend HA control endpoint using the configured
+    Proxmox cluster SSH connection.
+
 ## \[2.3.3\] - 2026-08-14
 
 ### Fixed

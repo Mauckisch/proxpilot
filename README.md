@@ -225,6 +225,7 @@ ProxPilot focuses on operational tasks:
 | Network overview | ✅ |
 | Replication overview | ✅ |
 | HA overview | ✅ |
+| HA arm / disarm | ✅ |
 | Package updates | ✅ |
 | Maintenance mode | ✅ |
 | Hardware information | ✅ |
@@ -460,6 +461,19 @@ Overview of:
 - HA resources
 - Guest distribution
 - Node availability
+- HA fencing state
+
+For clustered Proxmox infrastructures, operators and administrators can
+also control the cluster-wide HA state directly from ProxPilot:
+
+- Arm HA
+- Disarm HA using `freeze` mode, keeping resources tracked by HA while
+  preventing new commands and state changes from being applied
+- Disarm HA using `ignore` mode, removing resources from HA tracking so
+  they can be managed normally while HA is disarmed
+
+HA arm and disarm operations require confirmation and are recorded in
+ProxPilot's task and audit history.
 
 ## Tasks
 
